@@ -18,7 +18,7 @@ env:
 jobs:
   scan:
     name: workflow static analysis
-    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 5
     permissions:
       contents: read

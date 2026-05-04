@@ -14,7 +14,7 @@ permissions:
 jobs:
   scan:
     name: SonarQube standalone scan
-    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 10
     permissions:
       contents: read

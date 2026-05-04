@@ -17,7 +17,7 @@ env:
 jobs:
   bridge-test:
     name: Bridge — cargo test
-    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 15
     permissions:
       contents: read
@@ -46,7 +46,7 @@ jobs:
 
   plugin-lint:
     name: Plugin — qmllint
-    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -77,7 +77,7 @@ jobs:
 
   nix-flake-check:
     name: Nix flake check
-    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 20
     permissions:
       contents: read
@@ -100,7 +100,7 @@ jobs:
 
   commitlint:
     name: PR title commitlint
-    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 5
     permissions:
       contents: read

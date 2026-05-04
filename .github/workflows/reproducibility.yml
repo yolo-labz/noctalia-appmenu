@@ -14,7 +14,7 @@ env:
 jobs:
   build-twice:
     name: Reproducible build check
-    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 25
     permissions:
       contents: read
