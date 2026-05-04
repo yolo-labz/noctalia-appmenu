@@ -5,10 +5,14 @@ paths = [
   '''SECURITY\.md''',
   '''README\.md''',
   '''CHANGELOG\.md''',
+  '''CLAUDE\.md''',
+  '''CONTRIBUTING\.md''',
   '''cliff\.toml''',
   '''sonar-project\.properties''',
   '''\.gitleaks\.toml''',
   '''\.semgrep/.*''',
+  '''\.claude/agents/.*''',
+  '''docs/.*\.md''',
 ]
 regexes = [
   '''yolo-labz_noctalia-appmenu''',                  # Sonar project key, not a secret

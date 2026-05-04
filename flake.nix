@@ -99,7 +99,7 @@
         };
 
         devShells.default = craneLib.devShell {
-          checks = config.checks;
+          inherit (config) checks;
           packages = with pkgs; [
             # Rust tooling beyond toolchain
             cargo-llvm-cov

@@ -113,7 +113,7 @@ pre-push:
       run: actionlint -color
     workflows-zizmor:
       tags: workflows
-      run: zizmor --persona=auditor --format=plain .github/workflows/
+      run: zizmor --format=plain .github/workflows/
     semgrep-rust:
       tags: supply-chain
       run: semgrep --config .semgrep/rust.yml --error bridge/

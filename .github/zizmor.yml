@@ -16,6 +16,9 @@ rules:
       - .github/workflows/cargo-machete.yml
       - .github/workflows/typos.yml
       - .github/workflows/semgrep.yml
+      - .github/workflows/codecov.yml
+      - .github/workflows/pages.yml
+      - .github/workflows/perf.yml
 
   # Concurrency-limits audit: scheduled scans run weekly so a
   # concurrency cap is meaningless against the schedule cadence.

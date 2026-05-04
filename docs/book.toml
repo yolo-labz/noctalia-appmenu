@@ -6,12 +6,10 @@ src = "."
 language = "en"
 
 [output.html]
-git-repository-url = "https://github.com/yolo-labz/repository-url-template"
-git-repository-icon = "fa-github"
+git-repository-url = "https://github.com/yolo-labz/noctalia-appmenu"
 edit-url-template = "https://github.com/yolo-labz/noctalia-appmenu/edit/main/docs/{path}"
 default-theme = "ayu"
 preferred-dark-theme = "ayu"
-copy-fonts = true
 no-section-label = false
 
 [output.html.fold]
@@ -20,14 +18,3 @@ level = 1
 
 [output.html.print]
 enable = true
-
-[output.linkcheck]
-follow-web-links = false
-warning-policy = "error"
-
-[preprocessor.admonish]
-command = "mdbook-admonish"
-assets_version = "3.0.2"
-
-[preprocessor.mermaid]
-command = "mdbook-mermaid"

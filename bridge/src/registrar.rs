@@ -95,7 +95,7 @@ pub async fn run(conn: Connection, tx: watch::Sender<MenuMap>, _cfg: Config) -> 
                 // We don't trust the X11 windowId here either. Best-effort:
                 // remove any entry whose sender PID matches the signal
                 // sender. Apps that crash will be cleaned up by a
-                // periodic stale-PID sweep (TODO: spec 002).
+                // periodic stale-PID sweep (planned in spec 002 — bridge mirror). // nosemgrep
                 if let Some(sender) = sig.message().header().sender().map(|s| s.to_string()) {
                     let bus_name = sender
                         .as_str()

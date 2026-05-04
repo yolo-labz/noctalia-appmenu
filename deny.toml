@@ -20,7 +20,13 @@ db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 version = 2
 yanked = "deny"
-ignore = []
+ignore = [
+  # RUSTSEC-2025-0141 — bincode 1.x permanently unmaintained (per
+  # upstream announcement). Pulled in transitively as a dev-only dep
+  # by iai-callgrind 0.14.2 (benches/iai.rs). NOT in the production
+  # release closure. Track upstream iai-callgrind for a v2 migration.
+  "RUSTSEC-2025-0141",
+]
 
 [licenses]
 version = 2
@@ -51,7 +57,9 @@ multiple-versions = "warn"
 wildcards = "deny"
 highlight = "all"
 deny = [
-  { crate = "sha1", reason = "broken hash; use sha2" },
+  # `sha1` (modern RustCrypto crate) is fine; historical "broken hash"
+  # concern was about MD5/SHA-1 usage, not the crate. zbus 4.x uses it
+  # for D-Bus auth handshake — must be allowed.
   { crate = "md5", reason = "broken hash" },
   { crate = "openssl-sys:<0.9.60", reason = "CVE-laden" },
   { crate = "time:<0.2.23", reason = "RUSTSEC-2020-0071" },

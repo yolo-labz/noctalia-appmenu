@@ -12,6 +12,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
@@ -50,6 +54,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+    env:
+      BASE_REF: ${{ github.base_ref }}
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
@@ -65,14 +71,14 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           set -eu
-          git fetch origin "${{ github.base_ref }}"
-          git checkout "origin/${{ github.base_ref }}" -- bridge
-          nix develop --command bash -c 'cd bridge && cargo build --bench iai --features iai --locked'
+          git fetch origin "$BASE_REF"
+          git checkout "origin/$BASE_REF" -- bridge
+          nix develop --command bash -c 'cd bridge && cargo build --bench iai --locked'
           mv bridge/target/release/deps/iai-* /tmp/iai-base 2>/dev/null || true
           git checkout HEAD -- bridge
 
       - name: Run iai benches (HEAD)
-        run: nix develop --command bash -c 'cd bridge && cargo bench --bench iai --features iai 2>&1 | tee iai.txt'
+        run: nix develop --command bash -c 'cd bridge && cargo bench --bench iai 2>&1 | tee iai.txt'
 
       - name: Upload iai output
         if: always()

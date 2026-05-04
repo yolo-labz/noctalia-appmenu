@@ -127,20 +127,19 @@ in {
       Install = {WantedBy = ["graphical-session.target"];};
     };
 
-    systemd.user.services.noctalia-appmenu-registrar =
-      lib.mkIf (cfg.registrar == "vala-panel") {
-        Unit = {
-          Description = "vala-panel-appmenu Registrar";
-          After = ["graphical-session.target"];
-          PartOf = ["graphical-session.target"];
-        };
-        Service = {
-          ExecStart = "${pkgs.vala-panel-appmenu}/libexec/vala-panel-appmenu/appmenu-registrar";
-          Restart = "on-failure";
-          RestartSec = "2s";
-        };
-        Install = {WantedBy = ["graphical-session.target"];};
+    systemd.user.services.noctalia-appmenu-registrar = lib.mkIf (cfg.registrar == "vala-panel") {
+      Unit = {
+        Description = "vala-panel-appmenu Registrar";
+        After = ["graphical-session.target"];
+        PartOf = ["graphical-session.target"];
       };
+      Service = {
+        ExecStart = "${pkgs.vala-panel-appmenu}/libexec/vala-panel-appmenu/appmenu-registrar";
+        Restart = "on-failure";
+        RestartSec = "2s";
+      };
+      Install = {WantedBy = ["graphical-session.target"];};
+    };
 
     # Session env for menubar export (opt-in)
     home.sessionVariables = lib.mkIf cfg.hideInWindowMenubar {
