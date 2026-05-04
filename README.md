@@ -4,7 +4,9 @@ macOS-style global menu for [noctalia-shell](https://github.com/noctalia-dev/noc
 
 When you focus a Qt or GTK application, its menubar (`File`, `Edit`, `View`, …) appears in noctalia's topbar instead of inside the window. The behaviour mirrors macOS and Plasma's `appmenu` applet.
 
-> **Status:** alpha. niri only. Qt6 support primary; GTK3/4 secondary; Electron / Firefox unsupported by design.
+> **Status:** **v0.1 = app-name-only fallback. Full menu-tree rendering lands in v0.2** (see [ADR-0015](docs/adr/ADR-0015-v01-fallback-only-shipping.md) and [spec 002](specs/002-bridge-dbusmenu-mirror/spec.md)). niri only. Qt6 support primary; GTK3/4 secondary; Electron / Firefox unsupported by design.
+>
+> v0.1 ships the full bridge plumbing (focus tracking, registrar consumer, active-app D-Bus proxy, hardened systemd-user units, full release-engineering pipeline). The bar widget renders the focused application's name. v0.2 adds a server-side `com.canonical.dbusmenu` mirror to the bridge so the QML widget can attach a Quickshell `DBusMenuHandle` to a constant address and render the full menu tree. The mirror is the v0.1→v0.2 delta, not a rewrite — see spec 002.
 
 ## How it works
 

@@ -1,20 +1,25 @@
-// noctalia-appmenu — AppMenu bar widget
+// noctalia-appmenu — AppMenu bar widget (v0.1: fallback-only)
 //
-// Renders the focused application's menubar in noctalia's topbar.
-// Subscribes to org.noctalia.AppMenu /org/noctalia/AppMenu/Active,
-// which is published by noctalia-appmenu-bridge (sidecar).
+// Subscribes to org.noctalia.AppMenu /org/noctalia/AppMenu/Active
+// (published by noctalia-appmenu-bridge) and renders the focused
+// app's name in the topbar.
 //
-// See ADR-0007 for why we route through the bridge's fixed proxy
-// instead of binding directly to each app's DBusMenu.
+// **v0.1 LIMITATION**: this widget renders only the focused app's
+// name (from the registrar's published `appId`). Full menu-tree
+// rendering is blocked on Quickshell's DBusMenuHandle being
+// QML_UNCREATABLE — see ADR-0015 for the v0.2 mirror plan.
+//
+// Once spec 002 lands the bridge will also implement
+// `com.canonical.dbusmenu` server-side at a fixed path and a
+// public DBusMenuHandle factory will let us bind it from QML.
+// At that point we replace the Text fallback below with a Repeater
+// over `handle.menu.children`.
 
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.DBusMenu
-import Quickshell.Wayland
 import Quickshell.Io
-
-import "components" as Components
+import Quickshell.Wayland
 
 Item {
     id: root
@@ -23,11 +28,9 @@ Item {
     property string fallbackText: ""
     property int maxLabelWidth: 200
     property bool showOnlyWhenFocused: true
-    property int popupOffsetY: 4
 
     // The bridge advertises (busName, objectPath, appId, title) as
     // properties on org.noctalia.AppMenu /org/noctalia/AppMenu/Active.
-    // The QML side never has to talk to the registrar directly.
     DBusObject {
         id: activeProxy
         bus: DBus.SessionBus
@@ -41,50 +44,17 @@ Item {
         property string title
     }
 
-    // The bridge re-exports the active app's menu under a fixed path.
-    // We bind a DBusMenuHandle — the same primitive Quickshell uses
-    // for tray menus — to that fixed (service, path) pair so QML can
-    // reuse the existing rendering pipeline.
-    DBusMenuHandle {
-        id: handle
-        // Wired up implicitly by Quickshell when SystemTrayItem-style
-        // service/path properties are available; for this fixed proxy
-        // we read them off activeProxy.
-        // (If Quickshell's DBusMenuHandle ever exposes a public
-        // create(service, path) factory — see ADR-0007 — replace
-        // this binding with the direct factory call.)
-    }
-
-    visible: handle.menu !== null && handle.menu.children.length > 0
+    visible: activeProxy.appId !== "" || root.fallbackText !== ""
 
     implicitHeight: parent ? parent.height : 28
-    implicitWidth: row.implicitWidth
+    implicitWidth: label.implicitWidth + 16
 
-    RowLayout {
-        id: row
-        anchors.verticalCenter: parent.verticalCenter
-        spacing: 2
-
-        Repeater {
-            model: handle.menu ? handle.menu.children : []
-            delegate: Components.MenuButton {
-                required property var modelData
-                item: modelData
-                maxWidth: root.maxLabelWidth
-                popupOffsetY: root.popupOffsetY
-            }
-        }
-    }
-
-    // Fallback: when there's an active toplevel but no menu, render the
-    // app name from the desktop entry. This keeps the bar from "going
-    // empty" when focus moves to Firefox / Electron apps. See ADR-0006.
     Text {
-        id: fallback
-        visible: !root.visible && activeProxy.appId !== ""
+        id: label
         anchors.verticalCenter: parent.verticalCenter
-        text: activeProxy.appId
-        color: "#cdd6f4"        // ctp-text — should be replaced with theme token
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: activeProxy.appId !== "" ? activeProxy.appId : root.fallbackText
+        color: "#cdd6f4"        // ctp-text — to migrate to noctalia theme tokens once available
         font.family: "Inter"
         font.pixelSize: 13
         elide: Text.ElideRight
