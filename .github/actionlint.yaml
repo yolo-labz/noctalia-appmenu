@@ -1,0 +1,11 @@
+self-hosted-runner:
+  # Custom labels not in actionlint's built-in matrix.
+  # Any runner that has the `noctalia-appmenu` label is a valid CI host
+  # for this repo (VM103, the desktop host, future runners). The
+  # workflows do not reference host-specific labels (vm103, desktop) —
+  # see ADR-0013 (runner-agnostic CI).
+  labels:
+    - noctalia-appmenu
+
+config-variables:
+  - SONAR_HOST_URL

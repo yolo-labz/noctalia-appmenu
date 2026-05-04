@@ -12,7 +12,7 @@ env:
 jobs:
   build-and-attest:
     name: Build, attest, publish
-    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 45
     permissions:
       contents: write
