@@ -33,6 +33,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: tim-actions/dco@2fd0504dc0d27b33df977ca31b7c690a04d6e81c # 1.1.0
+      - uses: tim-actions/dco@f2279e6e62d5a7d9115b0cb8e837b777b1b02e21 # 1.1.0
         with:
           commits: ${{ steps.commits.outputs.commits }}
