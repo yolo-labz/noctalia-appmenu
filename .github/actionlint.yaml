@@ -1,10 +1,19 @@
 self-hosted-runner:
+<<<<<<< HEAD
   # Custom labels not in actionlint's built-in matrix.
   # Any runner that has the `noctalia-appmenu` label is a valid CI host
   # for this repo (VM103, the desktop host, future runners). The
   # workflows do not reference host-specific labels (vm103, desktop) —
   # see ADR-0013 (runner-agnostic CI).
   labels:
+=======
+  # Custom labels that the actionlint built-in matrix doesn't know about.
+  # The vm103 runner registered for this repo carries:
+  #   self-hosted, Linux, X64, vm103, noctalia-appmenu
+  # See ADR-0012 for why we run on a self-hosted runner.
+  labels:
+    - vm103
+>>>>>>> origin/1-ci-fixes
     - noctalia-appmenu
 
 config-variables:
