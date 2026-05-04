@@ -7,6 +7,8 @@ paths = [
   '''CHANGELOG\.md''',
   '''cliff\.toml''',
   '''sonar-project\.properties''',
+  '''\.gitleaks\.toml''',
+  '''\.semgrep/.*''',
 ]
 regexes = [
   '''yolo-labz_noctalia-appmenu''',                  # Sonar project key, not a secret
@@ -15,3 +17,36 @@ regexes = [
 
 [extend]
 useDefault = true
+
+[[rules]]
+id = "github-pat-fine-grained"
+description = "GitHub fine-grained personal access token"
+regex = '''github_pat_[A-Za-z0-9_]{82}'''
+tags = ["github", "credential", "noctalia-appmenu"]
+
+[[rules]]
+id = "sonar-token"
+description = "SonarQube PROJECT_ANALYSIS_TOKEN value"
+regex = '''(?i)sonar(?:cloud|qube)?[_-]?token['"\s:=]+([a-z0-9]{40})'''
+secretGroup = 1
+tags = ["sonar", "credential"]
+
+[[rules]]
+id = "tailscale-magicdns-internal"
+description = "Tailscale internal MagicDNS host (info leak)"
+regex = '''[a-z0-9-]+\.tail[a-f0-9]{6}\.ts\.net'''
+tags = ["tailscale", "internal-host"]
+
+[[rules]]
+id = "yolo-labz-internal-ip"
+description = "Internal LAN IP referencing Pedro's home rack"
+regex = '''192\.168\.1\.(11[0-9]|18[0-9])\b'''
+tags = ["internal-host", "info-leak"]
+
+[[rules]]
+id = "generic-bearer-token"
+description = "Generic API bearer token (>=32 chars + entropy)"
+regex = '''(?i)(api[_-]?key|secret|access[_-]?token|bearer)['"\s:=]+([A-Za-z0-9/+=_-]{32,})'''
+secretGroup = 2
+entropy = 3.5
+tags = ["generic", "credential"]

@@ -1,53 +1,54 @@
 //! Owns `org.noctalia.AppMenu` on the session bus and exposes
-//! /org/noctalia/AppMenu/Active with properties:
+//! `/org/noctalia/AppMenu/Active` with properties:
 //!
-//!   - busName     : string
-//!   - objectPath  : string
-//!   - appId       : string
-//!   - title       : string
+//!   - `busName`     : string
+//!   - `objectPath`  : string
+//!   - `appId`       : string
+//!   - `title`       : string
 //!
 //! The QML widget binds to these. Currently the QML widget then
-//! independently attaches a Quickshell DBusMenuHandle to (busName,
-//! objectPath).
+//! independently attaches a Quickshell `DBusMenuHandle` to
+//! `(busName, objectPath)`.
 //!
 //! Future work (ADR-0007 second-half): mirror the upstream DBusMenu
-//! itself under /org/noctalia/AppMenu/Active so QML can attach to a
-//! constant address. Out of scope for v0.1.
+//! itself under `/org/noctalia/AppMenu/Active/menu` so QML can attach
+//! to a constant address. Out of scope for v0.1.
 
 use crate::{active::ActiveSnapshot, config::Config};
 use std::sync::Arc;
-use tokio::sync::{watch, RwLock};
+use tokio::sync::{watch, Mutex};
 use tracing::info;
 use zbus::{interface, Connection};
 
+/// Plain-old-data view of the four properties exported on the active
+/// proxy interface. Updated atomically as a unit (all four properties
+/// always change together when focus moves), so a `Mutex` is the right
+/// primitive — `RwLock` would be over-engineered for a single writer
+/// and zero-to-occasional readers (D-Bus property reads from QML).
+#[derive(Default, Debug, Clone)]
 pub struct ActiveProxyState {
+    /// D-Bus bus name of the focused application owning the menu.
     pub bus_name: String,
+    /// D-Bus object path of the menu under `bus_name`.
     pub object_path: String,
+    /// Wayland app-id of the focused window.
     pub app_id: String,
+    /// Title of the focused window.
     pub title: String,
 }
 
-impl Default for ActiveProxyState {
-    fn default() -> Self {
-        Self {
-            bus_name: String::new(),
-            object_path: String::new(),
-            app_id: String::new(),
-            title: String::new(),
-        }
-    }
-}
-
-#[derive(Clone)]
+/// `org.noctalia.AppMenu.Active` D-Bus object. Wraps the state behind a
+/// `Mutex` so async property accessors can read consistently while the
+/// `run()` writer task pushes updates.
+#[derive(Clone, Default)]
 pub struct ActiveProxy {
-    inner: Arc<RwLock<ActiveProxyState>>,
+    inner: Arc<Mutex<ActiveProxyState>>,
 }
 
 impl ActiveProxy {
+    /// Construct a fresh proxy with empty state. Call once per process.
     pub fn new() -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(ActiveProxyState::default())),
-        }
+        Self::default()
     }
 }
 
@@ -55,25 +56,31 @@ impl ActiveProxy {
 impl ActiveProxy {
     #[zbus(property)]
     async fn bus_name(&self) -> String {
-        self.inner.read().await.bus_name.clone()
+        self.inner.lock().await.bus_name.clone()
     }
 
     #[zbus(property)]
     async fn object_path(&self) -> String {
-        self.inner.read().await.object_path.clone()
+        self.inner.lock().await.object_path.clone()
     }
 
     #[zbus(property)]
     async fn app_id(&self) -> String {
-        self.inner.read().await.app_id.clone()
+        self.inner.lock().await.app_id.clone()
     }
 
     #[zbus(property)]
     async fn title(&self) -> String {
-        self.inner.read().await.title.clone()
+        self.inner.lock().await.title.clone()
     }
 }
 
+/// Long-running task: own `org.noctalia.AppMenu`, expose the active
+/// proxy at `cfg.publish_path`, and keep its properties in sync with
+/// the joiner's `ActiveSnapshot` stream.
+///
+/// Returns `Ok(())` when the watch channel closes (the joiner exited);
+/// the caller's signal handler is the authoritative shutdown path.
 pub async fn run(
     conn: Connection,
     mut active_rx: watch::Receiver<ActiveSnapshot>,
@@ -89,9 +96,9 @@ pub async fn run(
     info!(service = %cfg.publish_service, path = %cfg.publish_path, "owning active proxy");
 
     while active_rx.changed().await.is_ok() {
-        let snapshot = active_rx.borrow().clone();
+        let snapshot = active_rx.borrow_and_update().clone();
         {
-            let mut s = proxy.inner.write().await;
+            let mut s = proxy.inner.lock().await;
             s.bus_name = snapshot.menu_service;
             s.object_path = snapshot
                 .menu_path
@@ -101,7 +108,7 @@ pub async fn run(
             s.title = snapshot.title;
         }
 
-        // Notify property changes
+        // Notify property changes so QML's DBus binding wakes up.
         let iface_ref = conn
             .object_server()
             .interface::<_, ActiveProxy>(cfg.publish_path.as_str())

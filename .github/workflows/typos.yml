@@ -1,0 +1,33 @@
+name: typos
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  check:
+    name: typos
+    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: crate-ci/typos@d01d1e0e6e1f0ad8f02bc97f3f7a3fbd8c8728e3 # v1.30.0
+        with:
+          config: typos.toml

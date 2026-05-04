@@ -12,16 +12,28 @@ use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::watch;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
-#[derive(Deserialize, Debug, Clone)]
+/// A snapshot of one window as reported by `niri msg --json windows`.
+///
+/// Some fields (workspace_id, is_focused) are not currently consumed by
+/// the bridge but are kept on the type so downstream debug-printing
+/// surfaces useful context. Marked `dead_code`-allowed at the struct
+/// level — we control the schema, niri may stop emitting these later.
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)]
 pub struct NiriWindow {
+    /// Stable per-niri-session window identifier.
     pub id: u64,
+    /// Wayland app-id (e.g. `kate`, `org.kde.kate`).
     pub app_id: Option<String>,
+    /// Window title at snapshot time.
     pub title: Option<String>,
+    /// Process ID of the wl_client owning the surface.
     pub pid: Option<u32>,
+    /// Workspace the window is anchored to.
     pub workspace_id: Option<u64>,
+    /// Whether the window had keyboard focus at snapshot time.
     pub is_focused: Option<bool>,
 }
 
@@ -37,20 +49,76 @@ enum NiriEvent {
 }
 
 /// What we publish for downstream consumers.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FocusEvent {
+    /// niri's stable window id for this surface.
     pub winid: u64,
+    /// PID of the wl_client owning the focused surface.
     pub pid: u32,
+    /// Wayland app-id for the focused surface.
     pub app_id: String,
+    /// Title of the focused surface.
     pub title: String,
 }
 
+/// Map operation produced by interpreting one `NiriEvent` against the
+/// current `winid -> NiriWindow` cache. Pure — no side effects.
+#[derive(Debug, PartialEq, Eq)]
+pub enum MapOp {
+    /// Replace or insert the window record under the given id.
+    Upsert(u64, NiriWindow),
+    /// Drop the entry for this id.
+    Remove(u64),
+    /// Defocused — clear the published focus event.
+    DefocusAll,
+    /// Focused window record is in cache; emit it.
+    FocusEmit(FocusEvent),
+    /// Focused id missing from cache; caller should re-snapshot.
+    FocusUnknown(u64),
+    /// Focused window in cache but has no pid; warn-and-skip.
+    FocusNoPid(u64),
+    /// Event variant we don't care about (e.g. workspace changes).
+    NoOp,
+}
+
+/// Pure transducer: interpret one event line + current cache state into
+/// a `MapOp`. Extracted from `run()` so we can unit-test the schema-
+/// drift behaviour without spawning niri.
+///
+/// `cache` is read-only; the caller applies the resulting `MapOp` to its
+/// own mutable cache. This makes the function trivially testable and
+/// independently reorderable.
+pub fn handle_event(event: NiriEvent, cache: &HashMap<u64, NiriWindow>) -> MapOp {
+    match event {
+        NiriEvent::WindowFocusChanged { id: Some(id) } => match cache.get(&id) {
+            Some(win) => match win.pid {
+                Some(pid) => MapOp::FocusEmit(FocusEvent {
+                    winid: id,
+                    pid,
+                    app_id: win.app_id.clone().unwrap_or_default(),
+                    title: win.title.clone().unwrap_or_default(),
+                }),
+                None => MapOp::FocusNoPid(id),
+            },
+            None => MapOp::FocusUnknown(id),
+        },
+        NiriEvent::WindowFocusChanged { id: None } => MapOp::DefocusAll,
+        NiriEvent::WindowOpenedOrChanged { window } => MapOp::Upsert(window.id, window),
+        NiriEvent::WindowClosed { id } => MapOp::Remove(id),
+        NiriEvent::Other => MapOp::NoOp,
+    }
+}
+
+/// Long-running task: subscribe to niri's event-stream and forward
+/// debounced focus events on `tx`.
+///
+/// Hard-fails on initial-seed errors (per audit P1 — silent fallback
+/// led to "menu invisible" without journalctl evidence). Exits when
+/// niri's pipe closes; systemd then restarts the unit.
 pub async fn run(tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> Result<()> {
-    // Seed the map.
-    let mut by_winid = snapshot_windows(&cfg).await.unwrap_or_else(|e| {
-        warn!(error=?e, "could not seed winid->window map; proceeding empty");
-        HashMap::new()
-    });
+    let mut by_winid = snapshot_windows(&cfg)
+        .await
+        .context("seeding niri window map; is `niri` reachable?")?;
 
     info!(count = by_winid.len(), "seeded niri windows");
 
@@ -72,43 +140,44 @@ pub async fn run(tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> Result<(
         if line.is_empty() {
             continue;
         }
-        match serde_json::from_str::<NiriEvent>(line) {
-            Ok(NiriEvent::WindowFocusChanged { id: Some(id) }) => {
-                if let Some(win) = by_winid.get(&id).cloned() {
-                    if let Some(pid) = win.pid {
-                        let evt = FocusEvent {
-                            winid: id,
-                            pid,
-                            app_id: win.app_id.unwrap_or_default(),
-                            title: win.title.unwrap_or_default(),
-                        };
-                        debug!(?evt, "focus changed");
-                        let _ = tx.send(Some(evt));
-                    } else {
-                        warn!(winid = id, "focused window has no pid in our map");
-                    }
-                } else {
-                    // Stale map; resync.
-                    by_winid = snapshot_windows(&cfg).await.unwrap_or(by_winid);
-                }
-            }
-            Ok(NiriEvent::WindowFocusChanged { id: None }) => {
-                let _ = tx.send(None);
-            }
-            Ok(NiriEvent::WindowOpenedOrChanged { window }) => {
-                by_winid.insert(window.id, window);
-            }
-            Ok(NiriEvent::WindowClosed { id }) => {
-                by_winid.remove(&id);
-            }
-            Ok(NiriEvent::Other) => {}
+        let event = match serde_json::from_str::<NiriEvent>(line) {
+            Ok(e) => e,
             Err(e) => {
                 warn!(error=?e, line=%line, "could not parse niri event line");
+                continue;
             }
+        };
+        match handle_event(event, &by_winid) {
+            MapOp::FocusEmit(evt) => {
+                debug!(?evt, "focus changed");
+                let _ = tx.send(Some(evt));
+            }
+            MapOp::FocusNoPid(id) => {
+                warn!(winid = id, "focused window has no pid in our map");
+            }
+            MapOp::FocusUnknown(id) => {
+                warn!(winid = id, "focused window not in cache; resyncing");
+                if let Ok(fresh) = snapshot_windows(&cfg).await {
+                    by_winid = fresh;
+                }
+            }
+            MapOp::DefocusAll => {
+                let _ = tx.send(None);
+            }
+            MapOp::Upsert(id, window) => {
+                by_winid.insert(id, window);
+            }
+            MapOp::Remove(id) => {
+                by_winid.remove(&id);
+            }
+            MapOp::NoOp => {}
         }
     }
 
-    error!("niri event-stream ended");
+    // niri's pipe closed — usually because niri itself exited or the
+    // user logged out of the session. NOT a fatal error; warn-level
+    // and let the caller's systemd unit restart us cleanly.
+    warn!("niri event-stream ended");
     Err(anyhow!("niri event-stream ended"))
 }
 
@@ -131,4 +200,89 @@ async fn snapshot_windows(cfg: &Config) -> Result<HashMap<u64, NiriWindow>> {
         .context("parsing niri msg windows JSON")?;
 
     Ok(windows.into_iter().map(|w| (w.id, w)).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn win(id: u64, pid: Option<u32>) -> NiriWindow {
+        NiriWindow {
+            id,
+            app_id: Some(format!("app-{id}")),
+            title: Some(format!("title-{id}")),
+            pid,
+            workspace_id: Some(1),
+            is_focused: Some(false),
+        }
+    }
+
+    #[test]
+    fn focus_known_window_emits_event() {
+        let mut cache = HashMap::new();
+        cache.insert(7, win(7, Some(123)));
+        let op = handle_event(NiriEvent::WindowFocusChanged { id: Some(7) }, &cache);
+        match op {
+            MapOp::FocusEmit(evt) => {
+                assert_eq!(evt.pid, 123);
+                assert_eq!(evt.app_id, "app-7");
+                assert_eq!(evt.winid, 7);
+            }
+            other => panic!("expected FocusEmit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn focus_unknown_window_signals_resync() {
+        let cache = HashMap::new();
+        assert_eq!(
+            handle_event(NiriEvent::WindowFocusChanged { id: Some(99) }, &cache),
+            MapOp::FocusUnknown(99)
+        );
+    }
+
+    #[test]
+    fn focus_window_without_pid_warns() {
+        let mut cache = HashMap::new();
+        cache.insert(3, win(3, None));
+        assert_eq!(
+            handle_event(NiriEvent::WindowFocusChanged { id: Some(3) }, &cache),
+            MapOp::FocusNoPid(3)
+        );
+    }
+
+    #[test]
+    fn focus_none_means_defocus_all() {
+        let cache = HashMap::new();
+        assert_eq!(
+            handle_event(NiriEvent::WindowFocusChanged { id: None }, &cache),
+            MapOp::DefocusAll
+        );
+    }
+
+    #[test]
+    fn opened_or_changed_upserts() {
+        let cache = HashMap::new();
+        let w = win(11, Some(456));
+        let op = handle_event(NiriEvent::WindowOpenedOrChanged { window: w }, &cache);
+        match op {
+            MapOp::Upsert(id, _) => assert_eq!(id, 11),
+            other => panic!("expected Upsert, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn closed_removes() {
+        let cache = HashMap::new();
+        assert_eq!(
+            handle_event(NiriEvent::WindowClosed { id: 5 }, &cache),
+            MapOp::Remove(5)
+        );
+    }
+
+    #[test]
+    fn unknown_event_is_noop() {
+        let cache = HashMap::new();
+        assert_eq!(handle_event(NiriEvent::Other, &cache), MapOp::NoOp);
+    }
 }

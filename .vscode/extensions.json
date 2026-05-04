@@ -1,0 +1,14 @@
+{
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "tamasfe.even-better-toml",
+    "kamadorueda.alejandra",
+    "jnoortheen.nix-ide",
+    "bbenoist.QML",
+    "redhat.vscode-yaml",
+    "editorconfig.editorconfig",
+    "mkhl.direnv",
+    "github.vscode-github-actions",
+    "ms-azuretools.vscode-docker"
+  ]
+}

@@ -12,6 +12,10 @@ rules:
       - .github/workflows/reproducibility.yml
       - .github/workflows/actionlint.yml
       - .github/workflows/release.yml
+      - .github/workflows/cargo-deny.yml
+      - .github/workflows/cargo-machete.yml
+      - .github/workflows/typos.yml
+      - .github/workflows/semgrep.yml
 
   # Concurrency-limits audit: scheduled scans run weekly so a
   # concurrency cap is meaningless against the schedule cadence.

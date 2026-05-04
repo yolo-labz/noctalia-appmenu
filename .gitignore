@@ -17,12 +17,15 @@ bridge/.cargo/config.local.toml
 .envrc.local
 
 # Editor
-.vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+# .vscode/ is committed (project-level shared settings + extensions)
+# Per-user overrides go in .vscode/settings.local.json which IS ignored:
+.vscode/settings.local.json
+.vscode/launch.local.json
 
 # Test artefacts
 tests/screenshots/*.png
