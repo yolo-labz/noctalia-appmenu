@@ -71,6 +71,33 @@ Hard rules:
 3. Never edit `CHANGELOG.md` by hand — `git-cliff` owns it.
 4. `permissions: {}` workflow-level, re-grant per job.
 
+## Local-first CI ("prechew")
+
+Per [ADR-0014](docs/adr/ADR-0014-local-first-ci.md), the full CI suite
+runs **locally before push**, in parallel, via lefthook. Once after
+clone:
+
+```bash
+just lefthook-install   # writes hooks into .git/hooks/
+```
+
+Now every push is gated on the same checks the remote runner runs:
+clippy, cargo test, cargo doc, cargo-deny, cargo-machete, qmllint,
+nix flake check, alejandra, deadnix, statix, actionlint, zizmor,
+semgrep, typos, gitleaks. Lefthook runs them in parallel — ~30-90 s
+warm on a 16-core box.
+
+Manual flow:
+
+- `just shadow-ci` — runs the same pipeline on demand (no push).
+- `just fix` — auto-fixes everything fixable (`cargo fmt`, `alejandra`,
+  `qmlformat`, `typos --write-changes`).
+- `just ci-fast` — `shadow-ci` plus a real `nix build`.
+
+Bypass (`LEFTHOOK=0` / `--no-verify`) is hard-banned. If you find
+yourself reaching for it, the right move is to fix the underlying
+issue.
+
 ## Reviewing PRs
 
 Use the bundled `code-review` slash command. The repo's `.claude/agents/` ship with project-tuned reviewers (`qml-architect`, `dbusmenu-protocol-expert`, `niri-wayland-tester`).

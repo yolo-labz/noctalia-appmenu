@@ -27,7 +27,7 @@ jobs:
       matrix:
         include:
           - language: rust
-            build-mode: manual
+            build-mode: none
           - language: actions
             build-mode: none
     steps:
@@ -36,14 +36,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install rust toolchain
-        if: matrix.language == 'rust'
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
-          # shellcheck disable=SC1091
-          . "$HOME/.cargo/env"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
       - name: Initialize CodeQL
         uses: github/codeql-action/init@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18
         with:
@@ -51,10 +43,6 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
           config-file: ./.github/codeql/codeql-config.yml
-
-      - name: Manual build (rust)
-        if: matrix.language == 'rust'
-        run: cd bridge && cargo build --all-features
 
       - name: Perform analysis
         uses: github/codeql-action/analyze@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18

@@ -17,7 +17,10 @@ Each ADR captures a decision with its **reason** — the part not derivable from
 | [0009](ADR-0009-debouncing-policy.md) | Focus debounce 75 ms, registrar churn 250 ms | Accepted |
 | [0010](ADR-0010-no-keybind-intercept-v1.md) | No global Alt-F mnemonic intercept in v1 | Accepted |
 | [0011](ADR-0011-home-manager-module.md) | Home-Manager submodule, not flake module | Accepted |
-| [0012](ADR-0012-self-hosted-runner-only.md) | Self-hosted runner only; no public-CI matrix | Accepted |
+| [0012](ADR-0012-self-hosted-runner-only.md) | Self-hosted runner only; no public-CI matrix | Accepted (refined by 0013) |
+| [0013](ADR-0013-runner-agnostic-ci.md) | Runner-agnostic labels + multi-runner pool | Accepted |
+| [0014](ADR-0014-local-first-ci.md) | Local-first CI ("prechew") via lefthook | Accepted |
+| [0015](ADR-0015-v01-fallback-only-shipping.md) | v0.1 ships fallback-only; menu rendering deferred to v0.2 | Accepted |
 
 ## Format
 

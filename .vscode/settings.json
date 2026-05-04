@@ -1,0 +1,40 @@
+{
+  "rust-analyzer.cargo.features": "all",
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.extraArgs": ["--all-targets", "--", "-D", "warnings"],
+  "rust-analyzer.cargo.targetDir": true,
+  "rust-analyzer.imports.granularity.group": "module",
+  "rust-analyzer.completion.callable.snippets": "fill_arguments",
+  "rust-analyzer.inlayHints.expressionAdjustmentHints.enable": "always",
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true
+  },
+  "[qml]": {
+    "editor.defaultFormatter": "bbenoist.QML"
+  },
+  "qmllint.executable": "${workspaceFolder}/.direnv/bin/qmllint",
+  "[nix]": {
+    "editor.defaultFormatter": "kamadorueda.alejandra",
+    "editor.formatOnSave": true
+  },
+  "[toml]": {
+    "editor.defaultFormatter": "tamasfe.even-better-toml",
+    "editor.formatOnSave": true
+  },
+  "files.associations": {
+    "*.qml": "qml",
+    "flake.lock": "json"
+  },
+  "search.exclude": {
+    "**/target": true,
+    "**/result": true,
+    "**/.direnv": true,
+    "**/Cargo.lock": false
+  },
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/.direnv/**": true,
+    "**/result/**": true
+  }
+}

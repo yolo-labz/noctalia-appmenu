@@ -1,0 +1,28 @@
+# typos config — runs in CI + lefthook pre-commit.
+# https://github.com/crate-ci/typos
+
+[default.extend-words]
+# Project- and ecosystem-specific terms typos's default dictionary
+# would otherwise flag. Add new entries with a one-line rationale
+# in a follow-up PR's commit body, not inline.
+ans = "ans"
+bw = "bw"
+caf = "caf"
+crate = "crate"
+ctp = "ctp"
+nh = "nh"
+qml = "qml"
+qmllint = "qmllint"
+zbus = "zbus"
+
+[files]
+extend-exclude = [
+  "**/target/**",
+  "**/result/**",
+  "**/.direnv/**",
+  "**/Cargo.lock",
+  "flake.lock",
+  "*.svg",
+  "*.png",
+  "tests/snapshots/**",
+]

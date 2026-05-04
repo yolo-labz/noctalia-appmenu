@@ -1,0 +1,29 @@
+# Helix per-project language config — relies on devShell binaries
+# being on PATH (direnv reload populates them).
+
+[[language]]
+name = "rust"
+auto-format = true
+
+[language-server.rust-analyzer.config]
+checkOnSave = { command = "clippy" }
+cargo = { features = "all" }
+
+[[language]]
+name = "qml"
+file-types = ["qml"]
+language-servers = ["qmlls"]
+auto-format = true
+
+[language-server.qmlls]
+command = "qmlls"
+
+[[language]]
+name = "nix"
+auto-format = true
+language-servers = ["nil"]
+formatter = { command = "alejandra" }
+
+[[language]]
+name = "toml"
+formatter = { command = "taplo", args = ["format", "-"] }

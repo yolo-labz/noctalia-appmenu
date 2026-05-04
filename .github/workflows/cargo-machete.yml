@@ -1,0 +1,35 @@
+name: cargo-machete
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "bridge/Cargo.toml"
+      - "bridge/Cargo.lock"
+      - ".github/workflows/cargo-machete.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  check:
+    name: detect unused deps
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: bnjbvr/cargo-machete@ac30a525c0a8d163a92d727b3ff079ee3f6ecb08 # v0.9.2

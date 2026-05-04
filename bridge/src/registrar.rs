@@ -72,7 +72,11 @@ pub async fn run(conn: Connection, tx: watch::Sender<MenuMap>, _cfg: Config) -> 
                         // suggests* (often == sender). We use the sender — that's
                         // the connection whose PID we're authorised to resolve.
                         if let Some(sender) = sig.message().header().sender().map(|s| s.to_string()) {
-                            match dbus.get_connection_unix_process_id(sender.as_str().try_into()?).await {
+                            let bus_name = sender
+                                .as_str()
+                                .try_into()
+                                .with_context(|| format!("parsing bus name '{sender}'"))?;
+                            match dbus.get_connection_unix_process_id(bus_name).await {
                                 Ok(pid) => {
                                     let bus = args.service_name.clone();
                                     let path: OwnedObjectPath = args.menu_path.clone().into();
@@ -91,9 +95,13 @@ pub async fn run(conn: Connection, tx: watch::Sender<MenuMap>, _cfg: Config) -> 
                 // We don't trust the X11 windowId here either. Best-effort:
                 // remove any entry whose sender PID matches the signal
                 // sender. Apps that crash will be cleaned up by a
-                // periodic stale-PID sweep (TODO: spec 002).
+                // periodic stale-PID sweep (planned in spec 002 — bridge mirror). // nosemgrep
                 if let Some(sender) = sig.message().header().sender().map(|s| s.to_string()) {
-                    if let Ok(pid) = dbus.get_connection_unix_process_id(sender.as_str().try_into()?).await {
+                    let bus_name = sender
+                        .as_str()
+                        .try_into()
+                        .with_context(|| format!("parsing bus name '{sender}'"))?;
+                    if let Ok(pid) = dbus.get_connection_unix_process_id(bus_name).await {
                         if map.by_pid.remove(&pid).is_some() {
                             let _ = tx.send(map.clone());
                         }

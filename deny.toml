@@ -1,0 +1,77 @@
+# cargo-deny configuration for the noctalia-appmenu-bridge crate.
+#
+# Run locally:
+#   cargo deny --all-features check
+#
+# CI runs `cargo deny check` on every PR + scheduled weekly via
+# .github/workflows/cargo-deny.yml. Fail-the-build is intentional;
+# pin the offending crate in [bans.skip] only with an inline
+# rationale + an issue link.
+
+[graph]
+targets = [
+  { triple = "x86_64-unknown-linux-gnu" },
+  { triple = "aarch64-unknown-linux-gnu" },
+]
+all-features = true
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+version = 2
+yanked = "deny"
+ignore = [
+  # RUSTSEC-2025-0141 — bincode 1.x permanently unmaintained (per
+  # upstream announcement). Pulled in transitively as a dev-only dep
+  # by iai-callgrind 0.14.2 (benches/iai.rs). NOT in the production
+  # release closure. Track upstream iai-callgrind for a v2 migration.
+  "RUSTSEC-2025-0141",
+]
+
+[licenses]
+version = 2
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "MPL-2.0",
+  "Unlicense",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "CC0-1.0",
+]
+confidence-threshold = 0.93
+exceptions = []
+
+[[licenses.clarify]]
+crate = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+deny = [
+  # `sha1` (modern RustCrypto crate) is fine; historical "broken hash"
+  # concern was about MD5/SHA-1 usage, not the crate. zbus 4.x uses it
+  # for D-Bus auth handshake — must be allowed.
+  { crate = "md5", reason = "broken hash" },
+  { crate = "openssl-sys:<0.9.60", reason = "CVE-laden" },
+  { crate = "time:<0.2.23", reason = "RUSTSEC-2020-0071" },
+  { crate = "chrono:<0.4.20", reason = "RUSTSEC-2020-0159" },
+]
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = ["yolo-labz", "rust-lang", "rustsec", "EmbarkStudios", "tokio-rs", "dbus2"]

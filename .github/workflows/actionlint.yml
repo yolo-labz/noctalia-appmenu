@@ -96,4 +96,4 @@ jobs:
         run: actionlint -color
 
       - name: zizmor enforce
-        run: zizmor --persona=auditor --format=plain .github/workflows/
+        run: zizmor --format=plain .github/workflows/

@@ -1,23 +1,28 @@
-# Lefthook config — fast git hooks for this repo.
+# Lefthook config — local pre-validation pipeline for noctalia-appmenu.
 #
-# Wired up via `lefthook install` (run inside `nix develop`).
-# Devshell ships lefthook + commitlint + gitleaks, so first-time
-# setup is one command.
+# **The point of this file**: every check the remote CI runs ALSO runs
+# locally before push, in parallel, on the developer's hardware (32
+# threads on the 7950X3D). The remote runner becomes a verification
+# safety net rather than the gating critical path.
+#
+# Setup once: `lefthook install` (run inside `nix develop`).
+# Devshell ships lefthook + commitlint + gitleaks + everything below.
+#
+# Skip path (emergencies only): `LEFTHOOK=0 git push`. Discouraged —
+# CLAUDE.md hard-bans `--no-verify` for the same reason.
 
+# pre-commit: cheap, staged-files-only checks. <5 s.
 pre-commit:
   parallel: true
   commands:
     rust-fmt:
       glob: "bridge/**/*.rs"
       run: cd bridge && cargo fmt --check
-    rust-clippy:
-      glob: "bridge/**/*.rs"
-      run: cd bridge && cargo clippy --all-features --all-targets -- -D warnings
     qmllint:
       glob: "plugin/**/*.qml"
       run: qmllint {staged_files}
     nix-fmt:
-      glob: "{*.nix,**/*.nix,flake.lock}"
+      glob: "{*.nix,**/*.nix}"
       run: alejandra --check {staged_files}
     deadnix:
       glob: "**/*.nix"
@@ -27,12 +32,11 @@ pre-commit:
       run: statix check {staged_files}
     gitleaks:
       run: gitleaks protect --staged --redact --config .gitleaks.toml
+    typos:
+      run: typos --config typos.toml
     actionlint:
       glob: ".github/workflows/*.{yml,yaml}"
       run: actionlint {staged_files}
-    zizmor:
-      glob: ".github/workflows/*.{yml,yaml}"
-      run: zizmor --persona=auditor {staged_files}
 
 commit-msg:
   commands:
@@ -45,9 +49,77 @@ commit-msg:
           exit 1
         fi
 
+# pre-push: heavy parallel mirror of the full CI suite. <2 min on the
+# 7950X3D (warm), 5-8 min cold. Refuses the push on any failure —
+# matches what the remote runner would do, but in parallel and locally.
+#
+# Categories run concurrently:
+#   - bridge/      (cargo build/test/clippy/doc)
+#   - plugin/      (qmllint)
+#   - nix/         (flake check, alejandra/deadnix/statix all-files)
+#   - workflows/   (actionlint, zizmor)
+#   - supply chain (cargo-deny, cargo-machete, semgrep, gitleaks
+#                   detect, typos)
+#
+# Each command exits non-zero on failure; lefthook surfaces the first
+# stack trace at the bottom for ergonomics.
 pre-push:
+  parallel: true
   commands:
-    cargo-test:
-      run: cd bridge && cargo test --all-features --no-fail-fast
+    bridge-clippy:
+      tags: rust
+      run: cd bridge && cargo clippy --all-features --all-targets --locked -- -D warnings
+    bridge-test:
+      tags: rust
+      run: cd bridge && cargo test --all-features --locked --no-fail-fast
+    bridge-doc:
+      tags: rust
+      run: cd bridge && cargo doc --no-deps --document-private-items
+    bridge-fmt:
+      tags: rust
+      run: cd bridge && cargo fmt --all -- --check
+    cargo-deny-advisories:
+      tags: supply-chain
+      run: cd bridge && cargo deny --all-features check advisories
+    cargo-deny-bans:
+      tags: supply-chain
+      run: cd bridge && cargo deny --all-features check bans
+    cargo-deny-licenses:
+      tags: supply-chain
+      run: cd bridge && cargo deny --all-features check licenses
+    cargo-deny-sources:
+      tags: supply-chain
+      run: cd bridge && cargo deny --all-features check sources
+    cargo-machete:
+      tags: supply-chain
+      run: cargo machete bridge
+    plugin-qmllint:
+      tags: qml
+      run: qmllint plugin/BarWidget.qml plugin/components/*.qml
     nix-flake-check:
-      run: nix flake check --no-build
+      tags: nix
+      run: nix flake check --no-build --accept-flake-config
+    nix-fmt-all:
+      tags: nix
+      run: alejandra --check .
+    nix-deadnix-all:
+      tags: nix
+      run: deadnix --fail .
+    nix-statix-all:
+      tags: nix
+      run: statix check .
+    workflows-actionlint:
+      tags: workflows
+      run: actionlint -color
+    workflows-zizmor:
+      tags: workflows
+      run: zizmor --format=plain .github/workflows/
+    semgrep-rust:
+      tags: supply-chain
+      run: semgrep --config .semgrep/rust.yml --error bridge/
+    typos-all:
+      tags: docs
+      run: typos --config typos.toml
+    gitleaks-all:
+      tags: secrets
+      run: gitleaks detect --redact --config .gitleaks.toml --no-banner

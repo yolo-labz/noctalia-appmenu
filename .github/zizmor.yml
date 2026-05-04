@@ -1,5 +1,9 @@
 rules:
-  # Documented exceptions (mirroring `wa` repo's posture)
+  # Self-hosted-runner audit: workflows that intentionally target the
+  # self-hosted pool — see ADR-0012 (self-hosted runner only) and
+  # ADR-0013 (runner-agnostic labels). Integration tests need a real
+  # niri compositor; public-hosted runners are intentional only for
+  # Scorecard + CodeQL.
   self-hosted-runner:
     ignore:
       - .github/workflows/ci.yml
@@ -8,16 +12,17 @@ rules:
       - .github/workflows/reproducibility.yml
       - .github/workflows/actionlint.yml
       - .github/workflows/release.yml
-    rationale: |
-      ADR-0012 — All CI runs on the self-hosted runner pool labelled
-      `[self-hosted, Linux, X64, vm103, noctalia-appmenu]` because integration
-      tests need a real niri compositor. Public-CI is intentional only for
-      Scorecard + CodeQL.
+      - .github/workflows/cargo-deny.yml
+      - .github/workflows/cargo-machete.yml
+      - .github/workflows/typos.yml
+      - .github/workflows/semgrep.yml
+      - .github/workflows/codecov.yml
+      - .github/workflows/pages.yml
+      - .github/workflows/perf.yml
 
+  # Concurrency-limits audit: scheduled scans run weekly so a
+  # concurrency cap is meaningless against the schedule cadence.
   concurrency-limits:
     ignore:
       - .github/workflows/scorecard.yml
       - .github/workflows/codeql.yml
-    rationale: |
-      Scheduled scans run weekly; concurrency cap is meaningless against
-      the schedule cadence.
