@@ -6,6 +6,8 @@ dist/
 build/
 *.qmlc
 *.jsc
+# mdbook output
+book/
 
 # Bridge (Rust)
 bridge/target/
