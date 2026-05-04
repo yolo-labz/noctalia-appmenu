@@ -1,0 +1,83 @@
+name: perf
+
+on:
+  pull_request:
+    paths:
+      - "bridge/src/**"
+      - "bridge/benches/**"
+      - "bridge/Cargo.toml"
+      - "bridge/Cargo.lock"
+      - ".github/workflows/perf.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  divan:
+    name: divan benches (wall clock)
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Run divan benches
+        run: nix develop --command bash -c 'cd bridge && cargo bench --bench hotpath -- --output-format pretty 2>&1 | tee divan.txt'
+
+      - name: Upload divan output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: divan-output
+          path: bridge/divan.txt
+          retention-days: 14
+
+  iai:
+    name: iai-callgrind (deterministic instruction count)
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Build base (PR target) bench binary
+        if: github.event_name == 'pull_request'
+        run: |
+          set -eu
+          git fetch origin "${{ github.base_ref }}"
+          git checkout "origin/${{ github.base_ref }}" -- bridge
+          nix develop --command bash -c 'cd bridge && cargo build --bench iai --features iai --locked'
+          mv bridge/target/release/deps/iai-* /tmp/iai-base 2>/dev/null || true
+          git checkout HEAD -- bridge
+
+      - name: Run iai benches (HEAD)
+        run: nix develop --command bash -c 'cd bridge && cargo bench --bench iai --features iai 2>&1 | tee iai.txt'
+
+      - name: Upload iai output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: iai-output
+          path: bridge/iai.txt
+          retention-days: 14
