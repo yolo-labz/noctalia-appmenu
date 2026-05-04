@@ -1,0 +1,26 @@
+# cargo-nextest config — see https://nexte.st/book/configuration.html
+#
+# `just bridge-test-nextest` uses this; CI uses it via `cargo nextest run`.
+
+[profile.default]
+# Per-test process isolation matters for D-Bus tests (each test holds
+# a `SessionBus` handle). nextest's default is one process per test.
+retries = 0
+fail-fast = true
+slow-timeout = { period = "60s", terminate-after = 2 }
+status-level = "pass"
+final-status-level = "fail"
+
+# CI profile: tolerate niri-startup flakiness with retries; slower
+# verbose output for log diving.
+[profile.ci]
+retries = 2
+fail-fast = false
+slow-timeout = { period = "120s", terminate-after = 3 }
+status-level = "all"
+final-status-level = "slow"
+
+# Tag-driven heavy-weight tests (skipped by default).
+[[profile.default.overrides]]
+filter = 'test(/^prop_/)'
+slow-timeout = { period = "180s", terminate-after = 3 }
