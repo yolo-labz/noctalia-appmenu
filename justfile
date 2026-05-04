@@ -108,14 +108,29 @@ gitleaks:
 precommit:
     lefthook run pre-commit
 
-ci-local:
-    @echo "Run a workflow locally with act:"
-    @echo "  act -j bridge-test --container-architecture linux/amd64"
-    @echo "  act -j plugin-lint"
-    @echo "  act -j nix-flake-check"
+# ---------- local prechew (mirrors CI) ----------
 
-loc:
-    tokei bridge plugin tools docs
+# Install lefthook hooks into .git/hooks/. Run once after cloning.
+lefthook-install:
+    lefthook install
+
+# The full pre-push pipeline, on demand. Mirrors the CI matrix locally
+# in parallel — see lefthook.yml's pre-push: section. ADR-0014.
+shadow-ci:
+    lefthook run pre-push
+
+# Auto-fix everything that has an auto-fix path. Run before shadow-ci
+# to keep the loop tight.
+fix:
+    cd bridge && cargo fmt --all
+    alejandra .
+    qmlformat -i plugin/BarWidget.qml plugin/components/*.qml
+    typos --config typos.toml --write-changes || true
+
+# Same as shadow-ci but also runs the heavyweight nix flake build.
+ci-fast:
+    just shadow-ci
+    nix build .#noctalia-appmenu-bridge --print-build-logs
 
 # ---------- release ----------
 
