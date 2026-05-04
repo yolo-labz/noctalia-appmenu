@@ -1,0 +1,11 @@
+self-hosted-runner:
+  # Custom labels that the actionlint built-in matrix doesn't know about.
+  # The vm103 runner registered for this repo carries:
+  #   self-hosted, Linux, X64, vm103, noctalia-appmenu
+  # See ADR-0012 for why we run on a self-hosted runner.
+  labels:
+    - vm103
+    - noctalia-appmenu
+
+config-variables:
+  - SONAR_HOST_URL
