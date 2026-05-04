@@ -40,6 +40,19 @@ nix = { version = "0.29", features = ["signal", "user"] }
 mockall = "0.13"
 tokio-test = "0.4"
 tempfile = "3.13"
+divan = "0.1"
+# iai-callgrind requires `valgrind` at runtime (devShell ships it).
+# Always compiled in dev to keep the configuration simple — Cargo
+# does not allow `optional = true` on dev-deps.
+iai-callgrind = "0.14"
+
+[[bench]]
+name = "hotpath"
+harness = false
+
+[[bench]]
+name = "iai"
+harness = false
 
 [profile.release]
 opt-level = 3
@@ -53,6 +66,11 @@ panic = "abort"
 inherits = "release"
 debug = true
 strip = "none"
+
+[profile.bench]
+inherits = "release"
+debug = "line-tables-only" # enough for samply / iai symbols
+lto = "thin"
 
 # Reproducibility: the workflow exports SOURCE_DATE_EPOCH; cargo + the
 # linker both honour it. No additional [build] config needed.

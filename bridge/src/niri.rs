@@ -37,9 +37,12 @@ pub struct NiriWindow {
     pub is_focused: Option<bool>,
 }
 
+/// Tagged union of niri event-stream variants the bridge cares about.
+/// `pub` so benches in `benches/` can reach it; remains an internal
+/// schema surface — breaking changes here are not API breaks.
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "PascalCase")]
-enum NiriEvent {
+pub enum NiriEvent {
     WindowFocusChanged { id: Option<u64> },
     WindowOpenedOrChanged { window: NiriWindow },
     WindowClosed { id: u64 },
