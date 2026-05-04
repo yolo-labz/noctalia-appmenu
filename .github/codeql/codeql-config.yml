@@ -1,0 +1,11 @@
+name: noctalia-appmenu CodeQL config
+
+paths-ignore:
+  - "**/target/**"
+  - "**/result/**"
+  - "**/.direnv/**"
+  - "tools/fake-registrar/**"      # test-only Python helper, not a release artefact
+  - "tests/**"
+
+queries:
+  - uses: security-extended

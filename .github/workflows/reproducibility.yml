@@ -1,0 +1,75 @@
+name: Reproducibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build-twice:
+    name: Reproducible build check
+    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: First build (nix derivation)
+        run: |
+          set -eu
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          export SOURCE_DATE_EPOCH
+          nix build .#noctalia-appmenu-bridge --print-build-logs --accept-flake-config
+          cp -L result/bin/noctalia-appmenu-bridge /tmp/build-1
+          rm -f result
+
+      - name: Invalidate cargo cache
+        run: nix develop --command bash -c 'cargo clean --manifest-path bridge/Cargo.toml'
+
+      - name: Second build (nix derivation, cold cache)
+        run: |
+          set -eu
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          export SOURCE_DATE_EPOCH
+          nix build .#noctalia-appmenu-bridge --print-build-logs --accept-flake-config --rebuild
+          cp -L result/bin/noctalia-appmenu-bridge /tmp/build-2
+
+      - name: Compare bytes
+        run: |
+          sha1=$(sha256sum /tmp/build-1 | awk '{print $1}')
+          sha2=$(sha256sum /tmp/build-2 | awk '{print $1}')
+          echo "Build 1: $sha1"
+          echo "Build 2: $sha2"
+          if [ "$sha1" != "$sha2" ]; then
+            echo "::error::Reproducibility broken — bytes differ"
+            ls -la /tmp/build-1 /tmp/build-2
+            file /tmp/build-1 /tmp/build-2
+            exit 1
+          fi
+          echo "PASS: byte-identical builds"
+
+      - name: Upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: repro-debug
+          path: |
+            /tmp/build-1
+            /tmp/build-2
+          retention-days: 5

@@ -1,0 +1,16 @@
+* @phsb5321
+
+# Architecture-critical paths require explicit author review
+/docs/adr/                  @phsb5321
+/.specify/memory/           @phsb5321
+/.github/workflows/         @phsb5321
+/SECURITY.md                @phsb5321
+/sonar-project.properties   @phsb5321
+
+# Bridge core (D-Bus protocol surface)
+/bridge/src/registrar.rs    @phsb5321
+/bridge/src/active.rs       @phsb5321
+
+# Plugin core (QML)
+/plugin/manifest.json       @phsb5321
+/plugin/BarWidget.qml       @phsb5321

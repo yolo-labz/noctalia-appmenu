@@ -1,0 +1,53 @@
+extends:
+  - "@commitlint/config-conventional"
+
+rules:
+  type-enum:
+    - 2
+    - always
+    - - feat
+      - fix
+      - docs
+      - style
+      - refactor
+      - perf
+      - test
+      - build
+      - ci
+      - chore
+      - revert
+      - governance
+  scope-enum:
+    - 2
+    - always
+    - - bridge
+      - plugin
+      - nix
+      - ci
+      - docs
+      - adr
+      - speckit
+      - constitution
+      - config
+      - registrar
+      - niri
+      - proxy
+      - active
+      - tests
+      - meta
+      - release
+  subject-case:
+    - 2
+    - never
+    - - upper-case
+      - pascal-case
+  subject-max-length:
+    - 2
+    - always
+    - 72
+  body-leading-blank:
+    - 2
+    - always
+  footer-leading-blank:
+    - 2
+    - always

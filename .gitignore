@@ -1,0 +1,63 @@
+# Build artefacts
+target/
+result
+result-*
+dist/
+build/
+*.qmlc
+*.jsc
+
+# Bridge (Rust)
+bridge/target/
+bridge/Cargo.lock.bak
+bridge/.cargo/config.local.toml
+
+# Nix
+.direnv/
+.envrc.local
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test artefacts
+tests/screenshots/*.png
+!tests/screenshots/.gitkeep
+tests/integration/.cache/
+*.log
+
+# Coverage
+coverage/
+*.profraw
+*.profdata
+lcov.info
+codecov.json
+
+# SBOM / signing artefacts (release-only, never commit)
+*.cdx.json
+*.spdx.json
+*.intoto.jsonl
+*.sig
+*.bundle
+
+# Local secrets
+.env
+.env.local
+*.token
+secrets.local.toml
+
+# Speckit transient
+specs/**/.cache/
+.specify/.cache/
+
+# Sonar
+.sonarwork/
+.scannerwork/
+
+# claude-code transient
+.claude/state/
+.claude/cache/

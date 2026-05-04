@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose a new feature or behaviour change.
+title: "[feat] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `.specify/memory/constitution.md` first. Out-of-scope features will be closed with a pointer to the relevant section.
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: What problem does this solve? Who hits it?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Sketch the API / UX. If you know the implementation path, describe it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: At least one — and why you rejected it.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - bridge (Rust)
+        - plugin (QML)
+        - nix module
+        - CI / release-engineering
+        - documentation
+    validations:
+      required: true

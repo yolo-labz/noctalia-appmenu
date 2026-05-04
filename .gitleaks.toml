@@ -1,0 +1,17 @@
+[allowlist]
+description = "Allow non-secret strings that look like tokens but aren't"
+paths = [
+  '''docs/adr/.*''',
+  '''SECURITY\.md''',
+  '''README\.md''',
+  '''CHANGELOG\.md''',
+  '''cliff\.toml''',
+  '''sonar-project\.properties''',
+]
+regexes = [
+  '''yolo-labz_noctalia-appmenu''',                  # Sonar project key, not a secret
+  '''gho_\*+''',                                     # Redacted token strings in docs
+]
+
+[extend]
+useDefault = true

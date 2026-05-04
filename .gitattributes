@@ -1,0 +1,7 @@
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.svg text
+*.qml linguist-language=QML
+plugin/**/*.js linguist-language=QML
+bridge/Cargo.lock linguist-generated=true

@@ -1,0 +1,130 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build-and-attest:
+    name: Build, attest, publish
+    runs-on: [self-hosted, Linux, X64, vm103, noctalia-appmenu]
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG_NAME: ${{ github.ref_name }}
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Export SOURCE_DATE_EPOCH
+        run: |
+          set -eu
+          SDE=$(git log -1 --format=%ct)
+          echo "SOURCE_DATE_EPOCH=$SDE" >> "$GITHUB_ENV"
+
+      - name: Build bridge (nix)
+        run: |
+          set -eu
+          nix build .#noctalia-appmenu-bridge --print-build-logs --accept-flake-config
+          mkdir -p dist
+          cp -L result/bin/noctalia-appmenu-bridge dist/noctalia-appmenu-bridge-linux-x86_64
+          rm -f result
+
+      - name: Build plugin tarball
+        run: |
+          set -eu
+          tar --owner=0 --group=0 --numeric-owner --sort=name \
+              --mtime="@${SOURCE_DATE_EPOCH}" \
+              -czf dist/noctalia-appmenu-plugin.tar.gz \
+              -C plugin .
+
+      - name: Generate SBOMs (CycloneDX 1.7 + SPDX 2.3) via syft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          SYFT_VERSION="1.43.0"
+          SYFT_AMD64_SHA256="7b98251d2d08926bb5d4639b56b1f0996a58ef6667c5830e3fe3cd3ad5f4214a"
+          mkdir -p "$HOME/.local/bin"
+          tarball="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          gh release download "v${SYFT_VERSION}" --repo anchore/syft --pattern "${tarball}" --output "/tmp/${tarball}"
+          actual_sha="$(sha256sum "/tmp/${tarball}" | awk '{print $1}')"
+          if [ "$actual_sha" != "$SYFT_AMD64_SHA256" ]; then
+            echo "::error::syft tarball sha256 mismatch"; exit 1
+          fi
+          tar xzf "/tmp/${tarball}" -C "$HOME/.local/bin" syft
+          export PATH="$HOME/.local/bin:$PATH"
+          syft . \
+            -o cyclonedx-json@1.7=dist/sbom.cdx.json \
+            -o spdx-json=dist/sbom.spdx.json
+
+      - name: Generate cargo-cyclonedx SBOM (Rust-native)
+        run: nix develop --command bash -c 'cd bridge && cargo cyclonedx --format json --override-filename ../dist/sbom.cargo.cdx'
+
+      - name: Compute checksums
+        run: |
+          cd dist
+          sha256sum noctalia-appmenu-bridge-linux-x86_64 noctalia-appmenu-plugin.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-checksums: 'dist/checksums.txt'
+
+      - name: Attest SBOM (CycloneDX 1.7)
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-checksums: 'dist/checksums.txt'
+          sbom-path: 'dist/sbom.cdx.json'
+
+      - name: Attest SBOM (SPDX 2.3)
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-checksums: 'dist/checksums.txt'
+          sbom-path: 'dist/sbom.spdx.json'
+
+      - name: Install git-cliff via gh release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          GC_VERSION=2.6.1
+          tarball="git-cliff-${GC_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
+          gh release download "v${GC_VERSION}" --repo orhun/git-cliff --pattern "${tarball}" --output "/tmp/${tarball}"
+          tar -xzf "/tmp/${tarball}" -C /tmp
+          install -m 0755 "/tmp/git-cliff-${GC_VERSION}/git-cliff" "$HOME/.local/bin/git-cliff"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Generate CHANGELOG
+        run: git-cliff -o CHANGELOG.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          gh release create "$TAG_NAME" \
+            --title "$TAG_NAME" \
+            --notes-file CHANGELOG.md \
+            dist/noctalia-appmenu-bridge-linux-x86_64 \
+            dist/noctalia-appmenu-plugin.tar.gz \
+            dist/checksums.txt \
+            dist/sbom.cdx.json \
+            dist/sbom.spdx.json \
+            dist/sbom.cargo.cdx.json

@@ -1,0 +1,53 @@
+# Lefthook config — fast git hooks for this repo.
+#
+# Wired up via `lefthook install` (run inside `nix develop`).
+# Devshell ships lefthook + commitlint + gitleaks, so first-time
+# setup is one command.
+
+pre-commit:
+  parallel: true
+  commands:
+    rust-fmt:
+      glob: "bridge/**/*.rs"
+      run: cd bridge && cargo fmt --check
+    rust-clippy:
+      glob: "bridge/**/*.rs"
+      run: cd bridge && cargo clippy --all-features --all-targets -- -D warnings
+    qmllint:
+      glob: "plugin/**/*.qml"
+      run: qmllint {staged_files}
+    nix-fmt:
+      glob: "{*.nix,**/*.nix,flake.lock}"
+      run: alejandra --check {staged_files}
+    deadnix:
+      glob: "**/*.nix"
+      run: deadnix --fail {staged_files}
+    statix:
+      glob: "**/*.nix"
+      run: statix check {staged_files}
+    gitleaks:
+      run: gitleaks protect --staged --redact --config .gitleaks.toml
+    actionlint:
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: actionlint {staged_files}
+    zizmor:
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: zizmor --persona=auditor {staged_files}
+
+commit-msg:
+  commands:
+    conventional:
+      run: commitlint --edit {1}
+    dco:
+      run: |
+        if ! grep -q '^Signed-off-by:' "{1}"; then
+          echo "ERROR: missing DCO sign-off. Use 'git commit -s'"
+          exit 1
+        fi
+
+pre-push:
+  commands:
+    cargo-test:
+      run: cd bridge && cargo test --all-features --no-fail-fast
+    nix-flake-check:
+      run: nix flake check --no-build

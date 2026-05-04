@@ -1,0 +1,39 @@
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /bridge
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: America/Recife
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: "fix(bridge)"
+      include: scope
+    groups:
+      zbus-stack:
+        patterns: ["zbus", "zvariant"]
+      tokio-stack:
+        patterns: ["tokio*", "futures*"]
+      tracing:
+        patterns: ["tracing*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "07:00"
+      timezone: America/Recife
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci"
+      include: scope

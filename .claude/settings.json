@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.claude.com/schemas/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(cargo:*)",
+      "Bash(rustc:*)",
+      "Bash(rustfmt:*)",
+      "Bash(clippy:*)",
+      "Bash(qmllint:*)",
+      "Bash(qmlformat:*)",
+      "Bash(nix:*)",
+      "Bash(nixos-rebuild:*)",
+      "Bash(home-manager:*)",
+      "Bash(alejandra:*)",
+      "Bash(deadnix:*)",
+      "Bash(statix:*)",
+      "Bash(just:*)",
+      "Bash(lefthook:*)",
+      "Bash(actionlint:*)",
+      "Bash(zizmor:*)",
+      "Bash(gitleaks:*)",
+      "Bash(commitlint:*)",
+      "Bash(git-cliff:*)",
+      "Bash(busctl:*)",
+      "Bash(gdbus:*)",
+      "Bash(niri msg:*)",
+      "Bash(systemctl --user:*)",
+      "Bash(journalctl --user:*)",
+      "Bash(gh:*)"
+    ]
+  },
+  "env": {
+    "RUST_LOG": "noctalia_appmenu_bridge=debug,zbus=info"
+  }
+}

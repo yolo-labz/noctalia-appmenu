@@ -1,0 +1,58 @@
+[package]
+name = "noctalia-appmenu-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+authors = ["Pedro H S Balbino <phsb5321@gmail.com>"]
+description = "Bridge daemon: niri-IPC → com.canonical.AppMenu.Registrar → fixed-path active-app DBusMenu proxy."
+homepage = "https://github.com/yolo-labz/noctalia-appmenu"
+repository = "https://github.com/yolo-labz/noctalia-appmenu"
+license = "Apache-2.0"
+keywords = ["wayland", "niri", "noctalia", "dbus", "appmenu"]
+categories = ["gui", "os::linux-apis"]
+readme = "../README.md"
+
+[lib]
+name = "noctalia_appmenu_bridge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "noctalia-appmenu-bridge"
+path = "src/main.rs"
+
+[dependencies]
+zbus = { version = "4.4", default-features = false, features = ["tokio"] }
+zvariant = "4.2"
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "signal", "time", "process", "sync", "io-util"] }
+tokio-stream = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+clap = { version = "4.5", features = ["derive"] }
+toml = "0.8"
+thiserror = "1.0"
+anyhow = "1.0"
+nix = { version = "0.29", features = ["signal", "user"] }
+
+[dev-dependencies]
+mockall = "0.13"
+tokio-test = "0.4"
+tempfile = "3.13"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+debug = false
+panic = "abort"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = "none"
+
+# Reproducibility: the workflow exports SOURCE_DATE_EPOCH; cargo + the
+# linker both honour it. No additional [build] config needed.

@@ -1,0 +1,77 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[bug] "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please check the README's "Verify the install" section first — most issues are missing `appmenu-registrar` or unset `QT_QPA_PLATFORMTHEME`.
+
+  - type: input
+    id: version
+    attributes:
+      label: noctalia-appmenu version
+      description: Output of `noctalia-appmenu-bridge --version-json`
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: niri
+    attributes:
+      label: niri version
+      description: Output of `niri --version`
+    validations:
+      required: true
+
+  - type: input
+    id: app
+    attributes:
+      label: Affected application(s)
+      description: Anki, kate, qutebrowser, etc. + their version
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Bridge logs
+      description: |
+        ```bash
+        journalctl --user -u noctalia-appmenu-bridge.service -n 50 --no-pager
+        ```
+      render: shell
+
+  - type: textarea
+    id: niri-windows
+    attributes:
+      label: niri window state
+      description: |
+        ```bash
+        niri msg --json windows | jq '.[] | {id, app_id, pid, is_focused}'
+        ```
+      render: shell
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      options:
+        - label: I have read CONTRIBUTING.md and verified the install via the README's "Verify" section.
+          required: true
