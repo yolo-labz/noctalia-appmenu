@@ -1,0 +1,31 @@
+changelog:
+  exclude:
+    labels:
+      - chore
+      - ci
+      - dependencies
+      - duplicate
+      - invalid
+      - wontfix
+  categories:
+    - title: Breaking changes
+      labels:
+        - breaking
+        - "breaking-change"
+    - title: Features
+      labels:
+        - enhancement
+        - feat
+    - title: Bug fixes
+      labels:
+        - bug
+        - fix
+    - title: Performance
+      labels:
+        - perf
+    - title: Documentation
+      labels:
+        - docs
+    - title: Other changes
+      labels:
+        - "*"

@@ -1,0 +1,80 @@
+# Custom Semgrep rules tailored to the noctalia-appmenu-bridge codebase.
+# Run via .github/workflows/semgrep.yml + lefthook pre-commit.
+# Each rule must have a real reason — no cargo-cult lints.
+
+rules:
+  - id: no-unwrap-outside-tests
+    pattern: $X.unwrap()
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/*_test.rs"
+        - "**/benches/**"
+        - "build.rs"
+    message: |
+      `unwrap()` is forbidden in production paths. Use `?` to
+      propagate, or `.expect("<short context>")` if you genuinely
+      cannot recover. Tests are exempt.
+    severity: ERROR
+    languages: [rust]
+
+  - id: no-raw-env-var
+    pattern: std::env::var($X)
+    paths:
+      exclude:
+        - "bridge/src/config.rs"
+        - "**/tests/**"
+        - "**/benches/**"
+        - "build.rs"
+    message: |
+      Centralise environment-variable reads in `config.rs` so that
+      misconfiguration surfaces at startup, not at first use. Add
+      the new field to `Config` instead of reading inline.
+    severity: WARNING
+    languages: [rust]
+
+  - id: tokio-spawn-must-handle-error
+    patterns:
+      - pattern: tokio::spawn($EXPR)
+      - pattern-not: let $H = tokio::spawn($EXPR);
+      - pattern-not-inside: |
+          let _ = tokio::spawn(...);
+    message: |
+      `tokio::spawn` returns a `JoinHandle`; dropping it silently
+      swallows panics and errors. Bind the handle (or explicitly
+      `let _ = ...`) and document the discard.
+    severity: ERROR
+    languages: [rust]
+
+  - id: no-println-in-lib
+    pattern-either:
+      - pattern: println!(...)
+      - pattern: eprintln!(...)
+    paths:
+      include:
+        - "bridge/src/**/*.rs"
+      exclude:
+        - "bridge/src/main.rs"
+        - "bridge/src/bin/**"
+    message: |
+      Use `tracing::{info,warn,error,debug}` — `println!` bypasses
+      the structured-logging pipeline and never lands in journald
+      JSON. `main.rs` is exempt for the `--version-json` print.
+    severity: WARNING
+    languages: [rust]
+
+  - id: no-todo-fixme-in-prod
+    pattern-regex: '(TODO|FIXME|XXX|HACK)\(?\)?'
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "docs/**"
+        - "specs/**"
+        - "*.md"
+    message: |
+      Open a GitHub issue and reference it (e.g. `// gh-42: …`)
+      instead of a bare TODO. Specs/docs are exempt.
+    severity: WARNING
+    languages:
+      - rust
+      - generic
