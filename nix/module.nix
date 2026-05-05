@@ -84,8 +84,10 @@ in {
       recursive = true;
     };
 
-    # Bridge config
-    xdg.configFile."noctalia-appmenu-bridge/config.toml".text = let
+    # Bridge config — emit via pkgs.formats.toml's generator (handles
+    # quoting + types correctly). `lib.generators.toTOML` does not
+    # exist in nixpkgs (the formatter lives in `pkgs.formats`).
+    xdg.configFile."noctalia-appmenu-bridge/config.toml".source = let
       defaults = {
         focus_debounce_ms = 75;
         registrar_debounce_ms = 250;
@@ -95,7 +97,7 @@ in {
       };
       merged = defaults // cfg.bridge.config;
     in
-      lib.generators.toTOML {} merged;
+      (pkgs.formats.toml {}).generate "noctalia-appmenu-bridge.toml" merged;
 
     # systemd --user units
     systemd.user.services.noctalia-appmenu-bridge = {
