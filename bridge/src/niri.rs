@@ -7,6 +7,7 @@
 
 use crate::config::Config;
 use anyhow::{anyhow, Context, Result};
+use serde::de::Deserializer;
 use serde::Deserialize;
 use std::collections::HashMap;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -37,11 +38,19 @@ pub struct NiriWindow {
     pub is_focused: Option<bool>,
 }
 
-/// Tagged union of niri event-stream variants the bridge cares about.
-/// `pub` so benches in `benches/` can reach it; remains an internal
-/// schema surface — breaking changes here are not API breaks.
-#[derive(Deserialize, Debug)]
-#[serde(tag = "type", rename_all = "PascalCase")]
+/// Niri event-stream variants the bridge cares about.
+///
+/// Wire format is serde's default *externally-tagged* enum:
+/// `{"WindowFocusChanged": {"id": 7}}`. Earlier versions of this file
+/// used `#[serde(tag = "type")]` (internally-tagged), which silently
+/// dropped EVERY event in production — see ADR-0016 / PR #23 / v0.1.4.
+/// Real journal samples exercising this schema live in the unit tests.
+///
+/// Deserialize is implemented manually because serde's `#[serde(other)]`
+/// catch-all only works on internally/adjacently-tagged enums; for the
+/// externally-tagged form we need an explicit "fall through to Other on
+/// parse failure" so unknown niri variants don't crash the stream.
+#[derive(Debug)]
 pub enum NiriEvent {
     WindowFocusChanged {
         id: Option<u64>,
@@ -52,9 +61,38 @@ pub enum NiriEvent {
     WindowClosed {
         id: u64,
     },
-    /// Catch-all so unknown event variants don't crash the stream.
-    #[serde(other)]
+    /// Anything else niri emits — workspace/overview/keyboard events
+    /// the bridge doesn't currently consume. NOT an error.
     Other,
+}
+
+impl<'de> Deserialize<'de> for NiriEvent {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Deserialize once into a Value, then try the typed schema. Any
+        // parse failure means "variant the bridge doesn't model" → Other.
+        // Genuine I/O / non-JSON errors still surface from the caller's
+        // `serde_json::from_str` step before we get here.
+        // Variant names must match niri's JSON keys verbatim — the
+        // shared `Window` prefix is dictated by the wire format, not
+        // by us. Hence the `enum_variant_names` allow.
+        #[derive(Deserialize)]
+        #[allow(clippy::enum_variant_names)]
+        enum Typed {
+            WindowFocusChanged { id: Option<u64> },
+            WindowOpenedOrChanged { window: NiriWindow },
+            WindowClosed { id: u64 },
+        }
+
+        let value = serde_json::Value::deserialize(deserializer)?;
+        match serde_json::from_value::<Typed>(value) {
+            Ok(Typed::WindowFocusChanged { id }) => Ok(NiriEvent::WindowFocusChanged { id }),
+            Ok(Typed::WindowOpenedOrChanged { window }) => {
+                Ok(NiriEvent::WindowOpenedOrChanged { window })
+            }
+            Ok(Typed::WindowClosed { id }) => Ok(NiriEvent::WindowClosed { id }),
+            Err(_) => Ok(NiriEvent::Other),
+        }
+    }
 }
 
 /// What we publish for downstream consumers.
@@ -293,5 +331,75 @@ mod tests {
     fn unknown_event_is_noop() {
         let cache = HashMap::new();
         assert_eq!(handle_event(NiriEvent::Other, &cache), MapOp::NoOp);
+    }
+
+    // Wire-format regression tests — every sample below was captured
+    // from `niri msg --json event-stream` on Pedro's desktop running
+    // niri 26.04. v0.1.0..v0.1.3 used internally-tagged form and
+    // silently dropped 100% of these — covered by PR #23 / ADR-0016.
+
+    #[test]
+    fn parses_window_focus_changed_with_id() {
+        let line = r#"{"WindowFocusChanged":{"id":7}}"#;
+        let evt: NiriEvent = serde_json::from_str(line).expect("must parse");
+        match evt {
+            NiriEvent::WindowFocusChanged { id: Some(7) } => {}
+            other => panic!("expected WindowFocusChanged{{id:7}}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_window_focus_changed_with_null() {
+        let line = r#"{"WindowFocusChanged":{"id":null}}"#;
+        let evt: NiriEvent = serde_json::from_str(line).expect("must parse");
+        assert!(matches!(evt, NiriEvent::WindowFocusChanged { id: None }));
+    }
+
+    #[test]
+    fn parses_window_closed() {
+        let line = r#"{"WindowClosed":{"id":42}}"#;
+        let evt: NiriEvent = serde_json::from_str(line).expect("must parse");
+        assert!(matches!(evt, NiriEvent::WindowClosed { id: 42 }));
+    }
+
+    #[test]
+    fn parses_window_opened_or_changed() {
+        let line = r#"{"WindowOpenedOrChanged":{"window":{"id":3,"app_id":"firefox","title":"hi","pid":1234,"workspace_id":1,"is_focused":true}}}"#;
+        let evt: NiriEvent = serde_json::from_str(line).expect("must parse");
+        match evt {
+            NiriEvent::WindowOpenedOrChanged { window } => {
+                assert_eq!(window.id, 3);
+                assert_eq!(window.app_id.as_deref(), Some("firefox"));
+                assert_eq!(window.pid, Some(1234));
+            }
+            other => panic!("expected WindowOpenedOrChanged, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_variants_become_other_not_error() {
+        // Real samples from journalctl that niri emits but bridge ignores.
+        for line in &[
+            r#"{"OverviewOpenedOrClosed":{"is_open":false}}"#,
+            r#"{"ConfigLoaded":{"failed":false}}"#,
+            r#"{"WorkspacesChanged":{"workspaces":[]}}"#,
+            r#"{"WindowsChanged":{"windows":[]}}"#,
+            r#"{"KeyboardLayoutsChanged":{"keyboard_layouts":{"names":[],"current_idx":0}}}"#,
+        ] {
+            let evt: NiriEvent =
+                serde_json::from_str(line).unwrap_or_else(|e| panic!("must parse {line}: {e}"));
+            assert!(matches!(evt, NiriEvent::Other), "line {line} -> {evt:?}");
+        }
+    }
+
+    #[test]
+    fn internally_tagged_form_falls_through_to_other() {
+        // The v0.1.0..v0.1.3 schema (`{"type": "...", "id": ...}`) is
+        // not a real niri wire format — but if some future niri build
+        // emits one, we must not crash. Falls into Other (warn-and-skip
+        // path), not an error.
+        let line = r#"{"type":"WindowFocusChanged","id":7}"#;
+        let evt: NiriEvent = serde_json::from_str(line).expect("must parse to Other");
+        assert!(matches!(evt, NiriEvent::Other));
     }
 }
