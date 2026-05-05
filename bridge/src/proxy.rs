@@ -15,10 +15,33 @@
 //! to a constant address. Out of scope for v0.1.
 
 use crate::{active::ActiveSnapshot, config::Config};
+use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{watch, Mutex};
-use tracing::info;
+use tracing::{info, warn};
 use zbus::{interface, Connection};
+
+/// Serialise the active snapshot to a JSON file. Atomic write:
+/// write to `<path>.tmp` then rename, so file-watching consumers
+/// never observe a partially-written file. Errors are logged but
+/// non-fatal — the D-Bus proxy still publishes correctly.
+fn write_active_json(path: &Path, snap: &ActiveSnapshot) {
+    let payload = serde_json::json!({
+        "focus_pid": snap.focus_pid,
+        "app_id": snap.app_id,
+        "title": snap.title,
+        "menu_service": snap.menu_service,
+        "menu_path": snap.menu_path.as_ref().map(|p| p.as_str()).unwrap_or(""),
+    });
+    let tmp = path.with_extension("json.tmp");
+    if let Err(e) = std::fs::write(&tmp, payload.to_string()) {
+        warn!(error=?e, path=%path.display(), "active.json write failed");
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        warn!(error=?e, path=%path.display(), "active.json rename failed");
+    }
+}
 
 /// Plain-old-data view of the four properties exported on the active
 /// proxy interface. Updated atomically as a unit (all four properties
@@ -95,8 +118,32 @@ pub async fn run(
     conn.request_name(cfg.publish_service.as_str()).await?;
     info!(service = %cfg.publish_service, path = %cfg.publish_path, "owning active proxy");
 
+    // File-IPC fallback: write the active snapshot to a JSON file
+    // alongside the D-Bus proxy. Quickshell's `DBusObject` does not
+    // exist as a public QML type (verified against v0.2.1 type list),
+    // so the v0.1 plugin reads this file via `Quickshell.Io.FileView`
+    // instead. ADR-0007 second-half (DBusMenu mirror) supersedes this
+    // file-IPC path in v0.2.
+    let cache_dir = std::env::var("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .ok()
+        .or_else(|| {
+            std::env::var("HOME")
+                .map(|h| std::path::PathBuf::from(h).join(".cache"))
+                .ok()
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join("noctalia-appmenu");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let active_json_path = cache_dir.join("active.json");
+
+    // Emit an initial empty snapshot so the file exists at startup
+    // (matters for first-load of the QML widget).
+    write_active_json(&active_json_path, &ActiveSnapshot::empty());
+
     while active_rx.changed().await.is_ok() {
         let snapshot = active_rx.borrow_and_update().clone();
+        write_active_json(&active_json_path, &snapshot);
         {
             let mut s = proxy.inner.lock().await;
             s.bus_name = snapshot.menu_service;

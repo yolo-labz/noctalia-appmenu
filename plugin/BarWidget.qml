@@ -1,25 +1,24 @@
-// noctalia-appmenu — AppMenu bar widget (v0.1: fallback-only)
+// noctalia-appmenu — AppMenu bar widget (v0.1.3+: FileView-based)
 //
-// Subscribes to org.noctalia.AppMenu /org/noctalia/AppMenu/Active
-// (published by noctalia-appmenu-bridge) and renders the focused
-// app's name in the topbar.
+// Reads `~/.cache/noctalia-appmenu/active.json` (written by
+// noctalia-appmenu-bridge on every focus change) and renders the
+// focused application's name in the topbar.
 //
-// **v0.1 LIMITATION**: this widget renders only the focused app's
-// name (from the registrar's published `appId`). Full menu-tree
-// rendering is blocked on Quickshell's DBusMenuHandle being
-// QML_UNCREATABLE — see ADR-0015 for the v0.2 mirror plan.
+// **v0.1 LIMITATION**: app-name only. Full menu rendering deferred
+// to v0.2 — see ADR-0015 + spec 002 (bridge DBusMenu mirror).
 //
-// Once spec 002 lands the bridge will also implement
-// `com.canonical.dbusmenu` server-side at a fixed path and a
-// public DBusMenuHandle factory will let us bind it from QML.
-// At that point we replace the Text fallback below with a Repeater
-// over `handle.menu.children`.
+// Why FileView, not D-Bus: the upstream Quickshell QML API does not
+// expose a public `DBusObject` consumer for arbitrary services
+// (verified against v0.2.1 type listing). A small JSON file written
+// by the bridge sidesteps the missing primitive without forking
+// Quickshell. v0.2's mirror lands a `DBusMenuHandle` at a fixed
+// address, at which point this widget switches back to D-Bus
+// directly.
 
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
-import Quickshell.Wayland
 
 Item {
     id: root
@@ -29,23 +28,50 @@ Item {
     property int maxLabelWidth: 200
     property bool showOnlyWhenFocused: true
 
-    // The bridge advertises (busName, objectPath, appId, title) as
-    // properties on org.noctalia.AppMenu /org/noctalia/AppMenu/Active.
-    DBusObject {
-        id: activeProxy
-        bus: DBus.SessionBus
-        service: "org.noctalia.AppMenu"
-        objectPath: "/org/noctalia/AppMenu/Active"
-        interfaceName: "org.noctalia.AppMenu.Active"
+    // Derived state from bridge's JSON file. Updated by FileView's
+    // automatic file-watch (inotify under the hood).
+    property string appId: ""
+    property string title: ""
+    property string menuService: ""
+    property string menuPath: ""
 
-        property string busName
-        property string objectPath_
-        property string appId
-        property string title
+    // The bridge's JSON file. Populated by the active proxy task in
+    // bridge/src/proxy.rs. Path resolution mirrors the bridge's:
+    // $XDG_CACHE_HOME/noctalia-appmenu/active.json then
+    // $HOME/.cache/noctalia-appmenu/active.json.
+    FileView {
+        id: activeFile
+        path: {
+            const xdg = Quickshell.env("XDG_CACHE_HOME");
+            const home = Quickshell.env("HOME");
+            const base = xdg && xdg.length > 0
+                ? xdg
+                : (home + "/.cache");
+            return base + "/noctalia-appmenu/active.json";
+        }
+        watchChanges: true
+        blockLoading: false
+
+        onFileChanged: reload()
+        onLoaded: {
+            if (text.length === 0) {
+                root.appId = ""
+                root.title = ""
+                return
+            }
+            try {
+                const j = JSON.parse(text);
+                root.appId = j.app_id || ""
+                root.title = j.title || ""
+                root.menuService = j.menu_service || ""
+                root.menuPath = j.menu_path || ""
+            } catch (e) {
+                // Partial-write or empty file. Ignore until next change.
+            }
+        }
     }
 
-    visible: activeProxy.appId !== "" || root.fallbackText !== ""
-
+    visible: appId !== "" || fallbackText !== ""
     implicitHeight: parent ? parent.height : 28
     implicitWidth: label.implicitWidth + 16
 
@@ -53,8 +79,8 @@ Item {
         id: label
         anchors.verticalCenter: parent.verticalCenter
         anchors.horizontalCenter: parent.horizontalCenter
-        text: activeProxy.appId !== "" ? activeProxy.appId : root.fallbackText
-        color: "#cdd6f4"        // ctp-text — to migrate to noctalia theme tokens once available
+        text: root.appId !== "" ? root.appId : root.fallbackText
+        color: "#cdd6f4"        // ctp-text — TODO: noctalia theme tokens
         font.family: "Inter"
         font.pixelSize: 13
         elide: Text.ElideRight

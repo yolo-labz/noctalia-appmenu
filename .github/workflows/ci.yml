@@ -61,19 +61,11 @@ jobs:
           persist-credentials: false
 
       - name: qmllint
-        run: |
-          nix develop --command bash -c '
-            qmllint --version
-            qmllint plugin/BarWidget.qml plugin/components/*.qml > qmllint.sarif
-          '
-
-      - name: Upload qmllint SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18
-        with:
-          sarif_file: qmllint.sarif
-          category: qmllint
-        continue-on-error: true
+        # qmllint has no native SARIF emitter; we just verify exit code
+        # and pipe output to console for human review. plugin/components/
+        # was retired in v0.1.3 (BarWidget FileView rewrite); only the
+        # top-level BarWidget.qml ships in v0.1.x.
+        run: nix develop --command bash -c 'qmllint --version && qmllint plugin/BarWidget.qml'
 
   nix-flake-check:
     name: Nix flake check
