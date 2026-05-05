@@ -1,4 +1,4 @@
-// noctalia-appmenu — AppMenu bar widget (v0.1.8+: fixed-width slot)
+// noctalia-appmenu — AppMenu bar widget (v0.1.9+: FileView text() fix)
 //
 // Reads `~/.cache/noctalia-appmenu/active.json` (written by
 // noctalia-appmenu-bridge on every focus change) and renders the
@@ -109,13 +109,27 @@ Item {
 
         onFileChanged: reload()
         onLoaded: {
-            if (text.length === 0) {
+            // ── CRITICAL: `text` is a FUNCTION on Quickshell.Io.FileView,
+            // not a property. v0.1.6..v0.1.8 used `.text` as a property —
+            // it returned the function reference (coerced to empty
+            // string), making `text.length === 0` ALWAYS true and
+            // silently dropping every JSON read. The widget never
+            // populated `appId`/`title` regardless of how many focus
+            // events the bridge wrote. Use `text()` (call) to get
+            // the actual file contents. ADR-0021 / PR #28.
+            //
+            // Confirmed by reading
+            // /nix/store/.../share/qt-6/qml/Quickshell/Io/FileView.qml
+            // and noctalia-shell's own usage in
+            // Services/Theming/ColorSchemeService.qml::schemeReader.
+            const content = text();
+            if (!content || content.length === 0) {
                 root.appId = ""
                 root.title = ""
                 return
             }
             try {
-                const j = JSON.parse(text);
+                const j = JSON.parse(content);
                 root.appId = j.app_id || ""
                 root.title = j.title || ""
                 root.menuService = j.menu_service || ""
