@@ -70,7 +70,7 @@ jobs:
           tar xzf "/tmp/${tarball}" -C "$HOME/.local/bin" syft
           export PATH="$HOME/.local/bin:$PATH"
           syft . \
-            -o cyclonedx-json@1.7=dist/sbom.cdx.json \
+            -o cyclonedx-json@1.6=dist/sbom.cdx.json \
             -o spdx-json=dist/sbom.spdx.json
 
       - name: Generate cargo-cyclonedx SBOM (Rust-native)

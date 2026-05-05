@@ -28,6 +28,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: crate-ci/typos@d01d1e0e6e1f0ad8f02bc97f3f7a3fbd8c8728e3 # v1.30.0
+      - uses: crate-ci/typos@5c4feb79c242f07ca644aeca31aa4292e0b85fe4 # v1.45.2
         with:
           config: typos.toml

@@ -105,6 +105,7 @@
             cargo-llvm-cov
             cargo-cyclonedx
             cargo-deny
+            cargo-machete
             cargo-nextest
 
             # Nix tooling
@@ -116,14 +117,20 @@
             lefthook
             gitleaks
             commitlint
+            actionlint
+            zizmor
+            typos
+            semgrep
 
-            # QML / Qt
+            # QML / Qt — qmllint ships with qttools
             qt6.qtdeclarative
             qt6.qttools
-            qt6Packages.quickshell
 
             # niri (for integration tests + manual smoke)
             niri
+
+            # Docs
+            mdbook
 
             # Helpers
             just
@@ -132,15 +139,19 @@
             yq-go
             gh
             git-cliff
+            tokei
 
             # Fake registrar tooling
             python3
             python3Packages.dbus-python
             python3Packages.pygobject3
 
-            # D-Bus debugging
-            busctl
-            d-spy
+            # D-Bus debugging — busctl ships with systemd; glib
+            # provides gdbus. Quickshell `qs` CLI is upstream-only
+            # at git.outfoxxed.me/quickshell — not in nixpkgs;
+            # users add it via overlay if they need it for plugin
+            # live-reload tests.
+            glib
           ];
 
           shellHook = ''
