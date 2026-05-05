@@ -1,4 +1,4 @@
-// noctalia-appmenu — AppMenu bar widget (v0.1.6+: bar-widget API contract)
+// noctalia-appmenu — AppMenu bar widget (v0.1.7+: always-visible)
 //
 // Reads `~/.cache/noctalia-appmenu/active.json` (written by
 // noctalia-appmenu-bridge on every focus change) and renders the
@@ -68,6 +68,28 @@ Item {
     property string menuService: ""
     property string menuPath: ""
 
+    // ── Display string (always non-empty so the widget claims layout) ─
+    // Why: noctalia's `Modules/Bar/Extras/BarWidgetLoader.qml` returns
+    // `implicitWidth = 0` whenever its child item has `visible: false`
+    // (`getImplicitSize` checks `item.visible`). v0.1.6's
+    // `visible: appId !== "" || fallbackText !== ""` made the widget
+    // 0-width during the async FileView load on Pedro's desktop —
+    // the bar laid out before active.json was read, then never reflowed
+    // when `visible` flipped to true. Net effect: invisible widget,
+    // bar shows Launcher → Clock with no gap. ADR-0019 / PR #26.
+    //
+    // Fix: always render. When `appId` and `fallbackText` are both
+    // empty, fall back to a thin glyph so the widget claims a
+    // reserved-but-tiny slot (visual placeholder + non-zero
+    // implicitWidth so the bar's getImplicitSize returns > 0).
+    readonly property string displayText: {
+        if (appId !== "")
+            return appId;
+        if (fallbackText !== "")
+            return fallbackText;
+        return "·"; // CTP middle-dot placeholder
+    }
+
     // The bridge's JSON file. Populated by the active proxy task in
     // bridge/src/proxy.rs. Path resolution mirrors the bridge's:
     // $XDG_CACHE_HOME/noctalia-appmenu/active.json then
@@ -104,15 +126,22 @@ Item {
         }
     }
 
-    visible: appId !== "" || fallbackText !== ""
+    // ALWAYS visible — see displayText comment for rationale. The bar
+    // owner (BarWidgetLoader) gates layout off `item.visible`, so a
+    // single false-then-true transition during async FileView load
+    // leaves the bar permanently 0-width for this slot.
     implicitHeight: Style.barHeight
     implicitWidth: label.implicitWidth + Style.marginM * 2
+    // Dim the placeholder so it reads as "no app" rather than "an app
+    // named '·'". The `·` glyph at half-opacity is a clear visual
+    // shorthand once Pedro's eyes adapt.
+    opacity: appId !== "" || fallbackText !== "" ? 1.0 : 0.45
 
     Text {
         id: label
         anchors.verticalCenter: parent.verticalCenter
         anchors.horizontalCenter: parent.horizontalCenter
-        text: root.appId !== "" ? root.appId : root.fallbackText
+        text: root.displayText
         // Theme integration via noctalia tokens — Color.mOnSurface
         // tracks the active color scheme; switching to "Wallpaper" or
         // a different predefinedScheme reflows the widget instantly.
