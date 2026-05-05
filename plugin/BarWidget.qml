@@ -1,4 +1,4 @@
-// noctalia-appmenu — AppMenu bar widget (v0.1.7+: always-visible)
+// noctalia-appmenu — AppMenu bar widget (v0.1.8+: fixed-width slot)
 //
 // Reads `~/.cache/noctalia-appmenu/active.json` (written by
 // noctalia-appmenu-bridge on every focus change) and renders the
@@ -126,12 +126,34 @@ Item {
         }
     }
 
-    // ALWAYS visible — see displayText comment for rationale. The bar
-    // owner (BarWidgetLoader) gates layout off `item.visible`, so a
-    // single false-then-true transition during async FileView load
-    // leaves the bar permanently 0-width for this slot.
+    // ── Fixed-width slot (v0.1.8 / ADR-0020) ────────────────────────
+    //
+    // `BarWidgetLoader.qml:42` (noctalia-shell @9f8dd48) wires its own
+    // `implicitWidth` like:
+    //
+    //     implicitWidth: isVerticalBar ? barHeight : getImplicitSize(loader.item, "implicitWidth")
+    //
+    // QML binds the result of `getImplicitSize(loader.item, …)` to
+    // changes in `loader.item` (the var) but NOT to
+    // `loader.item.implicitWidth` (the deeper property — a function
+    // call hides the deep dependency from QML's binding tracker).
+    //
+    // Net effect on Pedro's desktop: first-paint widget computed
+    // `implicitWidth = 3px` (`·` placeholder). BarWidgetLoader cached
+    // 3px. FileView's async `onLoaded` populated `appId =
+    // "com.mitchellh.ghostty"` → label.implicitWidth grew to ~160px →
+    // root.implicitWidth grew accordingly → BUT loader's cached 3px
+    // slot never re-evaluated. Text rendered past the loader's bounds,
+    // got clipped, and looked invisible because sibling widgets sat
+    // right where the overflowing text would have shown.
+    //
+    // Fix: pin `implicitWidth` to the user-configured `maxLabelWidth +
+    // marginM*2` regardless of current content. The slot is reserved
+    // at full size on first paint, so the cached loader value is
+    // always large enough. The Text inside still elides if its content
+    // is wider than `maxLabelWidth - marginM*2`.
     implicitHeight: Style.barHeight
-    implicitWidth: label.implicitWidth + Style.marginM * 2
+    implicitWidth: maxLabelWidth + Style.marginM * 2
     // Dim the placeholder so it reads as "no app" rather than "an app
     // named '·'". The `·` glyph at half-opacity is a clear visual
     // shorthand once Pedro's eyes adapt.
@@ -139,8 +161,17 @@ Item {
 
     Text {
         id: label
-        anchors.verticalCenter: parent.verticalCenter
-        anchors.horizontalCenter: parent.horizontalCenter
+        // Anchor to fill so the Text's render bounds match the slot
+        // and `elide: Text.ElideRight` actually cuts overflow text.
+        // (anchors.{verticalCenter,horizontalCenter} alone don't
+        // constrain width — Text would grow naturally and overflow
+        // the slot regardless of `Layout.maximumWidth`, which is only
+        // honored inside Layout containers.)
+        anchors.fill: parent
+        anchors.leftMargin: Style.marginM
+        anchors.rightMargin: Style.marginM
+        verticalAlignment: Text.AlignVCenter
+        horizontalAlignment: Text.AlignLeft
         text: root.displayText
         // Theme integration via noctalia tokens — Color.mOnSurface
         // tracks the active color scheme; switching to "Wallpaper" or
@@ -152,6 +183,5 @@ Item {
         // fontScale multiplier in user settings.
         font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
         elide: Text.ElideRight
-        Layout.maximumWidth: root.maxLabelWidth
     }
 }
