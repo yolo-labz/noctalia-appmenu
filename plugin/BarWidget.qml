@@ -1,4 +1,4 @@
-// noctalia-appmenu — AppMenu bar widget (v0.1.3+: FileView-based)
+// noctalia-appmenu — AppMenu bar widget (v0.1.6+: bar-widget API contract)
 //
 // Reads `~/.cache/noctalia-appmenu/active.json` (written by
 // noctalia-appmenu-bridge on every focus change) and renders the
@@ -14,22 +14,55 @@
 // Quickshell. v0.2's mirror lands a `DBusMenuHandle` at a fixed
 // address, at which point this widget switches back to D-Bus
 // directly.
+//
+// **Bar-widget API contract** (ADR-0018): noctalia-shell's BarSection
+// instantiates plugin widgets with these properties injected — the
+// widget MUST declare them or QML errors with
+// `Cannot assign to non-existent property "widgetId"` on every load
+// AND the widget never lays out because the pill-positioning logic
+// reads them. v0.1.0..v0.1.5 omitted them. Reference contract:
+// noctalia-shell `Modules/Bar/Widgets/KeepAwake.qml`.
 
 import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import qs.Commons
+import qs.Services.UI
 
 Item {
     id: root
 
-    // Per-instance settings — read from Settings.data.bar.widgets entry
-    property string fallbackText: ""
-    property int maxLabelWidth: 200
-    property bool showOnlyWhenFocused: true
+    // ── Bar-widget API contract (injected by BarSection.qml) ────────
+    // Required by the layout engine; do NOT remove.
+    property ShellScreen screen
+    property string widgetId: ""
+    property string section: ""
+    property int sectionWidgetIndex: -1
+    property int sectionWidgetsCount: 0
+    property var pluginApi: null
 
-    // Derived state from bridge's JSON file. Updated by FileView's
-    // automatic file-watch (inotify under the hood).
+    // Per-instance widget settings come from the user's
+    // Settings.data.bar.widgets.<section>[index] entry. Pulled the
+    // same way KeepAwake.qml pulls them.
+    readonly property string screenName: screen ? screen.name : ""
+    property var widgetSettings: {
+        if (section && sectionWidgetIndex >= 0 && screenName) {
+            const widgets = Settings.getBarWidgetsForScreen(screenName)[section];
+            if (widgets && sectionWidgetIndex < widgets.length) {
+                return widgets[sectionWidgetIndex];
+            }
+        }
+        return {};
+    }
+
+    // Widget settings — pull from per-instance widgetSettings with
+    // sensible fallbacks. User customises via the bar.widgets entry.
+    readonly property string fallbackText: widgetSettings.fallbackText !== undefined ? widgetSettings.fallbackText : ""
+    readonly property int maxLabelWidth: widgetSettings.maxLabelWidth !== undefined ? widgetSettings.maxLabelWidth : 200
+    readonly property bool showOnlyWhenFocused: widgetSettings.showOnlyWhenFocused !== undefined ? widgetSettings.showOnlyWhenFocused : true
+
+    // ── Derived state from bridge JSON file ─────────────────────────
     property string appId: ""
     property string title: ""
     property string menuService: ""
@@ -72,17 +105,23 @@ Item {
     }
 
     visible: appId !== "" || fallbackText !== ""
-    implicitHeight: parent ? parent.height : 28
-    implicitWidth: label.implicitWidth + 16
+    implicitHeight: Style.barHeight
+    implicitWidth: label.implicitWidth + Style.marginM * 2
 
     Text {
         id: label
         anchors.verticalCenter: parent.verticalCenter
         anchors.horizontalCenter: parent.horizontalCenter
         text: root.appId !== "" ? root.appId : root.fallbackText
-        color: "#cdd6f4"        // ctp-text — TODO: noctalia theme tokens
-        font.family: "Inter"
-        font.pixelSize: 13
+        // Theme integration via noctalia tokens — Color.mOnSurface
+        // tracks the active color scheme; switching to "Wallpaper" or
+        // a different predefinedScheme reflows the widget instantly.
+        color: Color.mOnSurface
+        font.family: Settings.data.ui.fontDefault || "Inter"
+        // Match noctalia's bar text sizing: Style._barBaseFontSize *
+        // fontScale handles both the density (capsuleHeight) and the
+        // fontScale multiplier in user settings.
+        font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
         elide: Text.ElideRight
         Layout.maximumWidth: root.maxLabelWidth
     }
