@@ -43,9 +43,15 @@ pub struct NiriWindow {
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type", rename_all = "PascalCase")]
 pub enum NiriEvent {
-    WindowFocusChanged { id: Option<u64> },
-    WindowOpenedOrChanged { window: NiriWindow },
-    WindowClosed { id: u64 },
+    WindowFocusChanged {
+        id: Option<u64>,
+    },
+    WindowOpenedOrChanged {
+        window: NiriWindow,
+    },
+    WindowClosed {
+        id: u64,
+    },
     /// Catch-all so unknown event variants don't crash the stream.
     #[serde(other)]
     Other,
@@ -199,8 +205,8 @@ async fn snapshot_windows(cfg: &Config) -> Result<HashMap<u64, NiriWindow>> {
         ));
     }
 
-    let windows: Vec<NiriWindow> = serde_json::from_slice(&out.stdout)
-        .context("parsing niri msg windows JSON")?;
+    let windows: Vec<NiriWindow> =
+        serde_json::from_slice(&out.stdout).context("parsing niri msg windows JSON")?;
 
     Ok(windows.into_iter().map(|w| (w.id, w)).collect())
 }

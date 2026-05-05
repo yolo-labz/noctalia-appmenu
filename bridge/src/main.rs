@@ -90,5 +90,8 @@ fn init_tracing(foreground: bool) {
         fmt::layer().json().with_ansi(false).boxed()
     };
 
-    tracing_subscriber::registry().with(env_filter).with(layer).init();
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(layer)
+        .init();
 }

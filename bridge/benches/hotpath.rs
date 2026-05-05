@@ -63,7 +63,9 @@ fn focus_known_window(bencher: Bencher) {
         cache.insert(i, make_window(i, Some(1000 + i as u32)));
     }
     bencher.bench(|| {
-        let evt = NiriEvent::WindowFocusChanged { id: Some(black_box(7)) };
+        let evt = NiriEvent::WindowFocusChanged {
+            id: Some(black_box(7)),
+        };
         handle_event(black_box(evt), black_box(&cache))
     });
 }
@@ -72,7 +74,9 @@ fn focus_known_window(bencher: Bencher) {
 fn focus_unknown_window_resyncs(bencher: Bencher) {
     let cache: HashMap<u64, NiriWindow> = HashMap::new();
     bencher.bench(|| {
-        let evt = NiriEvent::WindowFocusChanged { id: Some(black_box(99)) };
+        let evt = NiriEvent::WindowFocusChanged {
+            id: Some(black_box(99)),
+        };
         handle_event(black_box(evt), black_box(&cache))
     });
 }
@@ -102,7 +106,9 @@ fn upsert_window(bencher: Bencher) {
     let cache: HashMap<u64, NiriWindow> = HashMap::new();
     let win = make_window(42, Some(1234));
     bencher.bench(|| {
-        let evt = NiriEvent::WindowOpenedOrChanged { window: win.clone() };
+        let evt = NiriEvent::WindowOpenedOrChanged {
+            window: win.clone(),
+        };
         match handle_event(black_box(evt), black_box(&cache)) {
             MapOp::Upsert(_, _) => {}
             other => panic!("unexpected: {other:?}"),
