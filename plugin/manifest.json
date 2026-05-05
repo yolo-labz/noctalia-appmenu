@@ -14,8 +14,14 @@
     "services": ["org.noctalia.AppMenu"],
     "binaries": ["noctalia-appmenu-bridge"]
   },
-  "entrypoint": "BarWidget.qml",
-  "widgetIds": ["AppMenu"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "metadata": {
+    "label": "AppMenu",
+    "icon": "menu",
+    "cpuIntensive": false
+  },
   "settings": {
     "fallbackText": "",
     "maxLabelWidth": 200,

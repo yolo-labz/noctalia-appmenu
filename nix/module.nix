@@ -60,10 +60,27 @@ in {
       '';
     };
 
+    # `widgetPlacement` is declared but currently NOT consumed —
+    # bar widget placement lives in the user's noctalia-shell
+    # `settings.json` (Settings.data.bar.widgets.<section>) and
+    # noctalia-shell's HM module (not this one) owns serialising it.
+    # Cross-module config rewrite is out of scope for v0.1; users add
+    # the widget id directly to their bar config:
+    #     bar.widgets.left = [
+    #       { id = "plugin:noctalia-appmenu"; }
+    #     ];
+    # Kept as an option for forward-compat — wiring lands in v0.2
+    # alongside the DBusMenu mirror so the plugin can drive bar
+    # placement declaratively from one home-manager module.
     widgetPlacement = lib.mkOption {
       type = lib.types.enum ["left" "center" "right"];
       default = "left";
-      description = "Which noctalia bar section the AppMenu widget lives in.";
+      description = ''
+        Reserved for v0.2: which noctalia bar section the AppMenu
+        widget lives in. v0.1 ignores this — add
+        `{ id = "plugin:noctalia-appmenu"; }` to your noctalia-shell
+        bar.widgets list directly.
+      '';
     };
   };
 
