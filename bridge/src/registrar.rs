@@ -34,7 +34,12 @@ trait Registrar {
     /// Sender of this signal IS the app whose menu was registered;
     /// we resolve its PID via DBus.GetConnectionUnixProcessID.
     #[zbus(signal)]
-    fn window_registered(&self, window_id: u32, service_name: String, menu_path: ObjectPath<'_>) -> zbus::Result<()>;
+    fn window_registered(
+        &self,
+        window_id: u32,
+        service_name: String,
+        menu_path: ObjectPath<'_>,
+    ) -> zbus::Result<()>;
 
     #[zbus(signal)]
     fn window_unregistered(&self, window_id: u32) -> zbus::Result<()>;

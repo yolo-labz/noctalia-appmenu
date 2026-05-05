@@ -74,7 +74,7 @@ jobs:
           git fetch origin "$BASE_REF"
           git checkout "origin/$BASE_REF" -- bridge
           nix develop --command bash -c 'cd bridge && cargo build --bench iai --locked'
-          mv bridge/target/release/deps/iai-* /tmp/iai-base 2>/dev/null || true
+          mv bridge/target/release/deps/iai-* "$RUNNER_TEMP/iai-base" 2>/dev/null || true
           git checkout HEAD -- bridge
 
       - name: Run iai benches (HEAD)

@@ -36,7 +36,7 @@ jobs:
           SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
           export SOURCE_DATE_EPOCH
           nix build .#noctalia-appmenu-bridge --print-build-logs --accept-flake-config
-          cp -L result/bin/noctalia-appmenu-bridge /tmp/build-1
+          cp -L result/bin/noctalia-appmenu-bridge "$RUNNER_TEMP/build-1"
           rm -f result
 
       - name: Invalidate cargo cache
@@ -48,18 +48,18 @@ jobs:
           SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
           export SOURCE_DATE_EPOCH
           nix build .#noctalia-appmenu-bridge --print-build-logs --accept-flake-config --rebuild
-          cp -L result/bin/noctalia-appmenu-bridge /tmp/build-2
+          cp -L result/bin/noctalia-appmenu-bridge "$RUNNER_TEMP/build-2"
 
       - name: Compare bytes
         run: |
-          sha1=$(sha256sum /tmp/build-1 | awk '{print $1}')
-          sha2=$(sha256sum /tmp/build-2 | awk '{print $1}')
+          sha1=$(sha256sum "$RUNNER_TEMP/build-1" | awk '{print $1}')
+          sha2=$(sha256sum "$RUNNER_TEMP/build-2" | awk '{print $1}')
           echo "Build 1: $sha1"
           echo "Build 2: $sha2"
           if [ "$sha1" != "$sha2" ]; then
             echo "::error::Reproducibility broken — bytes differ"
-            ls -la /tmp/build-1 /tmp/build-2
-            file /tmp/build-1 /tmp/build-2
+            ls -la "$RUNNER_TEMP/build-1" "$RUNNER_TEMP/build-2"
+            file "$RUNNER_TEMP/build-1" "$RUNNER_TEMP/build-2"
             exit 1
           fi
           echo "PASS: byte-identical builds"
@@ -70,6 +70,6 @@ jobs:
         with:
           name: repro-debug
           path: |
-            /tmp/build-1
-            /tmp/build-2
+            "$RUNNER_TEMP/build-1"
+            "$RUNNER_TEMP/build-2"
           retention-days: 5

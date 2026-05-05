@@ -127,7 +127,10 @@ mod tests {
     #[test]
     fn focus_with_matching_menu_populates_all_fields() {
         let mut by_pid = HashMap::new();
-        by_pid.insert(123u32, ("org.example.App".into(), op("/org/example/App/menu")));
+        by_pid.insert(
+            123u32,
+            ("org.example.App".into(), op("/org/example/App/menu")),
+        );
         let menus = MenuMap { by_pid };
         let f = focus(123, "App");
         let snap = snapshot(Some(&f), &menus);
