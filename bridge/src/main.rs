@@ -66,16 +66,36 @@ async fn main() -> Result<()> {
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
 
+    // Selecting on the four task JoinHandles means an unexpected task
+    // exit returns from select!. SIGTERM/SIGINT are graceful shutdowns
+    // (exit 0). Any task exit is an unrecoverable error — return non-
+    // zero so systemd's `Restart=on-failure` re-spawns us.
     tokio::select! {
-        _ = sigterm.recv() => warn!("SIGTERM — shutting down"),
-        _ = sigint.recv() => warn!("SIGINT — shutting down"),
-        r = niri_task => warn!(?r, "niri task exited unexpectedly"),
-        r = registrar_task => warn!(?r, "registrar task exited unexpectedly"),
-        r = active_task => warn!(?r, "active task exited unexpectedly"),
-        r = proxy_task => warn!(?r, "proxy task exited unexpectedly"),
+        _ = sigterm.recv() => {
+            warn!("SIGTERM — shutting down");
+            Ok(())
+        }
+        _ = sigint.recv() => {
+            warn!("SIGINT — shutting down");
+            Ok(())
+        }
+        r = niri_task => {
+            warn!(?r, "niri task exited unexpectedly");
+            anyhow::bail!("niri task exited: {:?}", r)
+        }
+        r = registrar_task => {
+            warn!(?r, "registrar task exited unexpectedly");
+            anyhow::bail!("registrar task exited: {:?}", r)
+        }
+        r = active_task => {
+            warn!(?r, "active task exited unexpectedly");
+            anyhow::bail!("active task exited: {:?}", r)
+        }
+        r = proxy_task => {
+            warn!(?r, "proxy task exited unexpectedly");
+            anyhow::bail!("proxy task exited: {:?}", r)
+        }
     }
-
-    Ok(())
 }
 
 fn init_tracing(foreground: bool) {
