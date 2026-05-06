@@ -345,22 +345,36 @@ pub async fn find_app_for_pid(
     //   spawn the actual UI process under a launcher PID.
     //
     // Universal fix: ask AT-SPI which application currently holds
-    // window-manager focus. AT-SPI tracks STATE_ACTIVE on every
-    // top-level frame regardless of toolkit / wrapper / Wayland-vs-X11
-    // path. The PID is irrelevant — we only need to find the frame
-    // with that bit set and walk back to its owning app.
-    if let Some(found) = find_active_app_via_state(a11y, &candidates, app_id_hint).await {
-        tracing::debug!(
-            pid,
-            "atspi app matched via STATE_ACTIVE (PID join missed — XWayland/sandbox/subprocess)"
-        );
-        return Ok(Some(found));
+    // window-manager focus AND corroborate against `app_id_hint`. Hint
+    // gating is critical: AT-SPI's STATE_ACTIVE reflects whichever
+    // top-level a11y-aware window the WM most-recently activated, which
+    // is NOT necessarily the niri-focused window. Common case: niri
+    // focuses a terminal (ghostty has no AT-SPI registration), but
+    // STATE_ACTIVE remains set on the previously-focused app (Firefox).
+    // Without the hint check we'd return Firefox's menubar for a
+    // ghostty-focused frame — a real misrender Pedro caught in v0.3.0
+    // -alpha.5 before this gate.
+    //
+    // The gate: only trust STATE_ACTIVE when the active app's
+    // accessible Name fuzzy-matches `app_id_hint`. For native-Wayland
+    // apps PID match (pass 1) handles the case directly; the
+    // STATE_ACTIVE pass exists for XWayland/sandbox/subprocess paths
+    // where PID misses but app_id is still meaningful.
+    if app_id_hint.is_some() {
+        if let Some(found) = find_active_app_via_state(a11y, &candidates, app_id_hint).await {
+            tracing::debug!(
+                pid,
+                "atspi app matched via STATE_ACTIVE + name corroboration"
+            );
+            return Ok(Some(found));
+        }
     }
 
-    // Pass 3: name-match fallback. AT-SPI's STATE_ACTIVE detection
-    // misses apps that don't expose top-level frames as direct
-    // children (some Electron wrappers, niche toolkits). Match
-    // `app_id_hint` against the app's accessible Name as last resort.
+    // Pass 3: name-match fallback without STATE_ACTIVE corroboration.
+    // For apps whose toolkit doesn't set STATE_ACTIVE consistently
+    // (some Electron wrappers, niche toolkits) but whose accessible
+    // Name still matches the hint. Lower confidence than pass 2 since
+    // we can't confirm the AT-SPI app actually has focus.
     if let Some(hint) = app_id_hint {
         let normalized_hint = normalize_app_id(hint);
         if !normalized_hint.is_empty() {
@@ -428,33 +442,40 @@ async fn find_active_app_via_state(
 ) -> Option<(String, OwnedObjectPath)> {
     const ACTIVE_BIT: u64 = 1 << 1;
 
-    let normalized_hint = app_id_hint.map(normalize_app_id).filter(|s| !s.is_empty());
+    let Some(normalized_hint) = app_id_hint.map(normalize_app_id).filter(|s| !s.is_empty()) else {
+        // No hint → can't corroborate. Caller should not invoke us
+        // without a hint; return None defensively.
+        return None;
+    };
 
-    let mut first_match: Option<(String, OwnedObjectPath)> = None;
     for (service, app_path) in candidates {
         let Some(frame_path) =
             scan_for_active_frame(a11y, service, &app_path.as_ref(), 2, ACTIVE_BIT).await
         else {
             continue;
         };
-        // Prefer the candidate whose accessible Name fuzzy-matches the
-        // hint; bail early on first match so we don't keep scanning.
-        if let Some(ref hint) = normalized_hint {
-            if let Ok(name) = read_name(a11y, service, &app_path.as_ref()).await {
-                let n = normalize_app_id(&name);
-                let (short, long) = if n.len() < hint.len() {
-                    (&n, hint)
-                } else {
-                    (hint, &n)
-                };
-                if short.len() >= 3 && long.contains(short.as_str()) {
-                    return Some((service.clone(), frame_path));
-                }
-            }
+        // REQUIRE name corroboration. AT-SPI's STATE_ACTIVE survives
+        // niri focus changes when the niri-focused window has no AT-SPI
+        // representation (terminals, electron-no-a11y, etc), which
+        // would otherwise cause the bridge to render the previously-
+        // focused app's menubar over an unrelated window.
+        let Ok(name) = read_name(a11y, service, &app_path.as_ref()).await else {
+            continue;
+        };
+        let n = normalize_app_id(&name);
+        if n.is_empty() {
+            continue;
         }
-        first_match.get_or_insert((service.clone(), frame_path));
+        let (short, long) = if n.len() < normalized_hint.len() {
+            (&n, &normalized_hint)
+        } else {
+            (&normalized_hint, &n)
+        };
+        if short.len() >= 3 && long.contains(short.as_str()) {
+            return Some((service.clone(), frame_path));
+        }
     }
-    first_match
+    None
 }
 
 /// Recursive helper for `find_active_app_via_state`. Returns the path
