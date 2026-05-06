@@ -14,24 +14,30 @@
 //! itself under `/org/noctalia/AppMenu/Active/menu` so QML can attach
 //! to a constant address. Out of scope for v0.1.
 
-use crate::{active::ActiveSnapshot, config::Config};
+use crate::{active::ActiveSnapshot, config::Config, dbusmenu};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{watch, Mutex};
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use zbus::{interface, Connection};
 
 /// Serialise the active snapshot to a JSON file. Atomic write:
 /// write to `<path>.tmp` then rename, so file-watching consumers
 /// never observe a partially-written file. Errors are logged but
 /// non-fatal — the D-Bus proxy still publishes correctly.
-fn write_active_json(path: &Path, snap: &ActiveSnapshot) {
+///
+/// `menu` carries the v0.2 phase B addition: the focused app's
+/// full DBusMenu tree (or `None` when no app is focused or the
+/// focused app didn't register a menu). The QML widget consumes
+/// this nested structure to render a macOS-style menu strip.
+fn write_active_json(path: &Path, snap: &ActiveSnapshot, menu: Option<&dbusmenu::MenuItem>) {
     let payload = serde_json::json!({
         "focus_pid": snap.focus_pid,
         "app_id": snap.app_id,
         "title": snap.title,
         "menu_service": snap.menu_service,
         "menu_path": snap.menu_path.as_ref().map(|p| p.as_str()).unwrap_or(""),
+        "menu": menu,
     });
     let tmp = path.with_extension("json.tmp");
     if let Err(e) = std::fs::write(&tmp, payload.to_string()) {
@@ -139,11 +145,42 @@ pub async fn run(
 
     // Emit an initial empty snapshot so the file exists at startup
     // (matters for first-load of the QML widget).
-    write_active_json(&active_json_path, &ActiveSnapshot::empty());
+    write_active_json(&active_json_path, &ActiveSnapshot::empty(), None);
 
     while active_rx.changed().await.is_ok() {
         let snapshot = active_rx.borrow_and_update().clone();
-        write_active_json(&active_json_path, &snapshot);
+
+        // v0.2 phase B: fetch the focused app's DBusMenu tree if it
+        // registered one. Errors are non-fatal — apps that disappear
+        // mid-fetch (closed window before we got around to it),
+        // crashed clients, malformed responses all just yield `None`
+        // and let the widget fall back to the v0.1 placeholder.
+        let menu = match (&snapshot.menu_service, &snapshot.menu_path) {
+            (svc, Some(path)) if !svc.is_empty() => {
+                match dbusmenu::fetch_layout(&conn, svc, &path.as_ref()).await {
+                    Ok(m) => {
+                        debug!(
+                            service = %svc,
+                            path = %path.as_str(),
+                            top_level = m.children.len(),
+                            "fetched menu tree"
+                        );
+                        Some(m)
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = ?e,
+                            service = %svc,
+                            "dbusmenu fetch failed; widget will see no menu"
+                        );
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+
+        write_active_json(&active_json_path, &snapshot, menu.as_ref());
         {
             let mut s = proxy.inner.lock().await;
             s.bus_name = snapshot.menu_service;
