@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 
 pub mod active;
+pub mod atspi;
 pub mod config;
 pub mod dbusmenu;
 pub mod niri;

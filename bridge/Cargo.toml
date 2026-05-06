@@ -1,10 +1,10 @@
 [package]
 name = "noctalia-appmenu-bridge"
-version = "0.1.0"
+version = "0.3.0-alpha.1"
 edition = "2021"
 rust-version = "1.81"
 authors = ["Pedro H S Balbino <phsb5321@gmail.com>"]
-description = "Bridge daemon: niri-IPC → com.canonical.AppMenu.Registrar → fixed-path active-app DBusMenu proxy."
+description = "Bridge daemon: niri-IPC → AT-SPI menubar walker → fixed-path active-app menu mirror for noctalia-shell."
 homepage = "https://github.com/yolo-labz/noctalia-appmenu"
 repository = "https://github.com/yolo-labz/noctalia-appmenu"
 license = "Apache-2.0"
