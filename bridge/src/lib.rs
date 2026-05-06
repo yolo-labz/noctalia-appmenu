@@ -19,6 +19,7 @@
 
 pub mod active;
 pub mod config;
+pub mod dbusmenu;
 pub mod niri;
 pub mod proxy;
 pub mod registrar;
