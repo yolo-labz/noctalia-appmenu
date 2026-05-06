@@ -23,11 +23,11 @@
 //!
 //! ## Wayland xid mapping
 //!
-//! DBusMenu's `RegisterWindow(xid, path)` was designed for X11 where
+//! `DBusMenu`'s `RegisterWindow(xid, path)` was designed for X11 where
 //! every window has a unique XID. On Wayland (including Xwayland),
 //! the xid is either:
 //!   - A real X11 xid for Xwayland-bridged apps (Anki, gimp, etc.)
-//!   - A synthetic id (Qt6 hashes the wl_surface)
+//!   - A synthetic id (Qt6 hashes the `wl_surface`)
 //!   - Zero (apps that don't bother)
 //!
 //! We treat the xid opaquely as a key — never look up the X server
@@ -162,7 +162,7 @@ impl AppMenuRegistrar {
     /// Bar widgets call this on focus change to find the menu for a
     /// given xid. Returns the registered (busName, menuPath) pair.
     /// Errors with `NotFound` if the xid is not registered — apps
-    /// that haven't called RegisterWindow won't appear here.
+    /// that haven't called `RegisterWindow` won't appear here.
     async fn get_menu_for_window(&self, xid: u32) -> zbus::fdo::Result<(String, OwnedObjectPath)> {
         let s = self.state.lock().await;
         s.by_xid
@@ -191,7 +191,7 @@ impl AppMenuRegistrar {
     async fn publish(&self) {
         let s = self.state.lock().await;
         let mut by_pid = HashMap::new();
-        for (xid, (bus, path)) in s.by_xid.iter() {
+        for (xid, (bus, path)) in &s.by_xid {
             if let Some(pid) = s.pid_by_xid.get(xid) {
                 by_pid.insert(*pid, (bus.clone(), path.clone()));
             }
@@ -206,7 +206,7 @@ impl AppMenuRegistrar {
 /// **Name-collision behaviour:** if `vala-panel-appmenu-daemon` (or
 /// any other registrar) already owns the name, this `request_name`
 /// call fails. We log a warning and continue with an empty
-/// MenuMap — `active.rs` then sees no registered menus, the bar
+/// `MenuMap` — `active.rs` then sees no registered menus, the bar
 /// widget shows the v0.1 fallback. The user can investigate which
 /// process is hogging the name (`busctl --user list`) and disable
 /// it.

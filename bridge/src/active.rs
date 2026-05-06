@@ -31,6 +31,7 @@ pub struct ActiveSnapshot {
 impl ActiveSnapshot {
     /// The "no focus" / "no menu" baseline, used at startup and on
     /// graceful drop-focus events from niri.
+    #[must_use]
     pub fn empty() -> Self {
         Self {
             focus_pid: 0,
@@ -45,6 +46,7 @@ impl ActiveSnapshot {
 /// Pure reducer — produced an `ActiveSnapshot` from the current state of
 /// the two upstream watch channels. Extracted from `run()` so it can be
 /// unit-tested independently of the debounce loop.
+#[must_use]
 pub fn snapshot(focus: Option<&FocusEvent>, menus: &MenuMap) -> ActiveSnapshot {
     match focus {
         None => ActiveSnapshot::empty(),

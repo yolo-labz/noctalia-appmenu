@@ -1,18 +1,18 @@
 //! AT-SPI menubar walker — v0.3 substrate (Path A).
 //!
-//! Replaces v0.2's DBusMenu/Registrar approach. The DBusMenu protocol
+//! Replaces v0.2's DBusMenu/Registrar approach. The `DBusMenu` protocol
 //! requires apps to call `RegisterWindow` against a registrar
 //! service — but Qt6's auto-registration only fires on compositors
-//! implementing `org_kde_kwin_appmenu_manager` (KWin only). niri,
+//! implementing `org_kde_kwin_appmenu_manager` (`KWin` only). niri,
 //! Hyprland, Sway, COSMIC: none implement it. Result: no Qt app on
 //! niri ever registered against our v0.2 bridge, regardless of
 //! correctness.
 //!
 //! AT-SPI is the cross-toolkit substrate that already works:
 //!
-//! - Qt apps load `qtatspi` plugin at QApplication startup when
+//! - Qt apps load `qtatspi` plugin at `QApplication` startup when
 //!   `QT_ACCESSIBILITY=1` is set (NixOS module ships this).
-//! - Qt's QMenuBar is exposed under `Role::MenuBar` automatically.
+//! - Qt's `QMenuBar` is exposed under `Role::MenuBar` automatically.
 //! - GTK apps expose menus via ATK→AT-SPI without any extra config.
 //! - Anki, Okular, Firefox, GIMP all surface menubars identically.
 //! - No protocol cooperation required from the compositor.
@@ -67,7 +67,7 @@
 //!
 //! ## PID matching
 //!
-//! niri's WindowFocusChanged event gives us a PID. AT-SPI doesn't
+//! niri's `WindowFocusChanged` event gives us a PID. AT-SPI doesn't
 //! key on PID directly. We discover the matching app via:
 //!
 //! 1. Walk Registry root's children (each is an Application).
@@ -95,7 +95,7 @@ mod role {
     pub const CHECK_MENU_ITEM: u32 = 8;
     pub const MENU: u32 = 33;
     pub const MENU_BAR: u32 = 34;
-    /// Top-level menubar children in Qt are MENU_ITEM (not MENU);
+    /// Top-level menubar children in Qt are `MENU_ITEM` (not MENU);
     /// the actual popup MENU is one level below. We don't dispatch
     /// on this constant directly (count > 0 catches submenu shape),
     /// but keep it documented for the role-name table.
@@ -107,13 +107,13 @@ mod role {
     pub const TEAR_OFF_MENU_ITEM: u32 = 60;
 }
 
-/// Maximum tree depth we'll walk looking for a MenuBar. Some apps
+/// Maximum tree depth we'll walk looking for a `MenuBar`. Some apps
 /// nest menubars under deep window/toolbar hierarchies. Cap to
 /// prevent runaway walks on malformed trees.
 const MAX_FIND_DEPTH: u32 = 8;
 
 /// Maximum recursion depth for fetching menu items once we've
-/// found a MenuBar. Real menubars rarely nest more than 3-4 levels;
+/// found a `MenuBar`. Real menubars rarely nest more than 3-4 levels;
 /// 6 gives slack for pathological apps without runaway cost.
 const MAX_FETCH_DEPTH: u32 = 6;
 
@@ -124,9 +124,9 @@ const MAX_FETCH_DEPTH: u32 = 6;
 ///
 /// `Name` and `ChildCount` ARE properties on the wire, but we read
 /// them via `org.freedesktop.DBus.Properties.Get` (helper functions
-/// below) rather than `#[zbus(property)]` to avoid GetAll caching —
+/// below) rather than `#[zbus(property)]` to avoid `GetAll` caching —
 /// AT-SPI accessibles don't all return a populated `a{sv}` for
-/// GetAll, which causes zbus's cache fill to error out.
+/// `GetAll`, which causes zbus's cache fill to error out.
 #[proxy(
     interface = "org.a11y.atspi.Accessible",
     default_path = "/org/a11y/atspi/accessible/root"
@@ -211,7 +211,7 @@ pub struct MenuItem {
     pub enabled: bool,
     pub visible: bool,
     /// Always empty in v0.3.0 — AT-SPI doesn't expose icons. v0.3.x
-    /// could correlate with QtIcon names from action introspection.
+    /// could correlate with `QtIcon` names from action introspection.
     #[serde(default)]
     pub icon_name: String,
     pub toggle_type: String,
@@ -335,7 +335,7 @@ pub async fn find_app_for_pid(
 /// `MENU_BAR` under the given accessible.
 ///
 /// `cur_depth` is the recursion guard. Apps that bury their
-/// MenuBar more than `MAX_FIND_DEPTH` levels deep simply return
+/// `MenuBar` more than `MAX_FIND_DEPTH` levels deep simply return
 /// `None` — we'd rather miss a pathological app than hang on a
 /// runaway walk.
 pub async fn find_menubar(
@@ -379,10 +379,10 @@ pub async fn find_menubar(
     Ok(None)
 }
 
-/// Walk a MenuBar's subtree into a serializable `MenuItem` tree.
+/// Walk a `MenuBar`'s subtree into a serializable `MenuItem` tree.
 ///
 /// `cur_depth` bounds recursion. Items past `MAX_FETCH_DEPTH` get
-/// truncated to `children: []` — same as DBusMenu's lazy-load
+/// truncated to `children: []` — same as `DBusMenu`'s lazy-load
 /// behavior, the QML widget can request a deeper fetch on hover
 /// once we wire that (v0.3.x).
 pub async fn fetch_menu_tree(
@@ -417,8 +417,8 @@ pub async fn fetch_menu_tree(
     // render in the list, so we treat any tree-present item as
     // visible. Apps that explicitly set VISIBLE=0 are surfaced via
     // the bit so the QML widget can hide them if it wants.
-    let lo = *states.first().unwrap_or(&0) as u64;
-    let hi = *states.get(1).unwrap_or(&0) as u64;
+    let lo = u64::from(*states.first().unwrap_or(&0));
+    let hi = u64::from(*states.get(1).unwrap_or(&0));
     let state = (hi << 32) | lo;
     let enabled = (state & (1u64 << 8)) != 0 && (state & (1u64 << 24)) != 0;
     // Most menu items have VISIBLE=0 unless their parent submenu is
@@ -449,11 +449,7 @@ pub async fn fetch_menu_tree(
 
     // AT-SPI exposes toggle state via CHECKED (bit 4 in
     // `AtspiStateType` — `ATSPI_STATE_CHECKED = 4`).
-    let toggle_state = if !toggle_type.is_empty() && (state & (1u64 << 4)) != 0 {
-        1
-    } else {
-        0
-    };
+    let toggle_state = i32::from(!toggle_type.is_empty() && (state & (1u64 << 4)) != 0);
 
     let mut item = MenuItem {
         id: 0,
