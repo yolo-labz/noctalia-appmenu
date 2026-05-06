@@ -295,6 +295,7 @@ pub async fn connect_a11y() -> Result<Connection> {
 pub async fn find_app_for_pid(
     a11y: &Connection,
     pid: u32,
+    app_id_hint: Option<&str>,
 ) -> Result<Option<(String, OwnedObjectPath)>> {
     let registry = AccessibleProxy::builder(a11y)
         .destination("org.a11y.atspi.Registry")?
@@ -308,6 +309,8 @@ pub async fn find_app_for_pid(
     let count = read_child_count(a11y, "org.a11y.atspi.Registry", &registry_path).await?;
     let dbus = zbus::fdo::DBusProxy::new(a11y).await?;
 
+    // Pass 1: PID match. Native Wayland clients show up here directly.
+    let mut candidates: Vec<(String, OwnedObjectPath)> = Vec::new();
     for i in 0..count {
         let (service, path) = match registry.get_child_at_index(i).await {
             Ok(v) => v,
@@ -327,8 +330,77 @@ pub async fn find_app_for_pid(
         if app_pid == pid {
             return Ok(Some((service, path)));
         }
+        candidates.push((service, path));
+    }
+
+    // Pass 2: name-match fallback for XWayland-bridged apps.
+    //
+    // niri reports the wl_client PID for surfaces it manages; for X11
+    // apps under XWayland that PID is `xwayland-satellite`, NOT the
+    // app process itself. The app's a11y registry entry has its own
+    // PID (the X11 client process) which doesn't match niri's PID,
+    // so pass 1 misses them entirely.
+    //
+    // Fall back to matching by accessible Name against `app_id_hint`:
+    // niri's app_id (`Anki`, `org.kde.okular`, `firefox-nightly`) maps
+    // closely to the AT-SPI Application's Name property (`Anki`,
+    // `okular`, `Firefox-nightly`). Strip common prefixes/suffixes
+    // and compare case-insensitively.
+    if let Some(hint) = app_id_hint {
+        let normalized_hint = normalize_app_id(hint);
+        if !normalized_hint.is_empty() {
+            for (service, path) in candidates {
+                let name = match read_name(a11y, &service, &path.as_ref()).await {
+                    Ok(n) => n,
+                    Err(_) => continue,
+                };
+                let normalized_name = normalize_app_id(&name);
+                if normalized_name.is_empty() {
+                    continue;
+                }
+                // Bidirectional substring: either side is enough.
+                // app_id `firefox-nightly` matches Firefox AT-SPI Name
+                // `Firefox`; app_id `Anki` matches `Anki`. Prevents
+                // false-positive single-char matches by requiring the
+                // shorter side to be at least 3 chars.
+                let (short, long) = if normalized_name.len() < normalized_hint.len() {
+                    (&normalized_name, &normalized_hint)
+                } else {
+                    (&normalized_hint, &normalized_name)
+                };
+                if short.len() >= 3 && long.contains(short.as_str()) {
+                    tracing::debug!(
+                        pid,
+                        %hint,
+                        %name,
+                        "atspi app matched by name fallback (likely XWayland)"
+                    );
+                    return Ok(Some((service, path)));
+                }
+            }
+        }
     }
     Ok(None)
+}
+
+/// Normalize a Wayland app-id or AT-SPI accessible Name for fuzzy
+/// equality. Strips reverse-DNS prefixes (`org.kde.`, `com.mitchellh.`),
+/// lowercases, and trims whitespace. Examples:
+///
+/// - `Anki` → `anki`
+/// - `org.kde.okular` → `okular`
+/// - `firefox-nightly` → `firefox-nightly`
+fn normalize_app_id(s: &str) -> String {
+    let trimmed = s.trim().to_lowercase();
+    if let Some(idx) = trimmed.rfind('.') {
+        // strip reverse-DNS prefix iff the prefix has 2+ dots
+        // (`org.kde.x` strips to `x`; `firefox-nightly` keeps as-is).
+        let prefix = &trimmed[..idx];
+        if prefix.contains('.') {
+            return trimmed[idx + 1..].to_string();
+        }
+    }
+    trimmed
 }
 
 /// Depth-first search for the first descendant with role
@@ -530,9 +602,12 @@ pub async fn fetch_menu_tree(
 /// (codex P1 #3). On timeout we return `Ok(None)` so the QML widget
 /// falls back to the v0.1 placeholder rather than holding the bar
 /// in a stale state.
-pub async fn fetch_menubar_for_pid(pid: u32) -> Result<Option<MenuItem>> {
+pub async fn fetch_menubar_for_pid(
+    pid: u32,
+    app_id_hint: Option<&str>,
+) -> Result<Option<MenuItem>> {
     const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(1500);
-    match tokio::time::timeout(FETCH_BUDGET, fetch_menubar_for_pid_inner(pid)).await {
+    match tokio::time::timeout(FETCH_BUDGET, fetch_menubar_for_pid_inner(pid, app_id_hint)).await {
         Ok(result) => result,
         Err(_) => {
             tracing::warn!(
@@ -545,9 +620,12 @@ pub async fn fetch_menubar_for_pid(pid: u32) -> Result<Option<MenuItem>> {
     }
 }
 
-async fn fetch_menubar_for_pid_inner(pid: u32) -> Result<Option<MenuItem>> {
+async fn fetch_menubar_for_pid_inner(
+    pid: u32,
+    app_id_hint: Option<&str>,
+) -> Result<Option<MenuItem>> {
     let a11y = connect_a11y().await?;
-    let app = match find_app_for_pid(&a11y, pid).await? {
+    let app = match find_app_for_pid(&a11y, pid, app_id_hint).await? {
         Some(a) => a,
         None => return Ok(None),
     };

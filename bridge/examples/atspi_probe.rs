@@ -15,7 +15,8 @@ async fn main() -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("usage: atspi_probe <pid>"))?
         .parse()?;
     atspi::enable_a11y().await?;
-    match atspi::fetch_menubar_for_pid(pid).await? {
+    let hint = std::env::args().nth(2);
+    match atspi::fetch_menubar_for_pid(pid, hint.as_deref()).await? {
         Some(tree) => println!("{}", serde_json::to_string_pretty(&tree)?),
         None => println!("null"),
     }

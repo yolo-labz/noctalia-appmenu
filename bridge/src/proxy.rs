@@ -161,7 +161,7 @@ pub async fn run(
         // simply return `None`, and the widget renders its v0.1
         // placeholder.
         let menu = if snapshot.focus_pid != 0 {
-            match atspi::fetch_menubar_for_pid(snapshot.focus_pid).await {
+            match atspi::fetch_menubar_for_pid(snapshot.focus_pid, Some(&snapshot.app_id)).await {
                 Ok(Some(m)) => {
                     debug!(
                         pid = snapshot.focus_pid,
