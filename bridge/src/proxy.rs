@@ -170,10 +170,7 @@ pub async fn run(
                     Some(m)
                 }
                 Ok(None) => {
-                    debug!(
-                        pid = snapshot.focus_pid,
-                        "no atspi menubar for focused app"
-                    );
+                    debug!(pid = snapshot.focus_pid, "no atspi menubar for focused app");
                     None
                 }
                 Err(e) => {

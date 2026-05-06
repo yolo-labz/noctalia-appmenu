@@ -127,7 +127,10 @@ const MAX_FETCH_DEPTH: u32 = 6;
 /// below) rather than `#[zbus(property)]` to avoid GetAll caching —
 /// AT-SPI accessibles don't all return a populated `a{sv}` for
 /// GetAll, which causes zbus's cache fill to error out.
-#[proxy(interface = "org.a11y.atspi.Accessible", default_path = "/org/a11y/atspi/accessible/root")]
+#[proxy(
+    interface = "org.a11y.atspi.Accessible",
+    default_path = "/org/a11y/atspi/accessible/root"
+)]
 trait Accessible {
     fn get_child_at_index(&self, idx: i32) -> zbus::Result<(String, OwnedObjectPath)>;
 
@@ -362,9 +365,13 @@ pub async fn find_menubar(
             Ok(v) => v,
             Err(_) => continue,
         };
-        if let Some(found) =
-            Box::pin(find_menubar(a11y, &child_service, &child_path.as_ref(), cur_depth + 1))
-                .await?
+        if let Some(found) = Box::pin(find_menubar(
+            a11y,
+            &child_service,
+            &child_path.as_ref(),
+            cur_depth + 1,
+        ))
+        .await?
         {
             return Ok(Some(found));
         }
