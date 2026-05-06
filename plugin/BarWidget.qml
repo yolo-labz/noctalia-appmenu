@@ -1,27 +1,36 @@
-// noctalia-appmenu — AppMenu bar widget (v0.1.9+: FileView text() fix)
+// noctalia-appmenu — AppMenu bar widget (v0.2.0-alpha: menu strip render)
 //
 // Reads `~/.cache/noctalia-appmenu/active.json` (written by
-// noctalia-appmenu-bridge on every focus change) and renders the
-// focused application's name in the topbar.
+// noctalia-appmenu-bridge on every focus change). v0.2 adds a `menu`
+// field carrying the focused app's full DBusMenu tree:
 //
-// **v0.1 LIMITATION**: app-name only. Full menu rendering deferred
-// to v0.2 — see ADR-0015 + spec 002 (bridge DBusMenu mirror).
+//   {
+//     app_id, title, menu_service, menu_path,
+//     menu: {
+//       id, label, type, enabled, visible, children: [
+//         { id, label, "submenu", children: [...] },  // File
+//         { id, label, "submenu", children: [...] },  // Edit
+//         …
+//       ]
+//     }
+//   }
 //
-// Why FileView, not D-Bus: the upstream Quickshell QML API does not
-// expose a public `DBusObject` consumer for arbitrary services
-// (verified against v0.2.1 type listing). A small JSON file written
-// by the bridge sidesteps the missing primitive without forking
-// Quickshell. v0.2's mirror lands a `DBusMenuHandle` at a fixed
-// address, at which point this widget switches back to D-Bus
-// directly.
+// This widget renders the top-level `menu.children` as a horizontal
+// strip of clickable menu-button items. Clicking a top-level item
+// opens a Quickshell PopupWindow with that item's children as
+// vertical action rows. Clicking a leaf action spawns
+// `noctalia-appmenu-bridge click <busName> <menuPath> <itemId>`,
+// which calls `com.canonical.dbusmenu::Event(itemId, "clicked", "",
+// timestamp)` on the registered app — same effect as if the user had
+// clicked the menu in-window.
 //
-// **Bar-widget API contract** (ADR-0018): noctalia-shell's BarSection
-// instantiates plugin widgets with these properties injected — the
-// widget MUST declare them or QML errors with
-// `Cannot assign to non-existent property "widgetId"` on every load
-// AND the widget never lays out because the pill-positioning logic
-// reads them. v0.1.0..v0.1.5 omitted them. Reference contract:
-// noctalia-shell `Modules/Bar/Widgets/KeepAwake.qml`.
+// Falls back to the v0.1 placeholder ("·") when no app has registered
+// a menu (most apps don't yet — Phase E ships QT_QPA_PLATFORMTHEME
+// and GTK_MODULES env so Qt/GTK apps export DBusMenu automatically).
+//
+// **Bar-widget API contract** (ADR-0018), **always-visible / fixed-width
+// slot** (ADR-0019/ADR-0020), **FileView text() call** (ADR-0021) all
+// preserved.
 
 import QtQuick
 import QtQuick.Layouts
@@ -34,7 +43,6 @@ Item {
     id: root
 
     // ── Bar-widget API contract (injected by BarSection.qml) ────────
-    // Required by the layout engine; do NOT remove.
     property ShellScreen screen
     property string widgetId: ""
     property string section: ""
@@ -42,9 +50,6 @@ Item {
     property int sectionWidgetsCount: 0
     property var pluginApi: null
 
-    // Per-instance widget settings come from the user's
-    // Settings.data.bar.widgets.<section>[index] entry. Pulled the
-    // same way KeepAwake.qml pulls them.
     readonly property string screenName: screen ? screen.name : ""
     property var widgetSettings: {
         if (section && sectionWidgetIndex >= 0 && screenName) {
@@ -56,44 +61,39 @@ Item {
         return {};
     }
 
-    // Widget settings — pull from per-instance widgetSettings with
-    // sensible fallbacks. User customises via the bar.widgets entry.
+    // Per-instance settings.
     readonly property string fallbackText: widgetSettings.fallbackText !== undefined ? widgetSettings.fallbackText : ""
     readonly property int maxLabelWidth: widgetSettings.maxLabelWidth !== undefined ? widgetSettings.maxLabelWidth : 200
-    readonly property bool showOnlyWhenFocused: widgetSettings.showOnlyWhenFocused !== undefined ? widgetSettings.showOnlyWhenFocused : true
+    readonly property int maxStripWidth: widgetSettings.maxStripWidth !== undefined ? widgetSettings.maxStripWidth : 600
 
-    // ── Derived state from bridge JSON file ─────────────────────────
+    // ── Bridge state ─────────────────────────────────────────────────
     property string appId: ""
     property string title: ""
     property string menuService: ""
     property string menuPath: ""
+    /// Top-level menu items: array of {id, label, type, enabled,
+    /// visible, icon_name, children: [...]}. Empty when no app
+    /// registered or no menu data yet.
+    property var topLevel: []
+    /// Path to the bridge binary — needed to spawn click subcommand
+    /// from Process. Resolved once at startup; falls back to
+    /// `noctalia-appmenu-bridge` (PATH lookup) if env var not set.
+    readonly property string bridgeBin: {
+        const fromEnv = Quickshell.env("NOCTALIA_APPMENU_BRIDGE");
+        return (fromEnv && fromEnv.length > 0) ? fromEnv : "noctalia-appmenu-bridge";
+    }
 
-    // ── Display string (always non-empty so the widget claims layout) ─
-    // Why: noctalia's `Modules/Bar/Extras/BarWidgetLoader.qml` returns
-    // `implicitWidth = 0` whenever its child item has `visible: false`
-    // (`getImplicitSize` checks `item.visible`). v0.1.6's
-    // `visible: appId !== "" || fallbackText !== ""` made the widget
-    // 0-width during the async FileView load on Pedro's desktop —
-    // the bar laid out before active.json was read, then never reflowed
-    // when `visible` flipped to true. Net effect: invisible widget,
-    // bar shows Launcher → Clock with no gap. ADR-0019 / PR #26.
-    //
-    // Fix: always render. When `appId` and `fallbackText` are both
-    // empty, fall back to a thin glyph so the widget claims a
-    // reserved-but-tiny slot (visual placeholder + non-zero
-    // implicitWidth so the bar's getImplicitSize returns > 0).
-    readonly property string displayText: {
+    /// Display string for the v0.1 fallback path (shown only when
+    /// `topLevel.length === 0`). Always non-empty so the widget
+    /// claims layout (ADR-0019).
+    readonly property string fallbackDisplayText: {
         if (appId !== "")
             return appId;
         if (fallbackText !== "")
             return fallbackText;
-        return "·"; // CTP middle-dot placeholder
+        return "·";
     }
 
-    // The bridge's JSON file. Populated by the active proxy task in
-    // bridge/src/proxy.rs. Path resolution mirrors the bridge's:
-    // $XDG_CACHE_HOME/noctalia-appmenu/active.json then
-    // $HOME/.cache/noctalia-appmenu/active.json.
     FileView {
         id: activeFile
         path: {
@@ -106,96 +106,281 @@ Item {
         }
         watchChanges: true
         blockLoading: false
+        printErrors: false
 
         onFileChanged: reload()
         onLoaded: {
-            // ── CRITICAL: `text` is a FUNCTION on Quickshell.Io.FileView,
-            // not a property. v0.1.6..v0.1.8 used `.text` as a property —
-            // it returned the function reference (coerced to empty
-            // string), making `text.length === 0` ALWAYS true and
-            // silently dropping every JSON read. The widget never
-            // populated `appId`/`title` regardless of how many focus
-            // events the bridge wrote. Use `text()` (call) to get
-            // the actual file contents. ADR-0021 / PR #28.
-            //
-            // Confirmed by reading
-            // /nix/store/.../share/qt-6/qml/Quickshell/Io/FileView.qml
-            // and noctalia-shell's own usage in
-            // Services/Theming/ColorSchemeService.qml::schemeReader.
+            // FileView's `text` is a FUNCTION call (ADR-0021).
             const content = text();
             if (!content || content.length === 0) {
-                root.appId = ""
-                root.title = ""
-                return
+                root.appId = "";
+                root.title = "";
+                root.topLevel = [];
+                return;
             }
             try {
                 const j = JSON.parse(content);
-                root.appId = j.app_id || ""
-                root.title = j.title || ""
-                root.menuService = j.menu_service || ""
-                root.menuPath = j.menu_path || ""
+                root.appId = j.app_id || "";
+                root.title = j.title || "";
+                root.menuService = j.menu_service || "";
+                root.menuPath = j.menu_path || "";
+                // v0.2: walk into menu.children. Defaults to empty
+                // when bridge wrote `menu: null`.
+                root.topLevel = (j.menu && j.menu.children) ? j.menu.children : [];
             } catch (e) {
-                // Partial-write or empty file. Ignore until next change.
+                // Partial-write; ignore until next change.
             }
         }
     }
 
-    // ── Fixed-width slot (v0.1.8 / ADR-0020) ────────────────────────
-    //
-    // `BarWidgetLoader.qml:42` (noctalia-shell @9f8dd48) wires its own
-    // `implicitWidth` like:
-    //
-    //     implicitWidth: isVerticalBar ? barHeight : getImplicitSize(loader.item, "implicitWidth")
-    //
-    // QML binds the result of `getImplicitSize(loader.item, …)` to
-    // changes in `loader.item` (the var) but NOT to
-    // `loader.item.implicitWidth` (the deeper property — a function
-    // call hides the deep dependency from QML's binding tracker).
-    //
-    // Net effect on Pedro's desktop: first-paint widget computed
-    // `implicitWidth = 3px` (`·` placeholder). BarWidgetLoader cached
-    // 3px. FileView's async `onLoaded` populated `appId =
-    // "com.mitchellh.ghostty"` → label.implicitWidth grew to ~160px →
-    // root.implicitWidth grew accordingly → BUT loader's cached 3px
-    // slot never re-evaluated. Text rendered past the loader's bounds,
-    // got clipped, and looked invisible because sibling widgets sat
-    // right where the overflowing text would have shown.
-    //
-    // Fix: pin `implicitWidth` to the user-configured `maxLabelWidth +
-    // marginM*2` regardless of current content. The slot is reserved
-    // at full size on first paint, so the cached loader value is
-    // always large enough. The Text inside still elides if its content
-    // is wider than `maxLabelWidth - marginM*2`.
+    // ── Layout ───────────────────────────────────────────────────────
+    // Slot reserves up to `maxStripWidth` (default 600). Strip grows
+    // up to that limit then elides items past it (clipped by the
+    // RowLayout). Fallback path uses the smaller `maxLabelWidth`
+    // budget per ADR-0020.
     implicitHeight: Style.barHeight
-    implicitWidth: maxLabelWidth + Style.marginM * 2
-    // Dim the placeholder so it reads as "no app" rather than "an app
-    // named '·'". The `·` glyph at half-opacity is a clear visual
-    // shorthand once Pedro's eyes adapt.
-    opacity: appId !== "" || fallbackText !== "" ? 1.0 : 0.45
+    implicitWidth: topLevel.length > 0
+        ? Math.min(maxStripWidth, strip.implicitWidth + Style.marginM * 2)
+        : maxLabelWidth + Style.marginM * 2
 
+    opacity: (topLevel.length > 0 || appId !== "" || fallbackText !== "") ? 1.0 : 0.45
+
+    // ── v0.1 fallback: app-id text label ────────────────────────────
+    // Shown when no app has registered a DBusMenu (most apps until
+    // Phase E ships the env vars). Identical to v0.1.9 behavior.
     Text {
-        id: label
-        // Anchor to fill so the Text's render bounds match the slot
-        // and `elide: Text.ElideRight` actually cuts overflow text.
-        // (anchors.{verticalCenter,horizontalCenter} alone don't
-        // constrain width — Text would grow naturally and overflow
-        // the slot regardless of `Layout.maximumWidth`, which is only
-        // honored inside Layout containers.)
+        id: fallbackLabel
+        visible: root.topLevel.length === 0
         anchors.fill: parent
         anchors.leftMargin: Style.marginM
         anchors.rightMargin: Style.marginM
         verticalAlignment: Text.AlignVCenter
         horizontalAlignment: Text.AlignLeft
-        text: root.displayText
-        // Theme integration via noctalia tokens — Color.mOnSurface
-        // tracks the active color scheme; switching to "Wallpaper" or
-        // a different predefinedScheme reflows the widget instantly.
+        text: root.fallbackDisplayText
         color: Color.mOnSurface
         font.family: Settings.data.ui.fontDefault || "Inter"
-        // Match noctalia's bar text sizing: Style._barBaseFontSize *
-        // fontScale handles both the density (capsuleHeight) and the
-        // fontScale multiplier in user settings.
         font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
         elide: Text.ElideRight
+    }
+
+    // ── v0.2 menu strip: horizontal row of top-level menu buttons ──
+    Row {
+        id: strip
+        visible: root.topLevel.length > 0
+        anchors.left: parent.left
+        anchors.leftMargin: Style.marginS
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.marginS
+
+        Repeater {
+            model: root.topLevel
+            delegate: Rectangle {
+                id: btn
+                required property var modelData
+
+                // Skip separators in the top-level strip — they're
+                // for submenus, not menubar root.
+                visible: modelData && modelData.type !== "separator" &&
+                         (modelData.visible !== false)
+
+                color: hover.containsMouse
+                    ? Color.mSurfaceVariant
+                    : "transparent"
+                radius: Style.marginXS !== undefined ? Style.marginXS : 4
+                border.width: 0
+
+                implicitHeight: Style.barHeight - Style.marginS * 2
+                implicitWidth: btnLabel.implicitWidth + Style.marginM * 2
+
+                Text {
+                    id: btnLabel
+                    anchors.centerIn: parent
+                    // Strip leading underscore (accelerator marker).
+                    text: (modelData ? modelData.label : "").replace(/_/g, "")
+                    color: btn.modelData && btn.modelData.enabled === false
+                        ? Color.mOnSurfaceVariant
+                        : Color.mOnSurface
+                    font.family: Settings.data.ui.fontDefault || "Inter"
+                    font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
+                }
+
+                MouseArea {
+                    id: hover
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    enabled: btn.modelData && btn.modelData.enabled !== false
+                    onClicked: {
+                        if (!btn.modelData) return;
+                        if (btn.modelData.children && btn.modelData.children.length > 0) {
+                            popup.menuItem = btn.modelData;
+                            popup.anchorItem = btn;
+                            popup.visible = true;
+                        } else {
+                            // Leaf at top level — fire click directly.
+                            root.fireClick(btn.modelData.id);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Submenu popup ────────────────────────────────────────────────
+    PopupWindow {
+        id: popup
+        property var menuItem: null
+        property var anchorItem: null
+
+        // Anchor below the clicked top-level button. Quickshell's
+        // PopupWindow positions relative to a parent surface +
+        // anchor.rect; we use the Bar's screen as parent and compute
+        // a bar-relative rect from the anchor item.
+        anchor.window: root.QsWindow.window
+        anchor.rect: {
+            if (!anchorItem) return Qt.rect(0, 0, 0, 0);
+            const p = anchorItem.mapToItem(null, 0, anchorItem.height);
+            return Qt.rect(p.x, p.y, anchorItem.width, 1);
+        }
+        anchor.edges: Edges.Bottom
+        anchor.gravity: Edges.Bottom
+
+        visible: false
+        implicitWidth: Math.max(180, popupCol.implicitWidth + Style.marginM * 2)
+        implicitHeight: popupCol.implicitHeight + Style.marginM * 2
+
+        // Click outside dismisses the popup.
+        MouseArea {
+            anchors.fill: parent
+            onClicked: popup.visible = false
+            propagateComposedEvents: true
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: Color.mSurface
+            border.color: Color.mOutline
+            border.width: 1
+            radius: Style.marginS
+
+            Column {
+                id: popupCol
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Style.marginXS !== undefined ? Style.marginXS : 4
+                spacing: 0
+
+                Repeater {
+                    model: popup.menuItem ? (popup.menuItem.children || []) : []
+                    delegate: Item {
+                        id: item
+                        required property var modelData
+                        readonly property bool isSeparator: modelData && modelData.type === "separator"
+                        readonly property bool isVisible: !modelData || modelData.visible !== false
+                        visible: isVisible
+                        width: parent ? parent.width : 0
+                        height: isSeparator ? Style.marginXS * 2 : (Style.barHeight - Style.marginS)
+
+                        // Separator
+                        Rectangle {
+                            visible: item.isSeparator
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.leftMargin: Style.marginS
+                            anchors.rightMargin: Style.marginS
+                            height: 1
+                            color: Color.mOutline
+                            opacity: 0.4
+                        }
+
+                        // Action / submenu item
+                        Rectangle {
+                            visible: !item.isSeparator
+                            anchors.fill: parent
+                            color: itemHover.containsMouse
+                                ? Color.mSurfaceVariant
+                                : "transparent"
+                            radius: Style.marginXS !== undefined ? Style.marginXS : 4
+
+                            RowLayout {
+                                anchors.fill: parent
+                                anchors.leftMargin: Style.marginS
+                                anchors.rightMargin: Style.marginS
+                                spacing: Style.marginS
+
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: (item.modelData ? item.modelData.label : "").replace(/_/g, "")
+                                    color: item.modelData && item.modelData.enabled === false
+                                        ? Color.mOnSurfaceVariant
+                                        : Color.mOnSurface
+                                    font.family: Settings.data.ui.fontDefault || "Inter"
+                                    font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                }
+
+                                // Submenu indicator
+                                Text {
+                                    visible: item.modelData && item.modelData.children && item.modelData.children.length > 0
+                                    text: "›"
+                                    color: Color.mOnSurfaceVariant
+                                    font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
+                                }
+                            }
+
+                            MouseArea {
+                                id: itemHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                enabled: item.modelData && item.modelData.enabled !== false
+                                onClicked: {
+                                    if (!item.modelData) return;
+                                    // v0.2.0-alpha: only fire on leaf
+                                    // items. Nested submenus require a
+                                    // popup-of-popup mechanism that
+                                    // adds significant complexity;
+                                    // deferred to v0.2.1 where we'll
+                                    // either chain PopupWindows or
+                                    // switch to an in-popup nested
+                                    // panel.
+                                    const hasChildren = item.modelData.children && item.modelData.children.length > 0;
+                                    if (!hasChildren) {
+                                        root.fireClick(item.modelData.id);
+                                        popup.visible = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Click forwarding ──────────────────────────────────────────────
+    // Spawn `noctalia-appmenu-bridge click <busName> <menuPath>
+    // <itemId>` as a one-shot child. The bridge subcommand calls
+    // `com.canonical.dbusmenu::Event(itemId, "clicked", "",
+    // timestamp)` on the registered app — same effect as if the user
+    // had clicked the menu in-window.
+    function fireClick(itemId) {
+        if (!root.menuService || !root.menuPath) {
+            return;
+        }
+        const args = [
+            "click",
+            root.menuService,
+            root.menuPath,
+            String(itemId)
+        ];
+        clickProcess.command = [root.bridgeBin].concat(args);
+        clickProcess.running = true;
+    }
+
+    Process {
+        id: clickProcess
+        // command set per-call in fireClick(). running: false default.
     }
 }

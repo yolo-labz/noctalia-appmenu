@@ -10,8 +10,8 @@
 //! - `proxy`: own org.noctalia.AppMenu, expose a fixed-path active-app
 //!   proxy that mirrors the upstream DBusMenu of the focused app.
 
-use anyhow::Result;
-use clap::Parser;
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
 use noctalia_appmenu_bridge::{active, config, niri, proxy, registrar};
 use tracing::{info, warn};
 
@@ -29,6 +29,30 @@ struct Cli {
     /// Path to bridge config (TOML). Default: $XDG_CONFIG_HOME/noctalia-appmenu-bridge/config.toml
     #[arg(long)]
     config: Option<std::path::PathBuf>,
+
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Forward a click event to a registered DBusMenu item. Invoked
+    /// from the QML widget on user click.
+    ///
+    /// Calls `com.canonical.dbusmenu::Event(itemId, "clicked", "",
+    /// timestamp)` on the registered app's menu service. Apps
+    /// respond by activating the corresponding menu action — same
+    /// effect as if the user had clicked it in-window.
+    ///
+    /// v0.2 phase D — invoked from QML via Process.spawn.
+    Click {
+        /// D-Bus bus name (well-known or unique) of the registered app.
+        bus_name: String,
+        /// Object path of the app's `com.canonical.dbusmenu` service.
+        menu_path: String,
+        /// Menu item id from the layout returned by GetLayout.
+        item_id: i32,
+    },
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -42,6 +66,18 @@ async fn main() -> Result<()> {
             option_env!("VERGEN_GIT_SHA").unwrap_or("unknown")
         );
         return Ok(());
+    }
+
+    // CLI subcommands run in their own short-lived process — no
+    // tracing setup, no daemon machinery, no D-Bus listener. Just
+    // do the call and exit.
+    if let Some(Cmd::Click {
+        bus_name,
+        menu_path,
+        item_id,
+    }) = cli.cmd
+    {
+        return handle_click(&bus_name, &menu_path, item_id).await;
     }
 
     init_tracing(cli.foreground);
@@ -96,6 +132,62 @@ async fn main() -> Result<()> {
             anyhow::bail!("proxy task exited: {:?}", r)
         }
     }
+}
+
+/// CLI `click` subcommand: forward an Event(itemId, "clicked", "",
+/// timestamp) call to the registered app's DBusMenu service.
+///
+/// Run as a one-shot child process spawned by the QML widget. We
+/// intentionally don't bring up the full bridge runtime — connect,
+/// call, exit. The widget gets click responsiveness while the
+/// long-running bridge stays focused on its job.
+///
+/// **Failure modes (all logged + non-fatal exit):**
+/// - App disappeared between fetch and click → zbus call returns
+///   error; we log + exit non-zero. Widget gets feedback via
+///   process exit code (no UX consequence today; v0.2.1 could
+///   re-fetch the menu tree on error to remove stale items).
+/// - Invalid bus name / object path → parse error at proxy build
+///   time; stderr line + non-zero exit.
+async fn handle_click(bus_name: &str, menu_path: &str, item_id: i32) -> Result<()> {
+    use zbus::zvariant::Value;
+
+    let conn = zbus::Connection::session()
+        .await
+        .context("connecting to session bus for click")?;
+
+    // Build a one-shot dbusmenu proxy. We can't reuse the
+    // dbusmenu.rs proxy directly because it's `trait`-private to
+    // that module — but since this is a separate process, we
+    // instantiate the same wire interface inline and skip the
+    // full module abstraction.
+    let proxy_path: zbus::zvariant::ObjectPath<'_> = menu_path
+        .try_into()
+        .with_context(|| format!("parsing object path {menu_path}"))?;
+    let proxy_dest: zbus::names::BusName<'_> = bus_name
+        .try_into()
+        .with_context(|| format!("parsing bus name {bus_name}"))?;
+
+    let timestamp: u32 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as u32)
+        .unwrap_or(0);
+
+    let proxy = zbus::Proxy::new(&conn, proxy_dest, proxy_path, "com.canonical.dbusmenu")
+        .await
+        .context("building dbusmenu proxy for click")?;
+
+    // dbusmenu Event: (i, s, v, u). The variant data carries
+    // optional event payload; "" (empty string) is the documented
+    // value for plain clicks.
+    proxy
+        .call_method("Event", &(item_id, "clicked", Value::from(""), timestamp))
+        .await
+        .with_context(|| {
+            format!("Event({item_id}, \"clicked\") failed — app may have left the bus")
+        })?;
+
+    Ok(())
 }
 
 fn init_tracing(foreground: bool) {
