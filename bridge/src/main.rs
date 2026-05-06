@@ -137,7 +137,12 @@ async fn main() -> Result<()> {
     // it. Codex P0 #1 (yolo-labz/noctalia-appmenu#34): pre-fix this
     // exit was fatal and killed the entire bridge whenever a
     // sibling daemon held the name.
-    let registrar_task = tokio::spawn(async move {
+    // Bind the JoinHandle to a named variable so it stays alive until
+    // `main` returns. `let _ = ...` would drop it immediately and
+    // cancel the task; clippy::let_underscore_future flags that
+    // exact pattern. Naming with a leading underscore silences the
+    // unused-variable lint without triggering let_underscore_future.
+    let _registrar_task = tokio::spawn(async move {
         if let Err(e) = registrar::run(conn.clone(), menus_tx, cfg.clone()).await {
             warn!(error = ?e, "registrar task exited (KDE legacy DBusMenu fallback unavailable)");
         }
@@ -150,7 +155,6 @@ async fn main() -> Result<()> {
     // non-fatal (handled inside the task above); only niri / active /
     // proxy failures abort the bridge. SIGTERM/SIGINT are graceful
     // shutdowns (exit 0).
-    let _ = registrar_task; // keep handle alive until process exits
     tokio::select! {
         _ = sigterm.recv() => {
             warn!("SIGTERM — shutting down");
