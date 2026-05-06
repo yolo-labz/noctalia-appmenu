@@ -538,7 +538,7 @@ pub async fn fetch_menubar_for_pid(pid: u32) -> Result<Option<MenuItem>> {
             tracing::warn!(
                 pid,
                 budget_ms = FETCH_BUDGET.as_millis(),
-                "atspi fetch timed out — focused app slow/hung; widget will placeholder"
+                "atspi fetch timed out — focused app slow/hung; widget falls back to placeholder"
             );
             Ok(None)
         }
