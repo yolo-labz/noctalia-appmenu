@@ -217,7 +217,7 @@ Item {
                             popup.visible = true;
                         } else {
                             // Leaf at top level — fire click directly.
-                            root.fireClick(btn.modelData.id);
+                            root.fireClick(btn.modelData);
                         }
                     }
                 }
@@ -337,17 +337,13 @@ Item {
                                 enabled: item.modelData && item.modelData.enabled !== false
                                 onClicked: {
                                     if (!item.modelData) return;
-                                    // v0.2.0-alpha: only fire on leaf
-                                    // items. Nested submenus require a
-                                    // popup-of-popup mechanism that
-                                    // adds significant complexity;
-                                    // deferred to v0.2.1 where we'll
-                                    // either chain PopupWindows or
-                                    // switch to an in-popup nested
-                                    // panel.
+                                    // v0.3.0-alpha: only fire on leaf
+                                    // items. Nested submenus deferred —
+                                    // the popup-of-popup work belongs
+                                    // with the broader v0.3.x QML pass.
                                     const hasChildren = item.modelData.children && item.modelData.children.length > 0;
                                     if (!hasChildren) {
-                                        root.fireClick(item.modelData.id);
+                                        root.fireClick(item.modelData);
                                         popup.visible = false;
                                     }
                                 }
@@ -360,22 +356,26 @@ Item {
     }
 
     // ── Click forwarding ──────────────────────────────────────────────
-    // Spawn `noctalia-appmenu-bridge click <busName> <menuPath>
-    // <itemId>` as a one-shot child. The bridge subcommand calls
-    // `com.canonical.dbusmenu::Event(itemId, "clicked", "",
-    // timestamp)` on the registered app — same effect as if the user
-    // had clicked the menu in-window.
-    function fireClick(itemId) {
-        if (!root.menuService || !root.menuPath) {
+    // Spawn `noctalia-appmenu-bridge atspi-click <service> <path>` as
+    // a one-shot child. The bridge subcommand calls
+    // `org.a11y.atspi.Action.DoAction(0)` on the AT-SPI accessible —
+    // qtatspi convention is action 0 = "click", same effect as
+    // clicking the item in-window.
+    //
+    // `item` is the menu-tree node from active.json — it carries
+    // `service` (a11y bus name) and `path` (a11y object path), which
+    // together address one accessible. v0.2's `(menuService,
+    // menuPath, itemId)` tuple is gone with the DBusMenu retirement.
+    function fireClick(item) {
+        if (!item || !item.service || !item.path) {
             return;
         }
-        const args = [
-            "click",
-            root.menuService,
-            root.menuPath,
-            String(itemId)
+        clickProcess.command = [
+            root.bridgeBin,
+            "atspi-click",
+            item.service,
+            item.path
         ];
-        clickProcess.command = [root.bridgeBin].concat(args);
         clickProcess.running = true;
     }
 

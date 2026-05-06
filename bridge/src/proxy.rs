@@ -14,7 +14,7 @@
 //! itself under `/org/noctalia/AppMenu/Active/menu` so QML can attach
 //! to a constant address. Out of scope for v0.1.
 
-use crate::{active::ActiveSnapshot, config::Config, dbusmenu};
+use crate::{active::ActiveSnapshot, atspi, config::Config};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{watch, Mutex};
@@ -26,11 +26,13 @@ use zbus::{interface, Connection};
 /// never observe a partially-written file. Errors are logged but
 /// non-fatal — the D-Bus proxy still publishes correctly.
 ///
-/// `menu` carries the v0.2 phase B addition: the focused app's
-/// full DBusMenu tree (or `None` when no app is focused or the
-/// focused app didn't register a menu). The QML widget consumes
-/// this nested structure to render a macOS-style menu strip.
-fn write_active_json(path: &Path, snap: &ActiveSnapshot, menu: Option<&dbusmenu::MenuItem>) {
+/// `menu` carries the focused app's menubar tree as walked from
+/// AT-SPI (v0.3 substrate). JSON shape is unchanged from v0.2's
+/// dbusmenu walker so the QML widget needs zero edits — `service`
+/// and `path` now point at AT-SPI accessibles instead of DBusMenu
+/// items, but downstream click forwarding routes through the new
+/// `atspi-click` subcommand which speaks the AT-SPI Action interface.
+fn write_active_json(path: &Path, snap: &ActiveSnapshot, menu: Option<&atspi::MenuItem>) {
     let payload = serde_json::json!({
         "focus_pid": snap.focus_pid,
         "app_id": snap.app_id,
@@ -150,34 +152,38 @@ pub async fn run(
     while active_rx.changed().await.is_ok() {
         let snapshot = active_rx.borrow_and_update().clone();
 
-        // v0.2 phase B: fetch the focused app's DBusMenu tree if it
-        // registered one. Errors are non-fatal — apps that disappear
-        // mid-fetch (closed window before we got around to it),
-        // crashed clients, malformed responses all just yield `None`
-        // and let the widget fall back to the v0.1 placeholder.
-        let menu = match (&snapshot.menu_service, &snapshot.menu_path) {
-            (svc, Some(path)) if !svc.is_empty() => {
-                match dbusmenu::fetch_layout(&conn, svc, &path.as_ref()).await {
-                    Ok(m) => {
-                        debug!(
-                            service = %svc,
-                            path = %path.as_str(),
-                            top_level = m.children.len(),
-                            "fetched menu tree"
-                        );
-                        Some(m)
-                    }
-                    Err(e) => {
-                        warn!(
-                            error = ?e,
-                            service = %svc,
-                            "dbusmenu fetch failed; widget will see no menu"
-                        );
-                        None
-                    }
+        // v0.3 substrate: walk the focused app's AT-SPI menubar.
+        // PID-keyed lookup against the a11y registry — bypasses the
+        // DBusMenu/Registrar dance which only fires on KWin Wayland.
+        // Errors are non-fatal: apps without a11y integration loaded
+        // (Electron without `--force-accessibility`, niche toolkits)
+        // simply return `None`, and the widget renders its v0.1
+        // placeholder.
+        let menu = if snapshot.focus_pid != 0 {
+            match atspi::fetch_menubar_for_pid(snapshot.focus_pid).await {
+                Ok(Some(m)) => {
+                    debug!(
+                        pid = snapshot.focus_pid,
+                        top_level = m.children.len(),
+                        "walked atspi menubar"
+                    );
+                    Some(m)
+                }
+                Ok(None) => {
+                    debug!(pid = snapshot.focus_pid, "no atspi menubar for focused app");
+                    None
+                }
+                Err(e) => {
+                    warn!(
+                        error = ?e,
+                        pid = snapshot.focus_pid,
+                        "atspi walk failed; widget falls back to placeholder"
+                    );
+                    None
                 }
             }
-            _ => None,
+        } else {
+            None
         };
 
         write_active_json(&active_json_path, &snapshot, menu.as_ref());

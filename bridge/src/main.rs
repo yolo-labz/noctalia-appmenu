@@ -12,7 +12,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use noctalia_appmenu_bridge::{active, config, niri, proxy, registrar};
+use noctalia_appmenu_bridge::{active, atspi, config, niri, proxy, registrar};
 use tracing::{info, warn};
 
 #[derive(Parser, Debug)]
@@ -53,6 +53,20 @@ enum Cmd {
         /// Menu item id from the layout returned by GetLayout.
         item_id: i32,
     },
+
+    /// AT-SPI click forward (v0.3 substrate). Calls
+    /// `org.a11y.atspi.Action.DoAction(0)` on the accessible at the
+    /// given (service, path) coordinates — the same pair the QML
+    /// widget reads out of `active.json`'s menu tree.
+    ///
+    /// One-shot subcommand: spawn, call, exit. Bridge daemon stays
+    /// up; this short-lived process does the click and goes away.
+    AtspiClick {
+        /// AT-SPI bus name (e.g. `:1.42` — unique connection).
+        service: String,
+        /// AT-SPI object path (e.g. `/org/a11y/atspi/accessible/12`).
+        path: String,
+    },
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -71,19 +85,33 @@ async fn main() -> Result<()> {
     // CLI subcommands run in their own short-lived process — no
     // tracing setup, no daemon machinery, no D-Bus listener. Just
     // do the call and exit.
-    if let Some(Cmd::Click {
-        bus_name,
-        menu_path,
-        item_id,
-    }) = cli.cmd
-    {
-        return handle_click(&bus_name, &menu_path, item_id).await;
+    match cli.cmd {
+        Some(Cmd::Click {
+            ref bus_name,
+            ref menu_path,
+            item_id,
+        }) => return handle_click(bus_name, menu_path, item_id).await,
+        Some(Cmd::AtspiClick {
+            ref service,
+            ref path,
+        }) => return atspi::do_action(service, path).await,
+        None => {}
     }
 
     init_tracing(cli.foreground);
 
     let cfg = config::Config::load(cli.config.as_deref())?;
     info!(?cfg, "starting noctalia-appmenu-bridge");
+
+    // Flip `org.a11y.Status.IsEnabled = true` so Qt apps register
+    // their accessible trees on the a11y bus. niri ships no AT
+    // (Orca etc), so nobody else flips it; without this, the
+    // registry stays empty and our walker finds nothing.
+    if let Err(e) = atspi::enable_a11y().await {
+        warn!(error = ?e, "atspi enable failed — qt apps may not expose menus");
+    } else {
+        info!("atspi a11y bus enabled");
+    }
 
     // Connect to the user session bus — the bridge is a per-user daemon.
     let conn = zbus::Connection::session().await?;

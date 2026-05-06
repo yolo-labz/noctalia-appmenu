@@ -40,7 +40,7 @@ jobs:
           persist-credentials: false
 
       - name: cargo deny
-        uses: EmbarkStudios/cargo-deny-action@e2f4ede4a4e60ea15ff31bc0647485d80c66cfba # v2.0.4
+        uses: EmbarkStudios/cargo-deny-action@a4d2d701318fdc1c6ae17ba8cea8f329c5110eb2 # v2.0.17
         with:
           command: check ${{ matrix.check }}
           manifest-path: bridge/Cargo.toml
