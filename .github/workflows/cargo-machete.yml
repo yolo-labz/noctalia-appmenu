@@ -18,7 +18,13 @@ env:
 jobs:
   check:
     name: detect unused deps
-    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
+    # Require `desktop` label — machete needs cargo/rustc on PATH and
+    # vm103 doesn't ship a rust toolchain. dtolnay/rust-toolchain
+    # action collides with desktop's existing rustup install
+    # ("cannot install while Rust is installed" + .profile EACCES),
+    # so route to the desktop runner that already has cargo + a
+    # job-started hook reclaiming `.git` perms.
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu, desktop]
     timeout-minutes: 5
     permissions:
       contents: read
@@ -32,4 +38,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: bnjbvr/cargo-machete@ac30a525c0a8d163a92d727b3ff079ee3f6ecb08 # v0.9.2
+      # Use the nix devShell instead of the bnjbvr/cargo-machete
+      # action — the action's binary fallback chain (precompiled
+      # tarball → `cargo install`) breaks against this runner's
+      # rustup-without-default state, and the devShell already pins
+      # cargo-machete via nixpkgs.
+      - name: cargo machete (via nix devShell)
+        run: nix develop --command cargo machete bridge
