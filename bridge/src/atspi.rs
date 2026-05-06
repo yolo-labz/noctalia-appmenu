@@ -523,7 +523,29 @@ pub async fn fetch_menu_tree(
 /// `Err(_)` so the caller can log a warn and write a `null` menu
 /// to active.json — letting the QML widget fall back to its
 /// placeholder gracefully.
+///
+/// **Total budget:** the whole pipeline is wrapped in a 1.5s
+/// `tokio::time::timeout`. AT-SPI calls cross the focused app's
+/// process boundary; a hung or slow app must not freeze the bridge
+/// (codex P1 #3). On timeout we return `Ok(None)` so the QML widget
+/// falls back to the v0.1 placeholder rather than holding the bar
+/// in a stale state.
 pub async fn fetch_menubar_for_pid(pid: u32) -> Result<Option<MenuItem>> {
+    const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(1500);
+    match tokio::time::timeout(FETCH_BUDGET, fetch_menubar_for_pid_inner(pid)).await {
+        Ok(result) => result,
+        Err(_) => {
+            tracing::warn!(
+                pid,
+                budget_ms = FETCH_BUDGET.as_millis(),
+                "atspi fetch timed out — focused app slow/hung; widget will placeholder"
+            );
+            Ok(None)
+        }
+    }
+}
+
+async fn fetch_menubar_for_pid_inner(pid: u32) -> Result<Option<MenuItem>> {
     let a11y = connect_a11y().await?;
     let app = match find_app_for_pid(&a11y, pid).await? {
         Some(a) => a,

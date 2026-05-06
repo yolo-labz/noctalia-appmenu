@@ -123,17 +123,34 @@ async fn main() -> Result<()> {
     let (active_tx, active_rx) = tokio::sync::watch::channel(active::ActiveSnapshot::empty());
 
     let niri_task = tokio::spawn(niri::run(focus_tx, cfg.clone()));
-    let registrar_task = tokio::spawn(registrar::run(conn.clone(), menus_tx, cfg.clone()));
     let active_task = tokio::spawn(active::run(focus_rx, menus_rx, active_tx, cfg.clone()));
     let proxy_task = tokio::spawn(proxy::run(conn.clone(), active_rx, cfg.clone()));
+
+    // The DBusMenu Registrar is v0.2 plumbing, retained as a
+    // best-effort fallback for KDE Plasma users where Qt6's
+    // `org_kde_kwin_appmenu_manager` integration registers menus
+    // via the canonical AppMenu protocol. v0.3's primary substrate
+    // is AT-SPI (proxy.rs feeds from `atspi::fetch_menubar_for_pid`
+    // directly, ignoring `menus_rx`). If another registrar daemon
+    // (vala-panel-appmenu-daemon) already owns the bus name, the
+    // task exits cleanly — we log a warning and continue without
+    // it. Codex P0 #1 (yolo-labz/noctalia-appmenu#34): pre-fix this
+    // exit was fatal and killed the entire bridge whenever a
+    // sibling daemon held the name.
+    let registrar_task = tokio::spawn(async move {
+        if let Err(e) = registrar::run(conn.clone(), menus_tx, cfg.clone()).await {
+            warn!(error = ?e, "registrar task exited (KDE legacy DBusMenu fallback unavailable)");
+        }
+    });
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
 
-    // Selecting on the four task JoinHandles means an unexpected task
-    // exit returns from select!. SIGTERM/SIGINT are graceful shutdowns
-    // (exit 0). Any task exit is an unrecoverable error — return non-
-    // zero so systemd's `Restart=on-failure` re-spawns us.
+    // Select on the v0.3 critical-path tasks. Registrar exit is
+    // non-fatal (handled inside the task above); only niri / active /
+    // proxy failures abort the bridge. SIGTERM/SIGINT are graceful
+    // shutdowns (exit 0).
+    let _ = registrar_task; // keep handle alive until process exits
     tokio::select! {
         _ = sigterm.recv() => {
             warn!("SIGTERM — shutting down");
@@ -146,10 +163,6 @@ async fn main() -> Result<()> {
         r = niri_task => {
             warn!(?r, "niri task exited unexpectedly");
             anyhow::bail!("niri task exited: {r:?}")
-        }
-        r = registrar_task => {
-            warn!(?r, "registrar task exited unexpectedly");
-            anyhow::bail!("registrar task exited: {r:?}")
         }
         r = active_task => {
             warn!(?r, "active task exited unexpectedly");

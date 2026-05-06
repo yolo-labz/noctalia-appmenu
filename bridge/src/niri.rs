@@ -170,6 +170,24 @@ pub async fn run(tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> Result<(
 
     info!(count = by_winid.len(), "seeded niri windows");
 
+    // Emit the already-focused window from the seed snapshot so a
+    // bridge restart doesn't blank the menu strip until the next user
+    // focus change. niri marks one window with `is_focused = true` in
+    // its `windows` reply at session start; without this seed-emit,
+    // active.json stays empty until the user alt-tabs (codex P0 #2).
+    if let Some(focused) = by_winid.values().find(|w| w.is_focused == Some(true)) {
+        if let Some(pid) = focused.pid {
+            let evt = FocusEvent {
+                winid: focused.id,
+                pid,
+                app_id: focused.app_id.clone().unwrap_or_default(),
+                title: focused.title.clone().unwrap_or_default(),
+            };
+            debug!(?evt, "seeding focus from initial windows snapshot");
+            let _ = tx.send(Some(evt));
+        }
+    }
+
     // Long-pipe event stream.
     let mut child = Command::new(&cfg.niri_binary)
         .args(["msg", "--json", "event-stream"])
