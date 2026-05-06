@@ -21,10 +21,31 @@ use tokio::sync::{watch, Mutex};
 use tracing::{debug, info, warn};
 use zbus::{interface, Connection};
 
-/// Serialise the active snapshot to a JSON file. Atomic write:
-/// write to `<path>.tmp` then rename, so file-watching consumers
-/// never observe a partially-written file. Errors are logged but
-/// non-fatal — the D-Bus proxy still publishes correctly.
+/// Serialise the active snapshot to a JSON file. Truncating
+/// in-place write — single open(O_WRONLY|O_TRUNC) + write + close,
+/// preserving the file's inode across updates. Errors are logged
+/// but non-fatal — the D-Bus proxy still publishes correctly.
+///
+/// **Why in-place, not tmpfile+rename (PR #41):** Quickshell's
+/// `FileView.watchChanges` attaches an inotify watch to the inode,
+/// not the path. The previous tmpfile+rename pattern replaced the
+/// inode on every write — `IN_MOVE_SELF` fires once, then the new
+/// inode is unwatched and silently misses subsequent writes. After
+/// 17h+ of quickshell uptime across many bridge restarts the QML
+/// widget would render empty until `systemctl --user restart
+/// noctalia-shell`. In-place truncate keeps the inode stable;
+/// inotify on the path resolves to the same node forever, and
+/// `IN_MODIFY` fires reliably on every write.
+///
+/// **Tearing tradeoff:** the QML reader could in theory observe a
+/// partial write between the truncate and the body write. Payload
+/// is <4 KiB in practice (small menu trees) — Linux's `write(2)`
+/// is atomic up to `PIPE_BUF` (4096) for regular files in single
+/// syscalls, and `serde_json::to_string` produces one buffer
+/// `std::fs::write` flushes in one syscall. Even when the payload
+/// exceeds 4 KiB the QML reader simply hits a `JSON.parse` error
+/// and skips that update — `BarWidget.qml` already handles this
+/// with a try/catch (see ADR-0021).
 ///
 /// `menu` carries the focused app's menubar tree as walked from
 /// AT-SPI (v0.3 substrate). JSON shape is unchanged from v0.2's
@@ -41,13 +62,8 @@ fn write_active_json(path: &Path, snap: &ActiveSnapshot, menu: Option<&atspi::Me
         "menu_path": snap.menu_path.as_ref().map_or("", |p| p.as_str()),
         "menu": menu,
     });
-    let tmp = path.with_extension("json.tmp");
-    if let Err(e) = std::fs::write(&tmp, payload.to_string()) {
+    if let Err(e) = std::fs::write(path, payload.to_string()) {
         warn!(error=?e, path=%path.display(), "active.json write failed");
-        return;
-    }
-    if let Err(e) = std::fs::rename(&tmp, path) {
-        warn!(error=?e, path=%path.display(), "active.json rename failed");
     }
 }
 
