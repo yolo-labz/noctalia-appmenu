@@ -309,16 +309,15 @@ pub async fn find_app_for_pid(
     let count = read_child_count(a11y, "org.a11y.atspi.Registry", &registry_path).await?;
     let dbus = zbus::fdo::DBusProxy::new(a11y).await?;
 
-    // Pass 1: PID match. Native Wayland clients show up here directly.
+    // Pass 1: PID match. Native Wayland clients show up here directly —
+    // niri's wl_client PID equals the AT-SPI app's PID. Fast path; one
+    // round-trip per registered app.
     let mut candidates: Vec<(String, OwnedObjectPath)> = Vec::new();
     for i in 0..count {
         let (service, path) = match registry.get_child_at_index(i).await {
             Ok(v) => v,
             Err(_) => continue,
         };
-        // Resolve service name to PID. The a11y bus carries its own
-        // unique-name → pid mapping (different from the session
-        // bus's mapping — same app, different connection).
         let bus_name: zbus::names::BusName<'_> = match service.as_str().try_into() {
             Ok(n) => n,
             Err(_) => continue,
@@ -333,19 +332,35 @@ pub async fn find_app_for_pid(
         candidates.push((service, path));
     }
 
-    // Pass 2: name-match fallback for XWayland-bridged apps.
+    // Pass 2: AT-SPI's own active-window detection.
     //
-    // niri reports the wl_client PID for surfaces it manages; for X11
-    // apps under XWayland that PID is `xwayland-satellite`, NOT the
-    // app process itself. The app's a11y registry entry has its own
-    // PID (the X11 client process) which doesn't match niri's PID,
-    // so pass 1 misses them entirely.
+    // The PID join breaks for any window whose wl_client PID differs
+    // from the app process's PID:
     //
-    // Fall back to matching by accessible Name against `app_id_hint`:
-    // niri's app_id (`Anki`, `org.kde.okular`, `firefox-nightly`) maps
-    // closely to the AT-SPI Application's Name property (`Anki`,
-    // `okular`, `Firefox-nightly`). Strip common prefixes/suffixes
-    // and compare case-insensitively.
+    // - **XWayland** apps surface as `xwayland-satellite`'s PID to
+    //   niri while the app's a11y connection has the X11 client PID.
+    // - **Flatpak / bwrap** wrap the app in a sandbox; niri sees the
+    //   wrapper PID, AT-SPI sees the namespace-internal PID.
+    // - **Subprocess apps** (Anki's wrapper script, web-app shells)
+    //   spawn the actual UI process under a launcher PID.
+    //
+    // Universal fix: ask AT-SPI which application currently holds
+    // window-manager focus. AT-SPI tracks STATE_ACTIVE on every
+    // top-level frame regardless of toolkit / wrapper / Wayland-vs-X11
+    // path. The PID is irrelevant — we only need to find the frame
+    // with that bit set and walk back to its owning app.
+    if let Some(found) = find_active_app_via_state(a11y, &candidates, app_id_hint).await {
+        tracing::debug!(
+            pid,
+            "atspi app matched via STATE_ACTIVE (PID join missed — XWayland/sandbox/subprocess)"
+        );
+        return Ok(Some(found));
+    }
+
+    // Pass 3: name-match fallback. AT-SPI's STATE_ACTIVE detection
+    // misses apps that don't expose top-level frames as direct
+    // children (some Electron wrappers, niche toolkits). Match
+    // `app_id_hint` against the app's accessible Name as last resort.
     if let Some(hint) = app_id_hint {
         let normalized_hint = normalize_app_id(hint);
         if !normalized_hint.is_empty() {
@@ -358,11 +373,6 @@ pub async fn find_app_for_pid(
                 if normalized_name.is_empty() {
                     continue;
                 }
-                // Bidirectional substring: either side is enough.
-                // app_id `firefox-nightly` matches Firefox AT-SPI Name
-                // `Firefox`; app_id `Anki` matches `Anki`. Prevents
-                // false-positive single-char matches by requiring the
-                // shorter side to be at least 3 chars.
                 let (short, long) = if normalized_name.len() < normalized_hint.len() {
                     (&normalized_name, &normalized_hint)
                 } else {
@@ -373,7 +383,7 @@ pub async fn find_app_for_pid(
                         pid,
                         %hint,
                         %name,
-                        "atspi app matched by name fallback (likely XWayland)"
+                        "atspi app matched by name fallback (last resort)"
                     );
                     return Ok(Some((service, path)));
                 }
@@ -381,6 +391,133 @@ pub async fn find_app_for_pid(
         }
     }
     Ok(None)
+}
+
+/// Walk each candidate AT-SPI app's tree (depth ≤ 2) looking for the
+/// **frame** with `STATE_ACTIVE` (bit 1) set. Returns
+/// `(service, frame_path)` — the path to the active frame, NOT the app
+/// root.
+///
+/// **Why frame-scoped, not app-scoped (codex review of PR #38):** apps
+/// with multiple top-level windows (okular with 3 PDFs open,
+/// LibreOffice with both Writer + Calc, multi-profile Firefox) expose
+/// multiple frame children under one Application. If we returned the
+/// app root, `find_menubar`'s DFS would pick the FIRST `MENU_BAR` it
+/// encounters — which may belong to an unfocused window. Returning
+/// the active frame path scopes the menubar walk to the correct
+/// window.
+///
+/// **Tie-breaking on race (codex review):** AT-SPI state propagation
+/// is async; during alt-tab transitions, two apps may briefly both
+/// have STATE_ACTIVE set. When `app_id_hint` is provided, prefer
+/// candidates whose accessible Name fuzzy-matches it. Without a hint,
+/// first-found wins.
+///
+/// **Bit semantics:** `AtspiStateType::ATSPI_STATE_ACTIVE = 1` →
+/// bit-index 1 → mask `1 << 1 = 0b10`. State wire format is `au`
+/// (array of two u32); we OR them into a 64-bit view.
+///
+/// Depth 2 covers every app structure observed in the wild:
+/// - Depth 1: Firefox / Anki / GIMP (frames directly under root).
+/// - Depth 2: some Qt apps wrap frames in `Application → AppName →
+///   frame`.
+async fn find_active_app_via_state(
+    a11y: &Connection,
+    candidates: &[(String, OwnedObjectPath)],
+    app_id_hint: Option<&str>,
+) -> Option<(String, OwnedObjectPath)> {
+    const ACTIVE_BIT: u64 = 1 << 1;
+
+    let normalized_hint = app_id_hint.map(normalize_app_id).filter(|s| !s.is_empty());
+
+    let mut first_match: Option<(String, OwnedObjectPath)> = None;
+    for (service, app_path) in candidates {
+        let Some(frame_path) =
+            scan_for_active_frame(a11y, service, &app_path.as_ref(), 2, ACTIVE_BIT).await
+        else {
+            continue;
+        };
+        // Prefer the candidate whose accessible Name fuzzy-matches the
+        // hint; bail early on first match so we don't keep scanning.
+        if let Some(ref hint) = normalized_hint {
+            if let Ok(name) = read_name(a11y, service, &app_path.as_ref()).await {
+                let n = normalize_app_id(&name);
+                let (short, long) = if n.len() < hint.len() {
+                    (&n, hint)
+                } else {
+                    (hint, &n)
+                };
+                if short.len() >= 3 && long.contains(short.as_str()) {
+                    return Some((service.clone(), frame_path));
+                }
+            }
+        }
+        first_match.get_or_insert((service.clone(), frame_path));
+    }
+    first_match
+}
+
+/// Recursive helper for `find_active_app_via_state`. Returns the path
+/// of the first descendant within `cur_depth` levels whose state has
+/// `bit` set, or `None`. Returns the **descendant's** path, not the
+/// caller's, so the result identifies the actual active frame rather
+/// than its enclosing application.
+async fn scan_for_active_frame(
+    a11y: &Connection,
+    service: &str,
+    path: &ObjectPath<'_>,
+    cur_depth: u32,
+    bit: u64,
+) -> Option<OwnedObjectPath> {
+    let proxy = match AccessibleProxy::builder(a11y)
+        .destination(service.to_owned())
+        .and_then(|b| b.path(path.to_owned()))
+        .map(|b| b.cache_properties(zbus::CacheProperties::No))
+    {
+        Ok(b) => match b.build().await {
+            Ok(p) => p,
+            Err(_) => return None,
+        },
+        Err(_) => return None,
+    };
+
+    if let Ok(states) = proxy.get_state().await {
+        let lo = u64::from(*states.first().unwrap_or(&0));
+        let hi = u64::from(*states.get(1).unwrap_or(&0));
+        let combined = (hi << 32) | lo;
+        if combined & bit != 0 {
+            return Some(path.to_owned().into());
+        }
+    }
+
+    if cur_depth == 0 {
+        return None;
+    }
+    let count = read_child_count(a11y, service, path).await.unwrap_or(0);
+    for i in 0..count {
+        let (child_service, child_path) = match proxy.get_child_at_index(i).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        // Only descend into children of the same service — crossing
+        // bus connections under one app is uncommon and the foreign
+        // proxy build would just fail.
+        if child_service != service {
+            continue;
+        }
+        if let Some(found) = Box::pin(scan_for_active_frame(
+            a11y,
+            &child_service,
+            &child_path.as_ref(),
+            cur_depth - 1,
+            bit,
+        ))
+        .await
+        {
+            return Some(found);
+        }
+    }
+    None
 }
 
 /// Normalize a Wayland app-id or AT-SPI accessible Name for fuzzy
