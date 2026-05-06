@@ -5,10 +5,10 @@
 //! - `niri`: subscribe to niri-IPC's event-stream, expose a focus-pid feed.
 //! - `registrar`: subscribe to com.canonical.AppMenu.Registrar, expose a
 //!   pid → (busName, objectPath) map keyed by D-Bus connection PID.
-//! - `active`: produce a debounced (focus_pid, menu_address) signal by
+//! - `active`: produce a debounced (`focus_pid`, `menu_address`) signal by
 //!   joining the two feeds.
 //! - `proxy`: own org.noctalia.AppMenu, expose a fixed-path active-app
-//!   proxy that mirrors the upstream DBusMenu of the focused app.
+//!   proxy that mirrors the upstream `DBusMenu` of the focused app.
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -36,7 +36,7 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Forward a click event to a registered DBusMenu item. Invoked
+    /// Forward a click event to a registered `DBusMenu` item. Invoked
     /// from the QML widget on user click.
     ///
     /// Calls `com.canonical.dbusmenu::Event(itemId, "clicked", "",
@@ -50,7 +50,7 @@ enum Cmd {
         bus_name: String,
         /// Object path of the app's `com.canonical.dbusmenu` service.
         menu_path: String,
-        /// Menu item id from the layout returned by GetLayout.
+        /// Menu item id from the layout returned by `GetLayout`.
         item_id: i32,
     },
 
@@ -145,25 +145,25 @@ async fn main() -> Result<()> {
         }
         r = niri_task => {
             warn!(?r, "niri task exited unexpectedly");
-            anyhow::bail!("niri task exited: {:?}", r)
+            anyhow::bail!("niri task exited: {r:?}")
         }
         r = registrar_task => {
             warn!(?r, "registrar task exited unexpectedly");
-            anyhow::bail!("registrar task exited: {:?}", r)
+            anyhow::bail!("registrar task exited: {r:?}")
         }
         r = active_task => {
             warn!(?r, "active task exited unexpectedly");
-            anyhow::bail!("active task exited: {:?}", r)
+            anyhow::bail!("active task exited: {r:?}")
         }
         r = proxy_task => {
             warn!(?r, "proxy task exited unexpectedly");
-            anyhow::bail!("proxy task exited: {:?}", r)
+            anyhow::bail!("proxy task exited: {r:?}")
         }
     }
 }
 
 /// CLI `click` subcommand: forward an Event(itemId, "clicked", "",
-/// timestamp) call to the registered app's DBusMenu service.
+/// timestamp) call to the registered app's `DBusMenu` service.
 ///
 /// Run as a one-shot child process spawned by the QML widget. We
 /// intentionally don't bring up the full bridge runtime — connect,
@@ -198,8 +198,7 @@ async fn handle_click(bus_name: &str, menu_path: &str, item_id: i32) -> Result<(
 
     let timestamp: u32 = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as u32)
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_secs() as u32);
 
     let proxy = zbus::Proxy::new(&conn, proxy_dest, proxy_path, "com.canonical.dbusmenu")
         .await

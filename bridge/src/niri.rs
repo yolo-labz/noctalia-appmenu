@@ -17,7 +17,7 @@ use tracing::{debug, info, warn};
 
 /// A snapshot of one window as reported by `niri msg --json windows`.
 ///
-/// Some fields (workspace_id, is_focused) are not currently consumed by
+/// Some fields (`workspace_id`, `is_focused`) are not currently consumed by
 /// the bridge but are kept on the type so downstream debug-printing
 /// surfaces useful context. Marked `dead_code`-allowed at the struct
 /// level — we control the schema, niri may stop emitting these later.
@@ -30,7 +30,7 @@ pub struct NiriWindow {
     pub app_id: Option<String>,
     /// Window title at snapshot time.
     pub title: Option<String>,
-    /// Process ID of the wl_client owning the surface.
+    /// Process ID of the `wl_client` owning the surface.
     pub pid: Option<u32>,
     /// Workspace the window is anchored to.
     pub workspace_id: Option<u64>,
@@ -100,7 +100,7 @@ impl<'de> Deserialize<'de> for NiriEvent {
 pub struct FocusEvent {
     /// niri's stable window id for this surface.
     pub winid: u64,
-    /// PID of the wl_client owning the focused surface.
+    /// PID of the `wl_client` owning the focused surface.
     pub pid: u32,
     /// Wayland app-id for the focused surface.
     pub app_id: String,
@@ -135,6 +135,7 @@ pub enum MapOp {
 /// `cache` is read-only; the caller applies the resulting `MapOp` to its
 /// own mutable cache. This makes the function trivially testable and
 /// independently reorderable.
+#[must_use]
 pub fn handle_event(event: NiriEvent, cache: &HashMap<u64, NiriWindow>) -> MapOp {
     match event {
         NiriEvent::WindowFocusChanged { id: Some(id) } => match cache.get(&id) {

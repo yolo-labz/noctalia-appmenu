@@ -36,8 +36,8 @@
 //! `GetLayout(0, -1, [])` asks for the FULL tree from root rooted
 //! at id 0 with unbounded depth. Apps that respect the spec return
 //! every nested item; some apps cap at 1 level (lazy-load via
-//! AboutToShow). We start with `-1` and revisit if specific apps
-//! need depth-1 + AboutToShow choreography.
+//! `AboutToShow`). We start with `-1` and revisit if specific apps
+//! need depth-1 + `AboutToShow` choreography.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -78,10 +78,10 @@ trait DbusMenu {
 /// We deserialize via zbus zvariant types and then re-walk into
 /// `MenuItem` for the JSON serialization downstream consumers use.
 ///
-/// `Deserialize` + `Type` lets zbus' DBus wire decoder build this
+/// `Deserialize` + `Type` lets zbus' `DBus` wire decoder build this
 /// directly from the `(ia{sv}av)` body. `OwnedValue` round-trip
 /// derives let us bounce nested children through
-/// `OwnedValue → MenuLayout` during the recursive parse_layout walk.
+/// `OwnedValue → MenuLayout` during the recursive `parse_layout` walk.
 #[derive(
     Debug, Deserialize, zbus::zvariant::Type, zbus::zvariant::OwnedValue, zbus::zvariant::Value,
 )]
@@ -126,7 +126,7 @@ pub struct MenuItem {
 }
 
 /// Helper: extract a string property from the prop map, falling
-/// back to the given default. Walks the OwnedValue → Value →
+/// back to the given default. Walks the `OwnedValue` → Value →
 /// borrowed `&str` chain because zvariant 4.x's `Str` variant
 /// hides behind a Deref.
 fn get_str(props: &HashMap<String, OwnedValue>, key: &str, default: &str) -> String {
@@ -244,8 +244,8 @@ mod tests {
             item_type: "submenu".to_string(),
             enabled: true,
             visible: true,
-            icon_name: "".to_string(),
-            toggle_type: "".to_string(),
+            icon_name: String::new(),
+            toggle_type: String::new(),
             toggle_state: 0,
             children: vec![MenuItem {
                 id: 2,

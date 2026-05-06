@@ -3,7 +3,7 @@
 //! bring-up — not part of the production daemon.
 //!
 //! Usage:
-//!   cargo run --example atspi_probe -- <pid>
+//!   cargo run --example `atspi_probe` -- <pid>
 
 use anyhow::Result;
 use noctalia_appmenu_bridge::atspi;

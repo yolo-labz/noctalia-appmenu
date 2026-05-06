@@ -10,7 +10,7 @@
 //! independently attaches a Quickshell `DBusMenuHandle` to
 //! `(busName, objectPath)`.
 //!
-//! Future work (ADR-0007 second-half): mirror the upstream DBusMenu
+//! Future work (ADR-0007 second-half): mirror the upstream `DBusMenu`
 //! itself under `/org/noctalia/AppMenu/Active/menu` so QML can attach
 //! to a constant address. Out of scope for v0.1.
 
@@ -29,7 +29,7 @@ use zbus::{interface, Connection};
 /// `menu` carries the focused app's menubar tree as walked from
 /// AT-SPI (v0.3 substrate). JSON shape is unchanged from v0.2's
 /// dbusmenu walker so the QML widget needs zero edits — `service`
-/// and `path` now point at AT-SPI accessibles instead of DBusMenu
+/// and `path` now point at AT-SPI accessibles instead of `DBusMenu`
 /// items, but downstream click forwarding routes through the new
 /// `atspi-click` subcommand which speaks the AT-SPI Action interface.
 fn write_active_json(path: &Path, snap: &ActiveSnapshot, menu: Option<&atspi::MenuItem>) {
@@ -38,7 +38,7 @@ fn write_active_json(path: &Path, snap: &ActiveSnapshot, menu: Option<&atspi::Me
         "app_id": snap.app_id,
         "title": snap.title,
         "menu_service": snap.menu_service,
-        "menu_path": snap.menu_path.as_ref().map(|p| p.as_str()).unwrap_or(""),
+        "menu_path": snap.menu_path.as_ref().map_or("", |p| p.as_str()),
         "menu": menu,
     });
     let tmp = path.with_extension("json.tmp");
@@ -78,6 +78,7 @@ pub struct ActiveProxy {
 
 impl ActiveProxy {
     /// Construct a fresh proxy with empty state. Call once per process.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

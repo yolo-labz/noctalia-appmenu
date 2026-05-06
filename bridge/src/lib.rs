@@ -1,5 +1,5 @@
 //! noctalia-appmenu-bridge — sidecar daemon that joins niri's IPC focus
-//! stream with the freedesktop AppMenu registrar and re-publishes the
+//! stream with the freedesktop `AppMenu` registrar and re-publishes the
 //! active app's menu under a stable D-Bus address that the noctalia
 //! QML widget can attach to.
 //!
