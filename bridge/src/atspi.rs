@@ -754,17 +754,24 @@ pub async fn fetch_menu_tree(
 /// to active.json — letting the QML widget fall back to its
 /// placeholder gracefully.
 ///
-/// **Total budget:** the whole pipeline is wrapped in a 1.5s
+/// **Total budget:** the whole pipeline is wrapped in a 3s
 /// `tokio::time::timeout`. AT-SPI calls cross the focused app's
 /// process boundary; a hung or slow app must not freeze the bridge
 /// (codex P1 #3). On timeout we return `Ok(None)` so the QML widget
 /// falls back to the v0.1 placeholder rather than holding the bar
 /// in a stale state.
+///
+/// **Why 3s, not 1.5s (PR #40):** pass-1 PID resolution iterates
+/// every registered AT-SPI app sequentially. With 8+ apps and a
+/// cold registry the dbus round-trips can stack to >1.5s — even
+/// when the target app is well-behaved. Real-world miss observed
+/// on Firefox-nightly first-focus after bridge restart even though
+/// the manual probe (warm registry) succeeded immediately.
 pub async fn fetch_menubar_for_pid(
     pid: u32,
     app_id_hint: Option<&str>,
 ) -> Result<Option<MenuItem>> {
-    const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(1500);
+    const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(3000);
     match tokio::time::timeout(FETCH_BUDGET, fetch_menubar_for_pid_inner(pid, app_id_hint)).await {
         Ok(result) => result,
         Err(_) => {

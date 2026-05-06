@@ -150,68 +150,126 @@ pub async fn run(
     // (matters for first-load of the QML widget).
     write_active_json(&active_json_path, &ActiveSnapshot::empty(), None);
 
-    while active_rx.changed().await.is_ok() {
-        let snapshot = active_rx.borrow_and_update().clone();
+    loop {
+        if active_rx.changed().await.is_err() {
+            break;
+        }
+        let mut snapshot = active_rx.borrow_and_update().clone();
 
-        // v0.3 substrate: walk the focused app's AT-SPI menubar.
-        // PID-keyed lookup against the a11y registry — bypasses the
-        // DBusMenu/Registrar dance which only fires on KWin Wayland.
-        // Errors are non-fatal: apps without a11y integration loaded
-        // (Electron without `--force-accessibility`, niche toolkits)
-        // simply return `None`, and the widget renders its v0.1
-        // placeholder.
-        let menu = if snapshot.focus_pid != 0 {
-            match atspi::fetch_menubar_for_pid(snapshot.focus_pid, Some(&snapshot.app_id)).await {
-                Ok(Some(m)) => {
-                    debug!(
-                        pid = snapshot.focus_pid,
-                        top_level = m.children.len(),
-                        "walked atspi menubar"
-                    );
-                    Some(m)
-                }
-                Ok(None) => {
-                    debug!(pid = snapshot.focus_pid, "no atspi menubar for focused app");
-                    None
-                }
-                Err(e) => {
-                    warn!(
-                        error = ?e,
-                        pid = snapshot.focus_pid,
-                        "atspi walk failed; widget falls back to placeholder"
-                    );
-                    None
+        // Eager publish: write app_id + title to active.json with
+        // menu:null so the bar updates instantly, then refine the
+        // menu field once the AT-SPI walk completes. Without this
+        // the QML widget waits up to ~3.6s (timeout + retries)
+        // before showing the new app's title — a regression vs the
+        // pre-retry v0.3.0-alpha.6 behaviour (codex review of #40).
+        write_active_json(&active_json_path, &snapshot, None);
+        publish_props(&conn, &cfg, &proxy, &snapshot).await?;
+
+        // v0.3 substrate: walk the focused app's AT-SPI menubar
+        // with up-to-3 cancellable retries. Pass-1 PID resolution
+        // is sequential and can blow the per-call timeout when a
+        // misbehaving registered app is slow; on the first walk
+        // after bridge restart the registry can also be cold.
+        // Retry-on-None gives the registry a chance to warm. The
+        // sleep is cancellation-aware so a user alt-tabbing during
+        // backoff doesn't get stuck rendering the old menu.
+        // Apps without an AT-SPI menu (terminals, electron-no-a11y)
+        // pay 200+400=600ms extra per focus before settling on
+        // null — accepted as the cost of universal correctness.
+        let menu: Option<atspi::MenuItem> = if snapshot.focus_pid != 0 {
+            let mut found: Option<atspi::MenuItem> = None;
+            let mut attempt: u32 = 0;
+            loop {
+                match atspi::fetch_menubar_for_pid(snapshot.focus_pid, Some(&snapshot.app_id)).await
+                {
+                    Ok(Some(m)) => {
+                        debug!(
+                            pid = snapshot.focus_pid,
+                            top_level = m.children.len(),
+                            attempt,
+                            "walked atspi menubar"
+                        );
+                        found = Some(m);
+                        break;
+                    }
+                    Ok(None) if attempt < 2 => {
+                        let backoff = std::time::Duration::from_millis(200 * (1u64 << attempt));
+                        tokio::select! {
+                            () = tokio::time::sleep(backoff) => {
+                                attempt += 1;
+                            }
+                            r = active_rx.changed() => {
+                                if r.is_err() {
+                                    break;
+                                }
+                                snapshot = active_rx.borrow_and_update().clone();
+                                write_active_json(&active_json_path, &snapshot, None);
+                                publish_props(&conn, &cfg, &proxy, &snapshot).await?;
+                                if snapshot.focus_pid == 0 {
+                                    break;
+                                }
+                                attempt = 0;
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        debug!(pid = snapshot.focus_pid, "no atspi menubar for focused app");
+                        break;
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = ?e,
+                            pid = snapshot.focus_pid,
+                            "atspi walk failed; widget falls back to placeholder"
+                        );
+                        break;
+                    }
                 }
             }
+            found
         } else {
             None
         };
 
-        write_active_json(&active_json_path, &snapshot, menu.as_ref());
-        {
-            let mut s = proxy.inner.lock().await;
-            s.bus_name = snapshot.menu_service;
-            s.object_path = snapshot
-                .menu_path
-                .map(|p| p.as_str().to_string())
-                .unwrap_or_default();
-            s.app_id = snapshot.app_id;
-            s.title = snapshot.title;
+        if menu.is_some() {
+            write_active_json(&active_json_path, &snapshot, menu.as_ref());
         }
-
-        // Notify property changes so QML's DBus binding wakes up.
-        let iface_ref = conn
-            .object_server()
-            .interface::<_, ActiveProxy>(cfg.publish_path.as_str())
-            .await?;
-        let iface = iface_ref.get().await;
-        iface.bus_name_changed(iface_ref.signal_context()).await?;
-        iface
-            .object_path_changed(iface_ref.signal_context())
-            .await?;
-        iface.app_id_changed(iface_ref.signal_context()).await?;
-        iface.title_changed(iface_ref.signal_context()).await?;
     }
 
+    Ok(())
+}
+
+/// Update the in-process `ActiveProxy` state with `snapshot` and
+/// emit D-Bus property-change signals on the active proxy interface.
+/// Called on every focus change so the QML widget's DBus binding
+/// wakes up.
+async fn publish_props(
+    conn: &Connection,
+    cfg: &Config,
+    proxy: &ActiveProxy,
+    snapshot: &ActiveSnapshot,
+) -> anyhow::Result<()> {
+    {
+        let mut s = proxy.inner.lock().await;
+        s.bus_name = snapshot.menu_service.clone();
+        s.object_path = snapshot
+            .menu_path
+            .as_ref()
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_default();
+        s.app_id = snapshot.app_id.clone();
+        s.title = snapshot.title.clone();
+    }
+    let iface_ref = conn
+        .object_server()
+        .interface::<_, ActiveProxy>(cfg.publish_path.as_str())
+        .await?;
+    let iface = iface_ref.get().await;
+    iface.bus_name_changed(iface_ref.signal_context()).await?;
+    iface
+        .object_path_changed(iface_ref.signal_context())
+        .await?;
+    iface.app_id_changed(iface_ref.signal_context()).await?;
+    iface.title_changed(iface_ref.signal_context()).await?;
     Ok(())
 }
