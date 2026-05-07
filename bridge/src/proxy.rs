@@ -247,8 +247,19 @@ pub async fn run(
             None
         };
 
-        if menu.is_some() {
-            write_active_json(&active_json_path, &snapshot, menu.as_ref());
+        // Synthetic fallback (PR #42): when AT-SPI returns no menu
+        // (terminals, electron-no-a11y, native Wayland with no a11y
+        // plugin), surface a universal "Window" submenu wired to
+        // niri-IPC actions so the bar always shows something useful.
+        // macOS philosophy: every focused app has menus, even when
+        // the app itself doesn't ship them.
+        let final_menu: Option<atspi::MenuItem> = match menu {
+            Some(m) => Some(m),
+            None if snapshot.focus_pid != 0 => Some(atspi::synthetic_window_menu(&snapshot.app_id)),
+            None => None,
+        };
+        if final_menu.is_some() {
+            write_active_json(&active_json_path, &snapshot, final_menu.as_ref());
         }
     }
 

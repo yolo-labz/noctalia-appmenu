@@ -805,7 +805,17 @@ async fn fetch_menubar_for_pid_inner(
 /// Click subcommand backend: invoke `Action.DoAction(0)` on the
 /// AT-SPI accessible at the given (service, path). Action index
 /// 0 is "click" by qtatspi convention.
+///
+/// **Synthetic-menu items (PR #42):** when the focused app has no
+/// AT-SPI menubar (terminals, electron-no-a11y) the bridge writes
+/// a synthesised "Window" submenu so the bar stays useful. Those
+/// items carry `service = "::synthetic"` and `path = "niri:<action>"`
+/// (e.g. `niri:close-window`). On click we route through niri-IPC
+/// instead of AT-SPI's `DoAction`.
 pub async fn do_action(service: &str, path: &str) -> Result<()> {
+    if service == SYNTHETIC_SERVICE {
+        return dispatch_synthetic(path).await;
+    }
     let a11y = connect_a11y().await?;
     let proxy_path: ObjectPath<'_> = path
         .try_into()
@@ -824,6 +834,134 @@ pub async fn do_action(service: &str, path: &str) -> Result<()> {
         anyhow::bail!("DoAction returned false — item not actionable");
     }
     Ok(())
+}
+
+/// Sentinel `service` value that the bridge writes for synthetic
+/// menu items. The QML widget passes this back unchanged on click;
+/// `do_action` recognises it and dispatches to a non-AT-SPI handler.
+pub const SYNTHETIC_SERVICE: &str = "::synthetic";
+
+/// Build a one-deep "Window" submenu so the bar always renders
+/// SOMETHING useful, even for apps without AT-SPI menubar (terminals,
+/// electron-no-a11y, native Wayland clients with no a11y plugin).
+///
+/// macOS philosophy: the menubar is the OS-level surface; every
+/// focused app has menus, even if the app itself doesn't ship them.
+/// We mirror that by surfacing the universal window-management
+/// primitives niri-IPC already exposes.
+///
+/// Wire form matches `MenuItem` exactly so the QML widget needs zero
+/// changes — same render path, same click forwarder. The synthetic
+/// items are recognised on click by their sentinel `service` field
+/// (`SYNTHETIC_SERVICE`) and dispatched through `dispatch_synthetic`
+/// instead of AT-SPI's `Action.DoAction`.
+#[must_use]
+pub fn synthetic_window_menu(app_id: &str) -> MenuItem {
+    let pretty = pretty_app_label(app_id);
+    let leaf = |id: i32, label: &str, action: &str| MenuItem {
+        id,
+        label: label.to_string(),
+        item_type: "standard".to_string(),
+        enabled: true,
+        visible: true,
+        icon_name: String::new(),
+        toggle_type: String::new(),
+        toggle_state: 0,
+        service: SYNTHETIC_SERVICE.to_string(),
+        path: format!("niri:{action}"),
+        children: Vec::new(),
+    };
+    let window_submenu = MenuItem {
+        id: 0,
+        label: "Window".to_string(),
+        item_type: "submenu".to_string(),
+        enabled: true,
+        visible: true,
+        icon_name: String::new(),
+        toggle_type: String::new(),
+        toggle_state: 0,
+        service: SYNTHETIC_SERVICE.to_string(),
+        path: "niri:noop".to_string(),
+        children: vec![
+            leaf(0, "Close", "close-window"),
+            leaf(1, "Toggle Fullscreen", "fullscreen-window"),
+            leaf(2, "Toggle Floating", "toggle-window-floating"),
+            leaf(3, "Move to Next Workspace", "move-window-to-workspace-down"),
+            leaf(
+                4,
+                "Move to Previous Workspace",
+                "move-window-to-workspace-up",
+            ),
+        ],
+    };
+    MenuItem {
+        id: 0,
+        label: pretty,
+        item_type: "submenu".to_string(),
+        enabled: true,
+        visible: true,
+        icon_name: String::new(),
+        toggle_type: String::new(),
+        toggle_state: 0,
+        service: SYNTHETIC_SERVICE.to_string(),
+        path: "niri:noop".to_string(),
+        children: vec![window_submenu],
+    }
+}
+
+/// Pretty-print a Wayland app-id for the synthetic menu's top-level
+/// label. Strips reverse-DNS prefix and capitalises:
+/// - `com.mitchellh.ghostty` → `Ghostty`
+/// - `org.kde.okular` → `Okular`
+/// - `firefox-nightly` → `Firefox-nightly`
+/// - empty → `App`
+fn pretty_app_label(app_id: &str) -> String {
+    let stripped = match app_id.rfind('.') {
+        Some(idx) if app_id[..idx].contains('.') => &app_id[idx + 1..],
+        _ => app_id,
+    };
+    let trimmed = stripped.trim();
+    if trimmed.is_empty() {
+        return "App".to_string();
+    }
+    let mut chars = trimmed.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+        None => "App".to_string(),
+    }
+}
+
+/// Dispatch a synthetic menu click. `path` carries the action keyed
+/// by dispatcher: `niri:<action>` runs `niri msg action <action>`,
+/// `niri:noop` is a no-op (used for parent submenu items the widget
+/// shouldn't be able to click as leaves anyway). Future dispatchers
+/// (e.g. `kill:<sig>`) plug in the same way.
+async fn dispatch_synthetic(path: &str) -> Result<()> {
+    let (dispatcher, action) = path
+        .split_once(':')
+        .with_context(|| format!("synthetic path missing dispatcher prefix: {path}"))?;
+    match dispatcher {
+        "niri" => {
+            if action == "noop" {
+                return Ok(());
+            }
+            // Run `niri msg action <action>` as a one-shot child.
+            // Ignore stdout/stderr — niri's reply is irrelevant; we
+            // care only about exit status.
+            let status = tokio::process::Command::new("niri")
+                .args(["msg", "action", action])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .await
+                .with_context(|| format!("spawning niri msg action {action}"))?;
+            if !status.success() {
+                anyhow::bail!("niri msg action {action} exited {status}");
+            }
+            Ok(())
+        }
+        other => anyhow::bail!("unknown synthetic dispatcher: {other}"),
+    }
 }
 
 #[cfg(test)]
@@ -863,5 +1001,52 @@ mod tests {
         let s = serde_json::to_string(&m).unwrap();
         assert!(s.contains(r#""service":":1.42""#));
         assert!(s.contains(r#""path":"/org/a11y/atspi/accessible/12""#));
+    }
+
+    #[test]
+    fn pretty_app_label_strips_reverse_dns_and_capitalises() {
+        assert_eq!(pretty_app_label("com.mitchellh.ghostty"), "Ghostty");
+        assert_eq!(pretty_app_label("org.kde.okular"), "Okular");
+        assert_eq!(pretty_app_label("firefox-nightly"), "Firefox-nightly");
+        assert_eq!(pretty_app_label(""), "App");
+        assert_eq!(pretty_app_label("   "), "App");
+    }
+
+    #[test]
+    fn synthetic_window_menu_shape() {
+        let m = synthetic_window_menu("com.mitchellh.ghostty");
+        assert_eq!(m.label, "Ghostty");
+        assert_eq!(m.item_type, "submenu");
+        assert_eq!(m.service, SYNTHETIC_SERVICE);
+        // Top-level: one Window submenu.
+        assert_eq!(m.children.len(), 1);
+        let window = &m.children[0];
+        assert_eq!(window.label, "Window");
+        assert_eq!(window.item_type, "submenu");
+        // Window leaves carry niri:<action> paths.
+        assert!(!window.children.is_empty());
+        for leaf in &window.children {
+            assert_eq!(leaf.service, SYNTHETIC_SERVICE);
+            assert!(leaf.path.starts_with("niri:"));
+            assert_eq!(leaf.item_type, "standard");
+            assert!(leaf.children.is_empty());
+            assert!(leaf.enabled);
+            assert!(leaf.visible);
+        }
+        // Wire-compat: same JSON shape as AT-SPI items.
+        let json = serde_json::to_value(&m).unwrap();
+        assert_eq!(json["label"], "Ghostty");
+        assert_eq!(json["service"], SYNTHETIC_SERVICE);
+        assert_eq!(
+            json["children"][0]["children"][0]["service"],
+            SYNTHETIC_SERVICE
+        );
+    }
+
+    #[test]
+    fn synthetic_window_menu_handles_empty_app_id() {
+        let m = synthetic_window_menu("");
+        assert_eq!(m.label, "App");
+        assert_eq!(m.children.len(), 1);
     }
 }
