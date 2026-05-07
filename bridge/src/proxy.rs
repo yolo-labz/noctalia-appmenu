@@ -255,7 +255,7 @@ pub async fn run(
         // the app itself doesn't ship them.
         let final_menu: Option<atspi::MenuItem> = match menu {
             Some(m) => Some(m),
-            None if snapshot.focus_pid != 0 => Some(atspi::synthetic_window_menu(&snapshot.app_id)),
+            None if snapshot.focus_pid != 0 => Some(atspi::synthetic_menu(&snapshot.app_id)),
             None => None,
         };
         if final_menu.is_some() {

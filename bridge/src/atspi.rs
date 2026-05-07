@@ -841,59 +841,44 @@ pub async fn do_action(service: &str, path: &str) -> Result<()> {
 /// `do_action` recognises it and dispatches to a non-AT-SPI handler.
 pub const SYNTHETIC_SERVICE: &str = "::synthetic";
 
-/// Build a one-deep "Window" submenu so the bar always renders
-/// SOMETHING useful, even for apps without AT-SPI menubar (terminals,
-/// electron-no-a11y, native Wayland clients with no a11y plugin).
+/// Build a macOS-style top-level synthetic menubar so the bar
+/// always renders SOMETHING useful, even for apps without AT-SPI
+/// menubar (terminals, electron-no-a11y, native Wayland clients
+/// with no a11y plugin).
 ///
 /// macOS philosophy: the menubar is the OS-level surface; every
 /// focused app has menus, even if the app itself doesn't ship them.
-/// We mirror that by surfacing the universal window-management
-/// primitives niri-IPC already exposes.
+/// We mirror that with three submenus, all driven by primitives
+/// the system already exposes:
+///
+/// - **Application** (`<App Name>`) — Quit (niri-IPC close-window).
+/// - **Edit** — Cut / Copy / Paste / Select All via `wtype`
+///   keystroke injection. Terminals use `Ctrl+Shift+<key>` per
+///   convention (Ghostty/Alacritty/Kitty/Foot/Wezterm/Konsole all
+///   bind Copy/Paste this way); other apps use standard `Ctrl+<key>`.
+/// - **Window** — Close / Fullscreen / Floating / Move to ±
+///   workspace via niri-IPC.
 ///
 /// Wire form matches `MenuItem` exactly so the QML widget needs zero
 /// changes — same render path, same click forwarder. The synthetic
 /// items are recognised on click by their sentinel `service` field
 /// (`SYNTHETIC_SERVICE`) and dispatched through `dispatch_synthetic`
 /// instead of AT-SPI's `Action.DoAction`.
+///
+/// **Limitations of the Edit submenu (PR #43):** `wtype` injects
+/// keystrokes via the wlr virtual-keyboard protocol. Apps that bind
+/// the same chord to a non-Edit action (a custom keymap rebinding
+/// `Ctrl+C`) will see the rebound action fire instead of "Copy".
+/// This is best-effort. The labels reflect the COMMON case for the
+/// detected app class. Pedro's primary use-case (Ghostty in zellij)
+/// honours `Ctrl+Shift+C` for copy and `Ctrl+C` for SIGINT, so the
+/// terminal-aware path picks the safe one.
 #[must_use]
-pub fn synthetic_window_menu(app_id: &str) -> MenuItem {
+pub fn synthetic_menu(app_id: &str) -> MenuItem {
     let pretty = pretty_app_label(app_id);
-    let leaf = |id: i32, label: &str, action: &str| MenuItem {
-        id,
-        label: label.to_string(),
-        item_type: "standard".to_string(),
-        enabled: true,
-        visible: true,
-        icon_name: String::new(),
-        toggle_type: String::new(),
-        toggle_state: 0,
-        service: SYNTHETIC_SERVICE.to_string(),
-        path: format!("niri:{action}"),
-        children: Vec::new(),
-    };
-    let window_submenu = MenuItem {
-        id: 0,
-        label: "Window".to_string(),
-        item_type: "submenu".to_string(),
-        enabled: true,
-        visible: true,
-        icon_name: String::new(),
-        toggle_type: String::new(),
-        toggle_state: 0,
-        service: SYNTHETIC_SERVICE.to_string(),
-        path: "niri:noop".to_string(),
-        children: vec![
-            leaf(0, "Close", "close-window"),
-            leaf(1, "Toggle Fullscreen", "fullscreen-window"),
-            leaf(2, "Toggle Floating", "toggle-window-floating"),
-            leaf(3, "Move to Next Workspace", "move-window-to-workspace-down"),
-            leaf(
-                4,
-                "Move to Previous Workspace",
-                "move-window-to-workspace-up",
-            ),
-        ],
-    };
+    let app_submenu = synthetic_application_submenu(&pretty);
+    let edit_submenu = synthetic_edit_submenu(app_id);
+    let window_submenu = synthetic_window_submenu();
     MenuItem {
         id: 0,
         label: pretty,
@@ -905,8 +890,153 @@ pub fn synthetic_window_menu(app_id: &str) -> MenuItem {
         toggle_state: 0,
         service: SYNTHETIC_SERVICE.to_string(),
         path: "niri:noop".to_string(),
-        children: vec![window_submenu],
+        children: vec![app_submenu, edit_submenu, window_submenu],
     }
+}
+
+/// `niri:<action>` leaf factory. ID is the parent's child index.
+fn niri_leaf(id: i32, label: &str, action: &str) -> MenuItem {
+    MenuItem {
+        id,
+        label: label.to_string(),
+        item_type: "standard".to_string(),
+        enabled: true,
+        visible: true,
+        icon_name: String::new(),
+        toggle_type: String::new(),
+        toggle_state: 0,
+        service: SYNTHETIC_SERVICE.to_string(),
+        path: format!("niri:{action}"),
+        children: Vec::new(),
+    }
+}
+
+/// `wtype:<combo>` leaf factory. `combo` is hyphen-separated key
+/// names (e.g. `ctrl-c`, `ctrl-shift-v`) — the dispatcher splits on
+/// `-` and routes the last token as the typed key, the rest as
+/// modifiers held during the press.
+fn wtype_leaf(id: i32, label: &str, combo: &str) -> MenuItem {
+    MenuItem {
+        id,
+        label: label.to_string(),
+        item_type: "standard".to_string(),
+        enabled: true,
+        visible: true,
+        icon_name: String::new(),
+        toggle_type: String::new(),
+        toggle_state: 0,
+        service: SYNTHETIC_SERVICE.to_string(),
+        path: format!("wtype:{combo}"),
+        children: Vec::new(),
+    }
+}
+
+/// Submenu wrapping `children` under `label`. Submenu's own click
+/// path is the documented `niri:noop` so accidental leaf-style click
+/// (which the QML widget guards against anyway) is a no-op.
+fn synthetic_submenu(id: i32, label: &str, children: Vec<MenuItem>) -> MenuItem {
+    MenuItem {
+        id,
+        label: label.to_string(),
+        item_type: "submenu".to_string(),
+        enabled: true,
+        visible: true,
+        icon_name: String::new(),
+        toggle_type: String::new(),
+        toggle_state: 0,
+        service: SYNTHETIC_SERVICE.to_string(),
+        path: "niri:noop".to_string(),
+        children,
+    }
+}
+
+/// Application submenu — currently just Quit (niri close-window).
+/// The submenu's user-facing label is the app's pretty name to
+/// match macOS layout (`Ghostty` → `About Ghostty` / `Quit Ghostty`).
+fn synthetic_application_submenu(pretty: &str) -> MenuItem {
+    synthetic_submenu(
+        0,
+        pretty,
+        vec![niri_leaf(0, &format!("Quit {pretty}"), "close-window")],
+    )
+}
+
+/// Edit submenu — Cut / Copy / Paste / Select All via `wtype`
+/// keystroke injection. App-class-aware: terminals get
+/// `Ctrl+Shift+<key>` because their `Ctrl+C` is SIGINT, not copy.
+fn synthetic_edit_submenu(app_id: &str) -> MenuItem {
+    let combos = if is_terminal_app(app_id) {
+        // Terminals bind Ctrl+C to SIGINT; Cut is meaningless in a
+        // terminal viewport so we still expose it for layout
+        // consistency — clicking it sends Ctrl+Shift+X which is a
+        // no-op in most terminals (acceptable: prevents accidental
+        // SIGINT on a "Cut" click).
+        [
+            ("Cut", "ctrl-shift-x"),
+            ("Copy", "ctrl-shift-c"),
+            ("Paste", "ctrl-shift-v"),
+            ("Select All", "ctrl-shift-a"),
+        ]
+    } else {
+        [
+            ("Cut", "ctrl-x"),
+            ("Copy", "ctrl-c"),
+            ("Paste", "ctrl-v"),
+            ("Select All", "ctrl-a"),
+        ]
+    };
+    let leaves = combos
+        .iter()
+        .enumerate()
+        .map(|(i, (label, combo))| wtype_leaf(i as i32, label, combo))
+        .collect();
+    synthetic_submenu(1, "Edit", leaves)
+}
+
+/// Window submenu — universal niri-IPC actions.
+fn synthetic_window_submenu() -> MenuItem {
+    synthetic_submenu(
+        2,
+        "Window",
+        vec![
+            niri_leaf(0, "Close", "close-window"),
+            niri_leaf(1, "Toggle Fullscreen", "fullscreen-window"),
+            niri_leaf(2, "Toggle Floating", "toggle-window-floating"),
+            niri_leaf(3, "Move to Next Workspace", "move-window-to-workspace-down"),
+            niri_leaf(
+                4,
+                "Move to Previous Workspace",
+                "move-window-to-workspace-up",
+            ),
+        ],
+    )
+}
+
+/// Recognise common Wayland terminal `app_id`s. Used to swap the
+/// Edit submenu's keystrokes from `Ctrl+<key>` to `Ctrl+Shift+<key>`
+/// because terminals bind `Ctrl+C` to SIGINT.
+///
+/// Coverage is empirical (matching what Pedro uses + the most common
+/// Wayland-native terminals). New entries cost nothing — false
+/// negatives just route through the non-terminal path which is
+/// usually still "wrong but harmless" (e.g. `Ctrl+C` in a custom
+/// terminal would interrupt the foreground process).
+fn is_terminal_app(app_id: &str) -> bool {
+    let n = normalize_app_id(app_id);
+    matches!(
+        n.as_str(),
+        "ghostty"
+            | "alacritty"
+            | "kitty"
+            | "foot"
+            | "wezterm"
+            | "konsole"
+            | "xterm"
+            | "rio"
+            | "terminator"
+            | "blackbox"
+            | "tilix"
+    )
 }
 
 /// Pretty-print a Wayland app-id for the synthetic menu's top-level
@@ -932,36 +1062,94 @@ fn pretty_app_label(app_id: &str) -> String {
 }
 
 /// Dispatch a synthetic menu click. `path` carries the action keyed
-/// by dispatcher: `niri:<action>` runs `niri msg action <action>`,
-/// `niri:noop` is a no-op (used for parent submenu items the widget
-/// shouldn't be able to click as leaves anyway). Future dispatchers
-/// (e.g. `kill:<sig>`) plug in the same way.
+/// by dispatcher:
+/// - `niri:<action>` runs `niri msg action <action>`.
+/// - `niri:noop` is a no-op (used for parent submenu paths).
+/// - `wtype:<combo>` injects a keystroke via `wtype` — `combo` is
+///   hyphen-separated; last token is the key, rest are modifiers
+///   held during the press (e.g. `ctrl-c`, `ctrl-shift-v`).
+///
+/// Future dispatchers (e.g. `kill:<sig>`, `xdg-open:<uri>`) plug in
+/// the same way.
 async fn dispatch_synthetic(path: &str) -> Result<()> {
     let (dispatcher, action) = path
         .split_once(':')
         .with_context(|| format!("synthetic path missing dispatcher prefix: {path}"))?;
     match dispatcher {
-        "niri" => {
-            if action == "noop" {
-                return Ok(());
-            }
-            // Run `niri msg action <action>` as a one-shot child.
-            // Ignore stdout/stderr — niri's reply is irrelevant; we
-            // care only about exit status.
-            let status = tokio::process::Command::new("niri")
-                .args(["msg", "action", action])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .await
-                .with_context(|| format!("spawning niri msg action {action}"))?;
-            if !status.success() {
-                anyhow::bail!("niri msg action {action} exited {status}");
-            }
-            Ok(())
-        }
+        "niri" => dispatch_niri_action(action).await,
+        "wtype" => dispatch_wtype_combo(action).await,
         other => anyhow::bail!("unknown synthetic dispatcher: {other}"),
     }
+}
+
+async fn dispatch_niri_action(action: &str) -> Result<()> {
+    if action == "noop" {
+        return Ok(());
+    }
+    // Run `niri msg action <action>` as a one-shot child. Ignore
+    // stdout/stderr — niri's reply is irrelevant; we care only
+    // about exit status.
+    let status = tokio::process::Command::new("niri")
+        .args(["msg", "action", action])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .with_context(|| format!("spawning niri msg action {action}"))?;
+    if !status.success() {
+        anyhow::bail!("niri msg action {action} exited {status}");
+    }
+    Ok(())
+}
+
+/// Inject a key combo via `wtype`. Combo grammar: hyphen-separated
+/// tokens; last is the key, the rest are modifiers held during the
+/// press. Examples:
+/// - `ctrl-c` → `wtype -M ctrl c -m ctrl`
+/// - `ctrl-shift-v` → `wtype -M ctrl -M shift v -m shift -m ctrl`
+///
+/// Modifiers are released in reverse order to match the press
+/// stack discipline `wtype` expects. Empty / one-token / unknown
+/// combos return an `Err` rather than running a malformed
+/// invocation.
+async fn dispatch_wtype_combo(combo: &str) -> Result<()> {
+    let args = build_wtype_args(combo)?;
+    let status = tokio::process::Command::new("wtype")
+        .args(&args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
+        .with_context(|| format!("spawning wtype {args:?}"))?;
+    if !status.success() {
+        anyhow::bail!("wtype {args:?} exited {status}");
+    }
+    Ok(())
+}
+
+/// Parse a `wtype` combo string into an arg vector. Pure — extracted
+/// for unit-testability without spawning `wtype`.
+fn build_wtype_args(combo: &str) -> Result<Vec<String>> {
+    let parts: Vec<&str> = combo.split('-').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        anyhow::bail!("empty wtype combo");
+    }
+    let key = parts[parts.len() - 1];
+    if key.is_empty() {
+        anyhow::bail!("wtype combo missing key: {combo}");
+    }
+    let mods = &parts[..parts.len() - 1];
+    let mut args: Vec<String> = Vec::with_capacity(mods.len() * 4 + 1);
+    for m in mods {
+        args.push("-M".to_string());
+        args.push((*m).to_string());
+    }
+    args.push(key.to_string());
+    for m in mods.iter().rev() {
+        args.push("-m".to_string());
+        args.push((*m).to_string());
+    }
+    Ok(args)
 }
 
 #[cfg(test)]
@@ -1013,40 +1201,111 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_window_menu_shape() {
-        let m = synthetic_window_menu("com.mitchellh.ghostty");
+    fn synthetic_menu_macos_layout() {
+        let m = synthetic_menu("com.mitchellh.ghostty");
         assert_eq!(m.label, "Ghostty");
         assert_eq!(m.item_type, "submenu");
         assert_eq!(m.service, SYNTHETIC_SERVICE);
-        // Top-level: one Window submenu.
-        assert_eq!(m.children.len(), 1);
-        let window = &m.children[0];
-        assert_eq!(window.label, "Window");
-        assert_eq!(window.item_type, "submenu");
-        // Window leaves carry niri:<action> paths.
-        assert!(!window.children.is_empty());
-        for leaf in &window.children {
-            assert_eq!(leaf.service, SYNTHETIC_SERVICE);
+        // Top-level: Application + Edit + Window.
+        assert_eq!(m.children.len(), 3);
+        assert_eq!(m.children[0].label, "Ghostty");
+        assert_eq!(m.children[1].label, "Edit");
+        assert_eq!(m.children[2].label, "Window");
+        // Application submenu has Quit <Pretty>.
+        assert_eq!(m.children[0].children.len(), 1);
+        assert_eq!(m.children[0].children[0].label, "Quit Ghostty");
+        assert_eq!(m.children[0].children[0].path, "niri:close-window");
+        // Window leaves all carry niri:<action> paths.
+        for leaf in &m.children[2].children {
             assert!(leaf.path.starts_with("niri:"));
-            assert_eq!(leaf.item_type, "standard");
-            assert!(leaf.children.is_empty());
-            assert!(leaf.enabled);
-            assert!(leaf.visible);
+            assert_eq!(leaf.service, SYNTHETIC_SERVICE);
         }
         // Wire-compat: same JSON shape as AT-SPI items.
         let json = serde_json::to_value(&m).unwrap();
-        assert_eq!(json["label"], "Ghostty");
         assert_eq!(json["service"], SYNTHETIC_SERVICE);
+        assert_eq!(json["children"][2]["label"], "Window");
+    }
+
+    #[test]
+    fn synthetic_edit_terminal_uses_ctrl_shift() {
+        let m = synthetic_menu("com.mitchellh.ghostty");
+        let edit = &m.children[1];
+        assert_eq!(edit.label, "Edit");
+        let labels: Vec<&str> = edit.children.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, vec!["Cut", "Copy", "Paste", "Select All"]);
+        for leaf in &edit.children {
+            assert!(
+                leaf.path.starts_with("wtype:ctrl-shift-"),
+                "terminal Edit leaves must use ctrl-shift; got {}",
+                leaf.path
+            );
+        }
+    }
+
+    #[test]
+    fn synthetic_edit_non_terminal_uses_plain_ctrl() {
+        let m = synthetic_menu("firefox-nightly");
+        let edit = &m.children[1];
+        for leaf in &edit.children {
+            assert!(
+                leaf.path.starts_with("wtype:ctrl-"),
+                "non-terminal Edit leaf path: {}",
+                leaf.path
+            );
+            assert!(
+                !leaf.path.starts_with("wtype:ctrl-shift-"),
+                "non-terminal must NOT use ctrl-shift; got {}",
+                leaf.path
+            );
+        }
+    }
+
+    #[test]
+    fn synthetic_menu_handles_empty_app_id() {
+        let m = synthetic_menu("");
+        assert_eq!(m.label, "App");
+        assert_eq!(m.children.len(), 3);
+    }
+
+    #[test]
+    fn is_terminal_app_recognises_common_terminals() {
+        assert!(is_terminal_app("com.mitchellh.ghostty"));
+        assert!(is_terminal_app("Alacritty"));
+        assert!(is_terminal_app("kitty"));
+        assert!(is_terminal_app("foot"));
+        assert!(is_terminal_app("org.kde.konsole"));
+        assert!(!is_terminal_app("firefox-nightly"));
+        assert!(!is_terminal_app("org.kde.okular"));
+        assert!(!is_terminal_app(""));
+    }
+
+    #[test]
+    fn build_wtype_args_simple() {
+        let args = build_wtype_args("ctrl-c").unwrap();
         assert_eq!(
-            json["children"][0]["children"][0]["service"],
-            SYNTHETIC_SERVICE
+            args,
+            vec!["-M", "ctrl", "c", "-m", "ctrl"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
         );
     }
 
     #[test]
-    fn synthetic_window_menu_handles_empty_app_id() {
-        let m = synthetic_window_menu("");
-        assert_eq!(m.label, "App");
-        assert_eq!(m.children.len(), 1);
+    fn build_wtype_args_multimod() {
+        let args = build_wtype_args("ctrl-shift-v").unwrap();
+        assert_eq!(
+            args,
+            vec!["-M", "ctrl", "-M", "shift", "v", "-m", "shift", "-m", "ctrl"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn build_wtype_args_rejects_empty() {
+        assert!(build_wtype_args("").is_err());
+        assert!(build_wtype_args("-").is_err());
     }
 }
