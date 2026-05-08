@@ -94,6 +94,57 @@ Item {
         return "·";
     }
 
+    /// Apply a parsed bridge snapshot object (the JSON written to
+    /// `active.json` and pushed via IPC) to the widget's exposed
+    /// state. Pure — both the FileView (cold-start) and IpcHandler
+    /// (steady-state push, PR #44) call into here so the two paths
+    /// stay byte-identical.
+    function applySnapshot(j) {
+        if (!j) {
+            root.appId = "";
+            root.title = "";
+            root.menuService = "";
+            root.menuPath = "";
+            root.topLevel = [];
+            return;
+        }
+        root.appId = j.app_id || "";
+        root.title = j.title || "";
+        root.menuService = j.menu_service || "";
+        root.menuPath = j.menu_path || "";
+        // Walk into menu.children. Defaults to empty when bridge
+        // wrote `menu: null` (e.g. focused app has no menu and no
+        // synthetic fallback applied).
+        root.topLevel = (j.menu && j.menu.children) ? j.menu.children : [];
+    }
+
+    /// Push channel (PR #44 — replaces FileView as the steady-state
+    /// path). Bridge invokes `qs ipc call appmenu update <json>` on
+    /// every focus change; the IpcHandler unwraps the JSON string and
+    /// delegates to `applySnapshot`. This eliminates the inotify
+    /// debounce + atomic-rename race that caused Pedro to repeatedly
+    /// screenshot "nothing here" — the widget now wakes up the
+    /// instant the bridge has data, no filesystem watch in between.
+    ///
+    /// FileView (below) is retained for cold-start: when quickshell
+    /// starts before the bridge has fired its first push, the widget
+    /// reads `active.json` and renders whatever the previous bridge
+    /// run left there.
+    IpcHandler {
+        target: "appmenu"
+        function update(json) {
+            try {
+                const j = JSON.parse(json);
+                root.applySnapshot(j);
+            } catch (e) {
+                // Bridge sent a malformed payload — drop the update
+                // rather than corrupt widget state. Steady-state
+                // bridge writes are well-formed; this is a defensive
+                // guard for future protocol drift.
+            }
+        }
+    }
+
     FileView {
         id: activeFile
         path: {
@@ -113,20 +164,12 @@ Item {
             // FileView's `text` is a FUNCTION call (ADR-0021).
             const content = text();
             if (!content || content.length === 0) {
-                root.appId = "";
-                root.title = "";
-                root.topLevel = [];
+                root.applySnapshot(null);
                 return;
             }
             try {
                 const j = JSON.parse(content);
-                root.appId = j.app_id || "";
-                root.title = j.title || "";
-                root.menuService = j.menu_service || "";
-                root.menuPath = j.menu_path || "";
-                // v0.2: walk into menu.children. Defaults to empty
-                // when bridge wrote `menu: null`.
-                root.topLevel = (j.menu && j.menu.children) ? j.menu.children : [];
+                root.applySnapshot(j);
             } catch (e) {
                 // Partial-write; ignore until next change.
             }
