@@ -62,8 +62,53 @@ fn write_active_json(path: &Path, snap: &ActiveSnapshot, menu: Option<&atspi::Me
         "menu_path": snap.menu_path.as_ref().map_or("", |p| p.as_str()),
         "menu": menu,
     });
-    if let Err(e) = std::fs::write(path, payload.to_string()) {
+    let body = payload.to_string();
+    if let Err(e) = std::fs::write(path, &body) {
         warn!(error=?e, path=%path.display(), "active.json write failed");
+    }
+    push_ipc_update(&body);
+}
+
+/// Push the latest snapshot JSON to the QML widget via Quickshell's
+/// `qs ipc call` channel. The widget's `IpcHandler { target: "appmenu";
+/// function update(json) {...} }` parses the body and updates state
+/// directly — no inotify, no FileView debounce, no atomic-rename race
+/// window. The active.json file remains as a cold-start fallback (the
+/// widget's `FileView` reads it on first paint before the bridge has
+/// pushed) and a debugging surface, but the steady-state path is push.
+///
+/// **Best-effort:** any spawn or call failure is logged at `debug` and
+/// dropped. Quickshell may not be running at bridge start, the IPC
+/// handler may not be registered yet, or `qs` may not be on PATH —
+/// none of these are fatal because the file write above gives the
+/// widget a recoverable surface either way.
+///
+/// **Why not async/native zbus?** Quickshell's IPC is implemented as
+/// a CLI surface (`qs ipc call <target> <fn> <args>`), not a public
+/// D-Bus interface. The `qs` binary is the canonical way to reach it
+/// from out-of-process code. Spawning a short-lived child per focus
+/// change is cheap (~5ms on this hardware) and avoids us linking
+/// Quickshell internals.
+fn push_ipc_update(body: &str) {
+    use std::process::{Command, Stdio};
+    let result = Command::new("qs")
+        .args(["ipc", "call", "appmenu", "update", body])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .stdin(Stdio::null())
+        .status();
+    match result {
+        Ok(s) if s.success() => {}
+        Ok(s) => {
+            // Non-fatal — Quickshell may not be running yet, or the
+            // appmenu IpcHandler may not be loaded by the user's
+            // shell config. Logged at debug so the steady-state log
+            // stream stays quiet.
+            tracing::debug!(status = ?s, "qs ipc call appmenu update returned non-zero");
+        }
+        Err(e) => {
+            tracing::debug!(error = ?e, "qs ipc call spawn failed (qs not on PATH?)");
+        }
     }
 }
 
