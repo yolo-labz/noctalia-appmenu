@@ -132,7 +132,14 @@ Item {
     /// run left there.
     IpcHandler {
         target: "appmenu"
-        function update(json) {
+        // Quickshell's IpcHandler requires explicitly-typed
+        // parameters: untyped `function update(json)` is rejected
+        // at registration time with "Type of argument 1 (json:
+        // QVariant) cannot be used across IPC" because the IPC
+        // bridge cannot transit QVariant. Typing the parameter as
+        // `string` matches what `qs ipc call appmenu update <body>`
+        // sends (the bridge passes the JSON-encoded body verbatim).
+        function update(json: string) {
             try {
                 const j = JSON.parse(json);
                 root.applySnapshot(j);
