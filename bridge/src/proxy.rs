@@ -261,7 +261,12 @@ pub async fn run(
     // loop iterations so consecutive identical payloads coalesce.
     let mut last_body: Option<String> = None;
 
-    write_active_json(&active_json_path, &ActiveSnapshot::empty(), None, &mut last_body);
+    write_active_json(
+        &active_json_path,
+        &ActiveSnapshot::empty(),
+        None,
+        &mut last_body,
+    );
 
     loop {
         if active_rx.changed().await.is_err() {

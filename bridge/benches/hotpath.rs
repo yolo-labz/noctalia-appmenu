@@ -6,11 +6,19 @@
 //!
 //! For deterministic-instruction-count CI gating, see `iai.rs`
 //! (cargo bench --bench iai --features iai).
+//!
+//! Post-PR-54 update: niri::handle_event was retired when the bridge
+//! adopted niri-ipc::Socket + EventStreamState. Benches below exercise
+//! `niri::detect_focus_change(event, state)` against an EventStreamState
+//! seeded from a WindowsChanged event with N synthetic windows, plus the
+//! unchanged `active::snapshot` reducer.
 
 use divan::{black_box, Bencher};
+use niri_ipc::state::{EventStreamState, EventStreamStatePart};
+use niri_ipc::{Event, Window, WindowLayout};
 use noctalia_appmenu_bridge::{
     active::{snapshot, ActiveSnapshot},
-    niri::{handle_event, FocusEvent, MapOp, NiriEvent, NiriWindow},
+    niri::{detect_focus_change, FocusEvent},
     registrar::MenuMap,
 };
 use std::collections::HashMap;
@@ -20,15 +28,34 @@ fn main() {
     divan::main();
 }
 
-fn make_window(id: u64, pid: Option<u32>) -> NiriWindow {
-    NiriWindow {
+fn make_window(id: u64, pid: Option<i32>, focused: bool) -> Window {
+    Window {
         id,
         app_id: Some(format!("app-{id}")),
         title: Some(format!("title-{id}")),
         pid,
         workspace_id: Some(1),
-        is_focused: Some(false),
+        is_focused: focused,
+        is_floating: false,
+        is_urgent: false,
+        layout: WindowLayout {
+            pos_in_scrolling_layout: None,
+            tile_size: (0.0, 0.0),
+            window_size: (0, 0),
+            tile_pos_in_workspace_view: None,
+            window_offset_in_tile: (0.0, 0.0),
+        },
+        focus_timestamp: None,
     }
+}
+
+fn seeded_state(n: u64) -> EventStreamState {
+    let windows: Vec<Window> = (0..n)
+        .map(|i| make_window(i, Some(1000 + i as i32), false))
+        .collect();
+    let mut state = EventStreamState::default();
+    let _ = state.apply(Event::WindowsChanged { windows });
+    state
 }
 
 fn make_focus(pid: u32) -> FocusEvent {
@@ -58,26 +85,23 @@ fn make_menus(n: usize) -> MenuMap {
 
 #[divan::bench]
 fn focus_known_window(bencher: Bencher) {
-    let mut cache = HashMap::new();
-    for i in 0..50 {
-        cache.insert(i, make_window(i, Some(1000 + i as u32)));
-    }
+    let state = seeded_state(50);
     bencher.bench(|| {
-        let evt = NiriEvent::WindowFocusChanged {
+        let evt = Event::WindowFocusChanged {
             id: Some(black_box(7)),
         };
-        handle_event(black_box(evt), black_box(&cache))
+        detect_focus_change(black_box(&evt), black_box(&state))
     });
 }
 
 #[divan::bench]
 fn focus_unknown_window_resyncs(bencher: Bencher) {
-    let cache: HashMap<u64, NiriWindow> = HashMap::new();
+    let state = EventStreamState::default();
     bencher.bench(|| {
-        let evt = NiriEvent::WindowFocusChanged {
+        let evt = Event::WindowFocusChanged {
             id: Some(black_box(99)),
         };
-        handle_event(black_box(evt), black_box(&cache))
+        detect_focus_change(black_box(&evt), black_box(&state))
     });
 }
 
@@ -99,21 +123,6 @@ fn snapshot_focus_no_match(bencher: Bencher) {
     let menus = make_menus(100);
     let focus = make_focus(99999);
     bencher.bench(|| snapshot(black_box(Some(&focus)), black_box(&menus)));
-}
-
-#[divan::bench]
-fn upsert_window(bencher: Bencher) {
-    let cache: HashMap<u64, NiriWindow> = HashMap::new();
-    let win = make_window(42, Some(1234));
-    bencher.bench(|| {
-        let evt = NiriEvent::WindowOpenedOrChanged {
-            window: win.clone(),
-        };
-        match handle_event(black_box(evt), black_box(&cache)) {
-            MapOp::Upsert(_, _) => {}
-            other => panic!("unexpected: {other:?}"),
-        }
-    });
 }
 
 #[divan::bench]

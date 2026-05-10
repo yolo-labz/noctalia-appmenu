@@ -41,8 +41,8 @@
 
 use crate::config::Config;
 use anyhow::{anyhow, Context, Result};
-use niri_ipc::state::{EventStreamState, EventStreamStatePart};
 use niri_ipc::socket::SOCKET_PATH_ENV;
+use niri_ipc::state::{EventStreamState, EventStreamStatePart};
 use niri_ipc::{Event, Reply, Request, Response, Window};
 use std::ffi::OsString;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
