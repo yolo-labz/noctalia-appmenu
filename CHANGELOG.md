@@ -6,6 +6,70 @@ All notable changes to noctalia-appmenu are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.3.0-alpha.1] — 2026-05-06
+
+### Features — AT-SPI substrate (replaces v0.2 DBusMenu mirror)
+
+- **Bridge: AT-SPI menubar walker (`bridge/src/atspi.rs`).** Replaces v0.2's
+  DBusMenu/Registrar approach. The DBusMenu protocol's auto-registration
+  only fires on KWin Wayland (it relies on `org_kde_kwin_appmenu_manager`);
+  every other compositor — niri, Hyprland, Sway, COSMIC — silently fails to
+  register Qt/GTK apps. AT-SPI bypasses protocol cooperation entirely by
+  walking the accessibility tree that Qt and GTK expose for free with
+  `QT_ACCESSIBILITY=1` / GTK's ATK bridge.
+- **`enable_a11y()` flips `org.a11y.Status.IsEnabled = true`** at bridge
+  startup. niri ships no AT (Orca etc), so without this Qt's accessibility
+  bridge polls `false` at QApplication construction and never registers.
+- **`fetch_menubar_for_pid()` resolves PID → AT-SPI app → MenuBar** by
+  walking `org.a11y.atspi.Registry`, matching app PIDs via
+  `GetConnectionUnixProcessID` on the a11y bus, then DFS-searching for
+  role 34 (`MENU_BAR`). Recursion bounded at 8 levels (find) and 6 levels
+  (fetch).
+- **Popup-wrapper flattening**: Qt wraps every MENU_ITEM's popup in an
+  unnamed MENU child; the walker detects the shape (1 unnamed child with
+  grandchildren) and pulls the grandchildren up so the QML widget renders
+  the actual menu items, not an empty placeholder.
+- **`atspi-click <service> <path>` subcommand** in `bridge/src/main.rs`
+  forwards clicks via `org.a11y.atspi.Action.DoAction(0)` (qtatspi
+  convention: action 0 = "click"). Replaces v0.2's `click <busName>
+  <menuPath> <itemId>` subcommand.
+- **Plugin: `BarWidget.qml` `fireClick(item)` swapped to atspi-click**,
+  passing AT-SPI `(service, path)` coordinates carried in each menu item
+  (added to the JSON shape — same keys, different addressing).
+- **Bridge `examples/atspi_probe.rs`** — manual probe binary for live
+  verification: `cargo run --example atspi_probe -- <pid>` prints the
+  parsed menubar JSON for any focused app.
+
+### Behavior changes
+
+- DBusMenu/Registrar code paths in `bridge/src/dbusmenu.rs` and
+  `bridge/src/registrar.rs` are still compiled but no longer feed the
+  active proxy — `proxy.rs::run()` now calls `atspi::fetch_menubar_for_pid`
+  with the focus PID directly. The dead modules will be retired in
+  v0.3.x once we're sure no app needs the DBusMenu fallback.
+- `active.json` `menu` field is now sourced from AT-SPI; per-item
+  `service` and `path` now address AT-SPI accessibles, not DBusMenu
+  items. The QML widget treats them as opaque — no semantic change.
+
+### Documentation
+
+- ADR-0024 records the AT-SPI substrate decision (Path A) and the
+  DBusMenu retirement rationale.
+
+### Verified live (2026-05-06, desktop / niri / Qt 6.11)
+
+- okular menubar walked: 9 top-level items (File / View / Edit / Go /
+  Bookmarks / Tools / Settings / sep / Help) with deep submenus
+  (e.g. File → Open Recent → 30 recent documents).
+- Wire-level role enum confirmed: MENU_BAR=34, MENU=33, MENU_ITEM=35,
+  SEPARATOR=50 (NOT pyatspi's 50/51/52/67 — different enum).
+- State bitmask: ENABLED=bit 8, SENSITIVE=bit 24 (NOT bits 20/37 as
+  v0.3.0-alpha pre-release scaffold assumed).
+
+[0.3.0-alpha.1]: https://github.com/yolo-labz/noctalia-appmenu/compare/v0.2.0-alpha.1...v0.3.0-alpha.1
+
+## [0.2.0-alpha.1] — 2026-05-06
+
 ### Features
 
 - Initial scaffold: bridge + plugin + Nix module + CI/CD + speckit constitution.

@@ -1,297 +1,631 @@
-//! niri-IPC integration: focus-changed events + windows snapshot.
+//! niri-IPC integration: focus detection over the niri Unix socket.
 //!
-//! On startup we shell out to `niri msg --json windows` once to seed
-//! the `winid -> pid` map. We then long-pipe `niri msg --json
-//! event-stream` and update the map (and emit focus changes) as events
-//! arrive. ADR-0002 + ADR-0005.
+//! ## v0.3.0-alpha.20 — `niri-ipc::Socket` adoption (PR #54)
+//!
+//! Earlier versions shelled out to `niri msg --json event-stream` and
+//! parsed the line-delimited JSON ourselves. That worked but coupled
+//! the bridge to a specific `niri` binary on PATH, with three failure
+//! modes:
+//!
+//!   1. `niri-25.11` client crashed on `niri-26.04` server because
+//!      *its own* serde rejected the new `CastsChanged` variant. The
+//!      bridge then ran into pipe-close + non-zero exit and the only
+//!      recovery was respawn-loop with backoff (PR #46).
+//!   2. New niri event variants (compositor evolution) silently
+//!      dropped via our `Other` catch-all — fine, but we paid the
+//!      cost of maintaining a hand-rolled `enum NiriEvent` +
+//!      manual `Deserialize` impl.
+//!   3. Subprocess plumbing (kill_on_drop, stderr redirect, child
+//!      exit status interpretation) was load-bearing for restarts.
+//!
+//! Adopting the `niri-ipc::socket` API plus `niri-ipc::EventStreamState`
+//! eliminates all three: we connect to the niri Unix socket directly
+//! (no separate client binary), the canonical event types come with
+//! the crate (forward-compat catch on parse failure), and
+//! `EventStreamState` maintains the windows/workspaces/focus map for
+//! us so the bridge no longer has to.
+//!
+//! Key invariants preserved:
+//!
+//!   * Public API (`run` task + `FocusEvent` payload) unchanged —
+//!     downstream `proxy.rs` and `active.rs` continue to consume
+//!     focus events on the same `watch::Sender<Option<FocusEvent>>`.
+//!   * Outer respawn-with-backoff loop survives. Reasons to reconnect
+//!     differ (socket close instead of subprocess exit) but the
+//!     resilience contract is identical.
+//!   * Forward-compat: unknown event variants emitted by a future
+//!     niri version are logged + skipped, not fatal.
+//!
+//! ADR-0002 (focus detection) and ADR-0005 (event-stream subscription)
+//! still apply at the protocol level.
 
 use crate::config::Config;
 use anyhow::{anyhow, Context, Result};
-use serde::Deserialize;
-use std::collections::HashMap;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
+use niri_ipc::socket::SOCKET_PATH_ENV;
+use niri_ipc::state::{EventStreamState, EventStreamStatePart};
+use niri_ipc::{Event, Reply, Request, Response, Window};
+use std::ffi::OsString;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
-/// A snapshot of one window as reported by `niri msg --json windows`.
+/// What we publish for downstream consumers (registrar / proxy).
 ///
-/// Some fields (workspace_id, is_focused) are not currently consumed by
-/// the bridge but are kept on the type so downstream debug-printing
-/// surfaces useful context. Marked `dead_code`-allowed at the struct
-/// level — we control the schema, niri may stop emitting these later.
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
-#[allow(dead_code)]
-pub struct NiriWindow {
-    /// Stable per-niri-session window identifier.
-    pub id: u64,
-    /// Wayland app-id (e.g. `kate`, `org.kde.kate`).
-    pub app_id: Option<String>,
-    /// Window title at snapshot time.
-    pub title: Option<String>,
-    /// Process ID of the wl_client owning the surface.
-    pub pid: Option<u32>,
-    /// Workspace the window is anchored to.
-    pub workspace_id: Option<u64>,
-    /// Whether the window had keyboard focus at snapshot time.
-    pub is_focused: Option<bool>,
-}
-
-/// Tagged union of niri event-stream variants the bridge cares about.
-/// `pub` so benches in `benches/` can reach it; remains an internal
-/// schema surface — breaking changes here are not API breaks.
-#[derive(Deserialize, Debug)]
-#[serde(tag = "type", rename_all = "PascalCase")]
-pub enum NiriEvent {
-    WindowFocusChanged {
-        id: Option<u64>,
-    },
-    WindowOpenedOrChanged {
-        window: NiriWindow,
-    },
-    WindowClosed {
-        id: u64,
-    },
-    /// Catch-all so unknown event variants don't crash the stream.
-    #[serde(other)]
-    Other,
-}
-
-/// What we publish for downstream consumers.
+/// `pid` is the wl_client owning the focused surface — used by AT-SPI
+/// walker to find the matching accessible application. niri reports
+/// PID as `i32` but the bridge has long used `u32` everywhere; we cast
+/// at the boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FocusEvent {
-    /// niri's stable window id for this surface.
+    /// niri's stable per-session window identifier.
     pub winid: u64,
-    /// PID of the wl_client owning the focused surface.
+    /// Process ID of the wl_client owning the focused surface.
     pub pid: u32,
     /// Wayland app-id for the focused surface.
     pub app_id: String,
-    /// Title of the focused surface.
+    /// Title of the focused surface at focus time.
     pub title: String,
 }
 
-/// Map operation produced by interpreting one `NiriEvent` against the
-/// current `winid -> NiriWindow` cache. Pure — no side effects.
+/// Pure transducer: given a parsed niri event, the maintained state,
+/// and the previously-emitted focus id, decide whether to emit a new
+/// focus event, signal defocus, or do nothing.
+///
+/// Extracted so tests can drive the focus-detection logic without
+/// connecting a niri socket. The caller is responsible for applying
+/// the event to `state` (`state.apply(event.clone())`) BEFORE calling
+/// this function — focus detection reads from the post-apply state.
 #[derive(Debug, PartialEq, Eq)]
-pub enum MapOp {
-    /// Replace or insert the window record under the given id.
-    Upsert(u64, NiriWindow),
-    /// Drop the entry for this id.
-    Remove(u64),
-    /// Defocused — clear the published focus event.
-    DefocusAll,
-    /// Focused window record is in cache; emit it.
-    FocusEmit(FocusEvent),
-    /// Focused id missing from cache; caller should re-snapshot.
-    FocusUnknown(u64),
-    /// Focused window in cache but has no pid; warn-and-skip.
-    FocusNoPid(u64),
-    /// Event variant we don't care about (e.g. workspace changes).
-    NoOp,
+pub enum FocusOp {
+    /// Emit this focus event downstream.
+    Emit(FocusEvent),
+    /// Caller should clear the published focus.
+    Defocus,
+    /// No focus-relevant change.
+    NoChange,
+    /// Focused id is set but we have no record of it in `state.windows`
+    /// (stale event ordering — niri's docs warn of cross-event
+    /// inconsistency). Caller logs + skips; will resync on the next
+    /// `WindowOpenedOrChanged`.
+    UnknownWindow(u64),
 }
 
-/// Pure transducer: interpret one event line + current cache state into
-/// a `MapOp`. Extracted from `run()` so we can unit-test the schema-
-/// drift behaviour without spawning niri.
-///
-/// `cache` is read-only; the caller applies the resulting `MapOp` to its
-/// own mutable cache. This makes the function trivially testable and
-/// independently reorderable.
-pub fn handle_event(event: NiriEvent, cache: &HashMap<u64, NiriWindow>) -> MapOp {
+/// Inspect a freshly-applied event and decide what to publish.
+#[must_use]
+pub fn detect_focus_change(event: &Event, state: &EventStreamState) -> FocusOp {
     match event {
-        NiriEvent::WindowFocusChanged { id: Some(id) } => match cache.get(&id) {
-            Some(win) => match win.pid {
-                Some(pid) => MapOp::FocusEmit(FocusEvent {
-                    winid: id,
-                    pid,
-                    app_id: win.app_id.clone().unwrap_or_default(),
-                    title: win.title.clone().unwrap_or_default(),
-                }),
-                None => MapOp::FocusNoPid(id),
-            },
-            None => MapOp::FocusUnknown(id),
-        },
-        NiriEvent::WindowFocusChanged { id: None } => MapOp::DefocusAll,
-        NiriEvent::WindowOpenedOrChanged { window } => MapOp::Upsert(window.id, window),
-        NiriEvent::WindowClosed { id } => MapOp::Remove(id),
-        NiriEvent::Other => MapOp::NoOp,
+        Event::WindowFocusChanged { id: None } => FocusOp::Defocus,
+        Event::WindowFocusChanged { id: Some(id) } => emit_for(*id, state),
+        // niri emits a single `WindowsChanged` at stream start with the
+        // initial window list. If one of them is focused, seed the
+        // bridge so a restart doesn't blank the menu strip until the
+        // user alt-tabs (codex P0 #2 behaviour preserved from
+        // pre-refactor `run_once`).
+        Event::WindowsChanged { windows } => windows
+            .iter()
+            .find(|w| w.is_focused)
+            .map(|w| emit_for(w.id, state))
+            .unwrap_or(FocusOp::NoChange),
+        // A newly-opened or already-changed window can be focused at
+        // emit time (e.g. open-and-focus IPC). Emit on its is_focused
+        // bit; otherwise fall through.
+        Event::WindowOpenedOrChanged { window } if window.is_focused => emit_for(window.id, state),
+        // All other events (workspace, overview, casts, keyboard
+        // layout, ...) do not affect focus. The state machine has
+        // already absorbed them via `state.apply`.
+        _ => FocusOp::NoChange,
     }
 }
 
-/// Long-running task: subscribe to niri's event-stream and forward
-/// debounced focus events on `tx`.
+fn emit_for(id: u64, state: &EventStreamState) -> FocusOp {
+    let Some(window) = state.windows.windows.get(&id) else {
+        return FocusOp::UnknownWindow(id);
+    };
+    let Some(pid) = window.pid else {
+        // niri reports None for windows opened via xdg-desktop-portal-gnome.
+        // Without a pid we can't match an AT-SPI accessible. Skip.
+        return FocusOp::NoChange;
+    };
+    FocusOp::Emit(focus_event(id, pid, window))
+}
+
+fn focus_event(id: u64, pid: i32, window: &Window) -> FocusEvent {
+    FocusEvent {
+        winid: id,
+        // niri reports PID as i32 but PIDs are positive in practice
+        // and our downstream consumers use u32. Cast preserves the
+        // bit pattern; on Linux PID_MAX_LIMIT is 4_194_304 (well
+        // within u32 range).
+        pid: pid as u32,
+        app_id: window.app_id.clone().unwrap_or_default(),
+        title: window.title.clone().unwrap_or_default(),
+    }
+}
+
+/// Long-running task: subscribe to niri's event stream and forward
+/// focus events on `tx`.
 ///
-/// Hard-fails on initial-seed errors (per audit P1 — silent fallback
-/// led to "menu invisible" without journalctl evidence). Exits when
-/// niri's pipe closes; systemd then restarts the unit.
-pub async fn run(tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> Result<()> {
-    let mut by_winid = snapshot_windows(&cfg)
+/// Outer loop reconnects on socket close / read error with exponential
+/// backoff. Returns `Ok(())` only when `tx` is closed (graceful
+/// shutdown — caller dropped the receiver). The `cfg` parameter is
+/// retained for API compatibility and future per-config options;
+/// niri socket path is read from the `NIRI_SOCKET` env var.
+pub async fn run(tx: watch::Sender<Option<FocusEvent>>, _cfg: Config) -> Result<()> {
+    let mut backoff = std::time::Duration::from_millis(200);
+    const BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(30);
+
+    loop {
+        if tx.is_closed() {
+            return Ok(());
+        }
+        match run_once(&tx).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                warn!(
+                    error = ?e,
+                    backoff_ms = backoff.as_millis(),
+                    "niri socket session ended; reconnecting after backoff"
+                );
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(BACKOFF_MAX);
+            }
+        }
+    }
+}
+
+/// Single niri socket session: connect → request EventStream → read
+/// events until socket close or shutdown signal. Any non-graceful exit
+/// returns `Err` so the outer loop reconnects.
+async fn run_once(tx: &watch::Sender<Option<FocusEvent>>) -> Result<()> {
+    let socket_path: OsString = std::env::var_os(SOCKET_PATH_ENV).ok_or_else(|| {
+        anyhow!(
+            "{SOCKET_PATH_ENV} is not set; bridge must run inside a niri session \
+             (or override via systemd Environment=)"
+        )
+    })?;
+
+    let stream = UnixStream::connect(&socket_path)
         .await
-        .context("seeding niri window map; is `niri` reachable?")?;
+        .with_context(|| format!("connecting to niri socket at {:?}", socket_path))?;
 
-    info!(count = by_winid.len(), "seeded niri windows");
+    let (rd, mut wr) = stream.into_split();
+    let mut rd = BufReader::new(rd);
 
-    // Long-pipe event stream.
-    let mut child = Command::new(&cfg.niri_binary)
-        .args(["msg", "--json", "event-stream"])
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .with_context(|| format!("spawning {} msg event-stream", cfg.niri_binary.display()))?;
+    // Subscribe to the event stream.
+    let req = serde_json::to_string(&Request::EventStream)
+        .context("serialising EventStream request")?
+        + "\n";
+    wr.write_all(req.as_bytes())
+        .await
+        .context("writing EventStream request to niri socket")?;
+    wr.shutdown()
+        .await
+        .context("closing write half of niri socket")?;
 
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| anyhow!("niri event-stream stdout pipe missing"))?;
-    let mut lines = BufReader::new(stdout).lines();
+    // First reply is the ack — niri responds with `Ok(Response::Handled)`
+    // to confirm subscription. After that the connection becomes a
+    // one-way stream of newline-delimited `Event` JSON objects.
+    let mut buf = String::new();
+    let n = rd
+        .read_line(&mut buf)
+        .await
+        .context("reading EventStream ack from niri")?;
+    if n == 0 {
+        return Err(anyhow!("niri closed socket before EventStream ack"));
+    }
+    let reply: Reply = serde_json::from_str(buf.trim())
+        .with_context(|| format!("parsing EventStream ack: {:?}", buf.trim()))?;
+    match reply {
+        Ok(Response::Handled) => {}
+        Ok(other) => {
+            return Err(anyhow!(
+                "unexpected EventStream ack response from niri: {:?}",
+                other
+            ));
+        }
+        Err(msg) => return Err(anyhow!("niri rejected EventStream subscription: {msg}")),
+    }
 
-    while let Some(line) = lines.next_line().await? {
-        let line = line.trim();
+    info!("subscribed to niri event stream");
+
+    drive_events(&mut rd, tx).await
+}
+
+/// Pure event-driving loop: read newline-delimited niri-ipc `Event`
+/// JSON from `rd`, apply each to a fresh `EventStreamState`, run the
+/// `detect_focus_change` transducer, and send `FocusEvent`s on `tx`.
+///
+/// Extracted from `run_once` so unit tests can replay captured event
+/// logs against the loop without standing up an actual niri socket.
+/// The function is generic over any `AsyncBufRead + Unpin` so a
+/// `tokio::io::BufReader<UnixStream>` (production), a
+/// `tokio::io::BufReader<tokio::io::DuplexStream>` (in-process pipe
+/// test), or `std::io::Cursor<Vec<u8>>` wrapped via `tokio_util::io::StreamReader`
+/// (file-fixture replay) all drop in.
+///
+/// Returns `Ok(())` only when `tx` is closed (graceful shutdown).
+/// EOF on the read stream surfaces as `Err` so the outer reconnect
+/// loop respawns. Per Swarm G of the v3 best-practices synthesis,
+/// having this function callable from tests is the single highest-
+/// leverage refactor for catching the next compositor IPC drift
+/// before it ships — fixture-replay tests live alongside the
+/// existing wire-format tests in `mod tests` below.
+pub async fn drive_events<R>(rd: &mut R, tx: &watch::Sender<Option<FocusEvent>>) -> Result<()>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    drive_events_with(
+        rd,
+        |evt| {
+            let _ = tx.send(evt);
+        },
+        || tx.is_closed(),
+    )
+    .await
+}
+
+/// Generic event-loop core. Calls `publish(Option<FocusEvent>)` on
+/// every transition (Some on focus change, None on defocus) and
+/// returns when `is_closed()` reports true (graceful shutdown) or
+/// the read stream EOFs (Err — caller should reconnect).
+///
+/// The `watch::Sender`-using `drive_events` wrapper is the production
+/// caller. Tests use this directly with a `Vec<Option<FocusEvent>>`-
+/// pushing closure to capture every transition without `watch`'s
+/// "latest only" coalescing semantics.
+pub async fn drive_events_with<R, F, C>(rd: &mut R, mut publish: F, mut is_closed: C) -> Result<()>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    F: FnMut(Option<FocusEvent>),
+    C: FnMut() -> bool,
+{
+    let mut state = EventStreamState::default();
+    let mut buf = String::new();
+
+    loop {
+        if is_closed() {
+            return Ok(());
+        }
+        buf.clear();
+        let n = rd
+            .read_line(&mut buf)
+            .await
+            .context("reading event from niri stream")?;
+        if n == 0 {
+            return Err(anyhow!("niri event-stream closed"));
+        }
+
+        let line = buf.trim();
         if line.is_empty() {
             continue;
         }
-        let event = match serde_json::from_str::<NiriEvent>(line) {
+
+        let event: Event = match serde_json::from_str(line) {
             Ok(e) => e,
             Err(e) => {
-                warn!(error=?e, line=%line, "could not parse niri event line");
+                warn!(
+                    error = ?e,
+                    line = %line,
+                    "could not parse niri event line; skipping (likely a niri version newer than the bridge's pinned niri-ipc crate)"
+                );
                 continue;
             }
         };
-        match handle_event(event, &by_winid) {
-            MapOp::FocusEmit(evt) => {
+
+        let _ignored = state.apply(event.clone());
+
+        match detect_focus_change(&event, &state) {
+            FocusOp::Emit(evt) => {
                 debug!(?evt, "focus changed");
-                let _ = tx.send(Some(evt));
+                publish(Some(evt));
             }
-            MapOp::FocusNoPid(id) => {
-                warn!(winid = id, "focused window has no pid in our map");
+            FocusOp::Defocus => {
+                debug!("defocus");
+                publish(None);
             }
-            MapOp::FocusUnknown(id) => {
-                warn!(winid = id, "focused window not in cache; resyncing");
-                if let Ok(fresh) = snapshot_windows(&cfg).await {
-                    by_winid = fresh;
-                }
+            FocusOp::UnknownWindow(id) => {
+                warn!(
+                    winid = id,
+                    "focused window not in state.windows; awaiting WindowOpenedOrChanged"
+                );
             }
-            MapOp::DefocusAll => {
-                let _ = tx.send(None);
-            }
-            MapOp::Upsert(id, window) => {
-                by_winid.insert(id, window);
-            }
-            MapOp::Remove(id) => {
-                by_winid.remove(&id);
-            }
-            MapOp::NoOp => {}
+            FocusOp::NoChange => {}
         }
     }
-
-    // niri's pipe closed — usually because niri itself exited or the
-    // user logged out of the session. NOT a fatal error; warn-level
-    // and let the caller's systemd unit restart us cleanly.
-    warn!("niri event-stream ended");
-    Err(anyhow!("niri event-stream ended"))
-}
-
-async fn snapshot_windows(cfg: &Config) -> Result<HashMap<u64, NiriWindow>> {
-    let out = Command::new(&cfg.niri_binary)
-        .args(["msg", "--json", "windows"])
-        .output()
-        .await
-        .with_context(|| format!("running {} msg windows", cfg.niri_binary.display()))?;
-
-    if !out.status.success() {
-        return Err(anyhow!(
-            "niri msg windows exited {}: {}",
-            out.status,
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
-
-    let windows: Vec<NiriWindow> =
-        serde_json::from_slice(&out.stdout).context("parsing niri msg windows JSON")?;
-
-    Ok(windows.into_iter().map(|w| (w.id, w)).collect())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use niri_ipc::Window;
 
-    fn win(id: u64, pid: Option<u32>) -> NiriWindow {
-        NiriWindow {
+    fn window(id: u64, pid: Option<i32>, focused: bool) -> Window {
+        Window {
             id,
             app_id: Some(format!("app-{id}")),
             title: Some(format!("title-{id}")),
             pid,
             workspace_id: Some(1),
-            is_focused: Some(false),
+            is_focused: focused,
+            is_floating: false,
+            is_urgent: false,
+            layout: niri_ipc::WindowLayout {
+                pos_in_scrolling_layout: None,
+                tile_size: (0.0, 0.0),
+                window_size: (0, 0),
+                tile_pos_in_workspace_view: None,
+                window_offset_in_tile: (0.0, 0.0),
+            },
+            focus_timestamp: None,
         }
+    }
+
+    fn state_with(windows: Vec<Window>) -> EventStreamState {
+        let mut state = EventStreamState::default();
+        // Apply WindowsChanged with the seed list so state.windows is
+        // populated. Mirrors how niri does it on stream start.
+        let evt = Event::WindowsChanged { windows };
+        let _ = state.apply(evt);
+        state
     }
 
     #[test]
     fn focus_known_window_emits_event() {
-        let mut cache = HashMap::new();
-        cache.insert(7, win(7, Some(123)));
-        let op = handle_event(NiriEvent::WindowFocusChanged { id: Some(7) }, &cache);
-        match op {
-            MapOp::FocusEmit(evt) => {
-                assert_eq!(evt.pid, 123);
-                assert_eq!(evt.app_id, "app-7");
-                assert_eq!(evt.winid, 7);
+        let state = state_with(vec![window(7, Some(123), false)]);
+        let evt = Event::WindowFocusChanged { id: Some(7) };
+        match detect_focus_change(&evt, &state) {
+            FocusOp::Emit(focus) => {
+                assert_eq!(focus.pid, 123);
+                assert_eq!(focus.app_id, "app-7");
+                assert_eq!(focus.winid, 7);
             }
-            other => panic!("expected FocusEmit, got {other:?}"),
+            other => panic!("expected Emit, got {other:?}"),
         }
     }
 
     #[test]
-    fn focus_unknown_window_signals_resync() {
-        let cache = HashMap::new();
+    fn focus_unknown_window_signals_unknown() {
+        let state = EventStreamState::default();
+        let evt = Event::WindowFocusChanged { id: Some(99) };
         assert_eq!(
-            handle_event(NiriEvent::WindowFocusChanged { id: Some(99) }, &cache),
-            MapOp::FocusUnknown(99)
+            detect_focus_change(&evt, &state),
+            FocusOp::UnknownWindow(99)
         );
     }
 
     #[test]
-    fn focus_window_without_pid_warns() {
-        let mut cache = HashMap::new();
-        cache.insert(3, win(3, None));
-        assert_eq!(
-            handle_event(NiriEvent::WindowFocusChanged { id: Some(3) }, &cache),
-            MapOp::FocusNoPid(3)
-        );
+    fn focus_window_without_pid_is_no_change() {
+        let state = state_with(vec![window(3, None, false)]);
+        let evt = Event::WindowFocusChanged { id: Some(3) };
+        assert_eq!(detect_focus_change(&evt, &state), FocusOp::NoChange);
     }
 
     #[test]
-    fn focus_none_means_defocus_all() {
-        let cache = HashMap::new();
-        assert_eq!(
-            handle_event(NiriEvent::WindowFocusChanged { id: None }, &cache),
-            MapOp::DefocusAll
-        );
+    fn focus_none_means_defocus() {
+        let state = EventStreamState::default();
+        let evt = Event::WindowFocusChanged { id: None };
+        assert_eq!(detect_focus_change(&evt, &state), FocusOp::Defocus);
     }
 
     #[test]
-    fn opened_or_changed_upserts() {
-        let cache = HashMap::new();
-        let w = win(11, Some(456));
-        let op = handle_event(NiriEvent::WindowOpenedOrChanged { window: w }, &cache);
-        match op {
-            MapOp::Upsert(id, _) => assert_eq!(id, 11),
-            other => panic!("expected Upsert, got {other:?}"),
+    fn windows_changed_emits_initial_focus() {
+        let mut state = EventStreamState::default();
+        let evt = Event::WindowsChanged {
+            windows: vec![
+                window(1, Some(100), false),
+                window(2, Some(200), true),
+                window(3, Some(300), false),
+            ],
+        };
+        let _ignored = state.apply(evt.clone());
+        match detect_focus_change(&evt, &state) {
+            FocusOp::Emit(focus) => {
+                assert_eq!(focus.winid, 2);
+                assert_eq!(focus.pid, 200);
+            }
+            other => panic!("expected initial focus emit, got {other:?}"),
         }
     }
 
     #[test]
-    fn closed_removes() {
-        let cache = HashMap::new();
-        assert_eq!(
-            handle_event(NiriEvent::WindowClosed { id: 5 }, &cache),
-            MapOp::Remove(5)
-        );
+    fn windows_changed_with_no_focused_is_no_change() {
+        let evt = Event::WindowsChanged {
+            windows: vec![window(1, Some(100), false)],
+        };
+        let mut state = EventStreamState::default();
+        let _ = state.apply(evt.clone());
+        assert_eq!(detect_focus_change(&evt, &state), FocusOp::NoChange);
     }
 
     #[test]
-    fn unknown_event_is_noop() {
-        let cache = HashMap::new();
-        assert_eq!(handle_event(NiriEvent::Other, &cache), MapOp::NoOp);
+    fn opened_or_changed_with_focus_emits() {
+        let w = window(11, Some(456), true);
+        let evt = Event::WindowOpenedOrChanged { window: w.clone() };
+        let mut state = EventStreamState::default();
+        let _ = state.apply(evt.clone());
+        match detect_focus_change(&evt, &state) {
+            FocusOp::Emit(focus) => assert_eq!(focus.winid, 11),
+            other => panic!("expected Emit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn opened_or_changed_without_focus_is_no_change() {
+        let w = window(12, Some(789), false);
+        let evt = Event::WindowOpenedOrChanged { window: w };
+        let mut state = EventStreamState::default();
+        let _ = state.apply(evt.clone());
+        assert_eq!(detect_focus_change(&evt, &state), FocusOp::NoChange);
+    }
+
+    #[test]
+    fn closed_does_not_affect_focus_decision() {
+        let evt = Event::WindowClosed { id: 5 };
+        let state = EventStreamState::default();
+        assert_eq!(detect_focus_change(&evt, &state), FocusOp::NoChange);
+    }
+
+    #[test]
+    fn workspace_event_is_no_change() {
+        let evt = Event::WorkspacesChanged { workspaces: vec![] };
+        let state = EventStreamState::default();
+        assert_eq!(detect_focus_change(&evt, &state), FocusOp::NoChange);
+    }
+
+    // Wire-format regression tests — verifies niri-ipc 26.4 parses the
+    // event lines we used to handle by hand. If a future niri changes
+    // the wire format, these tests fail loudly instead of silently
+    // dropping.
+
+    #[test]
+    fn parses_window_focus_changed_with_id() {
+        let line = r#"{"WindowFocusChanged":{"id":7}}"#;
+        let evt: Event = serde_json::from_str(line).expect("must parse");
+        assert!(matches!(evt, Event::WindowFocusChanged { id: Some(7) }));
+    }
+
+    #[test]
+    fn parses_window_focus_changed_with_null() {
+        let line = r#"{"WindowFocusChanged":{"id":null}}"#;
+        let evt: Event = serde_json::from_str(line).expect("must parse");
+        assert!(matches!(evt, Event::WindowFocusChanged { id: None }));
+    }
+
+    #[test]
+    fn parses_window_closed() {
+        let line = r#"{"WindowClosed":{"id":42}}"#;
+        let evt: Event = serde_json::from_str(line).expect("must parse");
+        assert!(matches!(evt, Event::WindowClosed { id: 42 }));
+    }
+
+    // ── Fixture-replay tests (PR — adopts Swarm G refactor 2) ────────
+    //
+    // Captures from a real `niri msg --json event-stream` session can
+    // now be replayed against `drive_events` to verify the focus-
+    // detection pipeline end-to-end without spinning up a niri
+    // compositor. Each fixture is a sequence of newline-delimited
+    // niri-ipc Event JSON objects; the test wraps it in a Cursor +
+    // tokio BufReader and drives `drive_events` until EOF.
+    //
+    // Two purposes:
+    //   1. Regression sentinel: when niri 27.x adds variants the
+    //      pinned crate doesn't know, replay + watch for the warn-
+    //      and-skip path firing instead of the full pipeline failing.
+    //   2. Correctness oracle: verify that for a recorded "focus
+    //      Firefox → focus ghostty → close ghostty" trace, the
+    //      bridge emits exactly the FocusEvents the real session
+    //      produced.
+
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use tokio::io::BufReader as TokioBufReader;
+
+    /// Drive `drive_events_with` against an in-memory event log,
+    /// pushing every FocusEvent transition into a Vec and returning
+    /// the list. Uses a closure-publishing variant that captures
+    /// every transition (the production `watch::Sender` path coalesces
+    /// rapid sends, so it's unsuitable for replay-test capture).
+    async fn replay(events_jsonl: &str) -> Vec<Option<FocusEvent>> {
+        let collected: Rc<RefCell<Vec<Option<FocusEvent>>>> = Rc::new(RefCell::new(Vec::new()));
+        let collected_pub = collected.clone();
+
+        let cursor = std::io::Cursor::new(events_jsonl.as_bytes().to_vec());
+        let mut rd = TokioBufReader::new(cursor);
+        // drive_events_with returns Err on EOF; that's expected here.
+        let _ = drive_events_with(
+            &mut rd,
+            move |evt| collected_pub.borrow_mut().push(evt),
+            || false,
+        )
+        .await;
+        Rc::try_unwrap(collected)
+            .expect("Rc still held")
+            .into_inner()
+    }
+
+    #[tokio::test]
+    async fn replay_focus_firefox_then_ghostty() {
+        // Capture: niri starts with two windows, Firefox initially
+        // focused, then user alt-tabs to ghostty, then closes ghostty.
+        let log = concat!(
+            r#"{"WindowsChanged":{"windows":[{"id":1,"app_id":"firefox","title":"Inbox","pid":2001,"workspace_id":1,"is_focused":true,"is_floating":false,"is_urgent":false,"layout":{"pos_in_scrolling_layout":null,"tile_size":[0.0,0.0],"window_size":[0,0],"tile_pos_in_workspace_view":null,"window_offset_in_tile":[0.0,0.0]},"focus_timestamp":null},{"id":2,"app_id":"ghostty","title":"~","pid":2002,"workspace_id":2,"is_focused":false,"is_floating":false,"is_urgent":false,"layout":{"pos_in_scrolling_layout":null,"tile_size":[0.0,0.0],"window_size":[0,0],"tile_pos_in_workspace_view":null,"window_offset_in_tile":[0.0,0.0]},"focus_timestamp":null}]}}"#,
+            "\n",
+            r#"{"WindowFocusChanged":{"id":2}}"#,
+            "\n",
+            r#"{"WindowClosed":{"id":2}}"#,
+            "\n",
+            r#"{"WindowFocusChanged":{"id":1}}"#,
+            "\n",
+        );
+        let observed = replay(log).await;
+
+        // We expect three Some(FocusEvent) emits in order: Firefox
+        // (from initial WindowsChanged seed), ghostty (alt-tab), then
+        // back to Firefox after ghostty closes. WindowClosed itself
+        // does not synthesise a focus change in our pipeline; the
+        // niri compositor sends a follow-up WindowFocusChanged.
+        let pids: Vec<u32> = observed
+            .iter()
+            .filter_map(|o| o.as_ref().map(|f| f.pid))
+            .collect();
+        assert_eq!(
+            pids,
+            vec![2001, 2002, 2001],
+            "expected focus emits for Firefox→ghostty→Firefox; observed {observed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn replay_handles_unknown_event_variants() {
+        // niri 27.x might add a variant like "FoobarChanged"; our
+        // serde_json parse fails for it, the loop logs and skips,
+        // and the next valid event still drives a focus emit.
+        let log = concat!(
+            r#"{"WindowsChanged":{"windows":[{"id":7,"app_id":"x","title":"t","pid":111,"workspace_id":1,"is_focused":true,"is_floating":false,"is_urgent":false,"layout":{"pos_in_scrolling_layout":null,"tile_size":[0.0,0.0],"window_size":[0,0],"tile_pos_in_workspace_view":null,"window_offset_in_tile":[0.0,0.0]},"focus_timestamp":null}]}}"#,
+            "\n",
+            r#"{"FoobarChanged":{"foo":"bar"}}"#,
+            "\n",
+            r#"{"WindowFocusChanged":{"id":null}}"#,
+            "\n",
+        );
+        let observed = replay(log).await;
+        // Initial seed = Some(pid 111); then defocus = None. Skipped
+        // FoobarChanged contributes no entry.
+        assert_eq!(observed.len(), 2);
+        assert_eq!(observed[0].as_ref().map(|f| f.pid), Some(111));
+        assert_eq!(observed[1].as_ref().map(|f| f.pid), None);
+    }
+
+    #[tokio::test]
+    async fn replay_handles_window_without_pid() {
+        // niri reports None for windows opened via xdg-desktop-portal-gnome.
+        // Our pipeline should NOT emit a focus event for them.
+        let log = concat!(
+            r#"{"WindowsChanged":{"windows":[{"id":3,"app_id":"portal","title":"chooser","pid":null,"workspace_id":1,"is_focused":true,"is_floating":false,"is_urgent":false,"layout":{"pos_in_scrolling_layout":null,"tile_size":[0.0,0.0],"window_size":[0,0],"tile_pos_in_workspace_view":null,"window_offset_in_tile":[0.0,0.0]},"focus_timestamp":null}]}}"#,
+            "\n",
+        );
+        let observed = replay(log).await;
+        assert_eq!(
+            observed.len(),
+            0,
+            "no emit for pidless window; got {observed:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn replay_empty_lines_are_skipped() {
+        // Defensive: blank lines in the stream (rare niri quirk or
+        // newline-only chunks) must not crash the loop.
+        let log = concat!(
+            "\n",
+            r#"{"WindowFocusChanged":{"id":null}}"#,
+            "\n",
+            "\n",
+            "\n",
+        );
+        let observed = replay(log).await;
+        assert_eq!(observed.len(), 1);
+        assert_eq!(observed[0], None);
     }
 }

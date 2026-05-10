@@ -7,6 +7,10 @@ on:
 
 permissions: {}
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -38,7 +42,7 @@ jobs:
         run: nix develop --command bash -c 'cd bridge && cargo-llvm-cov llvm-cov --all-features --workspace --lcov --output-path lcov.info'
 
       - name: Upload coverage artefact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bridge-coverage
           path: bridge/lcov.info
@@ -61,19 +65,37 @@ jobs:
           persist-credentials: false
 
       - name: qmllint
-        run: |
-          nix develop --command bash -c '
-            qmllint --version
-            qmllint plugin/BarWidget.qml plugin/components/*.qml > qmllint.sarif
-          '
+        # qmllint has no native SARIF emitter; we just verify exit code
+        # and pipe output to console for human review. plugin/components/
+        # was retired in v0.1.3 (BarWidget FileView rewrite); only the
+        # top-level BarWidget.qml ships in v0.1.x.
+        run: nix develop --command bash -c 'qmllint --version && qmllint plugin/BarWidget.qml'
 
-      - name: Upload qmllint SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@ff0a06e83cb2de871e5a09832bc6a81e7276941f # v3.28.18
-        with:
-          sarif_file: qmllint.sarif
-          category: qmllint
-        continue-on-error: true
+      - name: manifest schema check
+        # Mirror noctalia-shell's `validateManifest` (PluginRegistry.qml):
+        # required fields + entryPoints.barWidget present + version is
+        # semver. v0.1.0..v0.1.4 shipped a manifest with `entrypoint`
+        # (singular) + `widgetIds` — both ignored by the loader, plugin
+        # never registered, widget invisible. ADR-0017 covers the
+        # v0.1.5 fix. Inputs are repo-tracked files only — no
+        # github.event.* / github.head_ref / etc. used here.
+        run: |
+          set -eu
+          M=plugin/manifest.json
+          fail() { echo "::error file=${M}::$1"; exit 1; }
+          jq -e 'has("id") and has("name") and has("version") and has("author") and has("description") and has("entryPoints")' "$M" > /dev/null \
+            || fail "manifest missing required field (id|name|version|author|description|entryPoints)"
+          jq -re '.version' "$M" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || fail "version is not semver x.y.z"
+          jq -e '.entryPoints.barWidget' "$M" > /dev/null \
+            || fail "entryPoints.barWidget missing"
+          jq -re '.entryPoints.barWidget' "$M" | xargs -I {} test -f "plugin/{}" \
+            || fail "entryPoints.barWidget points at non-existent QML file"
+          jq -e 'has("entrypoint") | not' "$M" > /dev/null \
+            || fail "old singular 'entrypoint' field present — use entryPoints.barWidget"
+          jq -e 'has("widgetIds") | not' "$M" > /dev/null \
+            || fail "obsolete 'widgetIds' field present — noctalia derives id from pluginId"
+          echo "manifest OK"
 
   nix-flake-check:
     name: Nix flake check
