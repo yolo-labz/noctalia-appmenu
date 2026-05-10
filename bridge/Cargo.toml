@@ -1,6 +1,6 @@
 [package]
 name = "noctalia-appmenu-bridge"
-version = "0.3.0-alpha.18"
+version = "0.3.0-alpha.20"
 edition = "2021"
 rust-version = "1.81"
 authors = ["Pedro H S Balbino <phsb5321@gmail.com>"]
@@ -31,6 +31,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 clap = { version = "4.5", features = ["derive"] }
 toml = "0.8"
 anyhow = "1.0"
+niri-ipc = "26.4"
 
 [dev-dependencies]
 mockall = "0.13"
