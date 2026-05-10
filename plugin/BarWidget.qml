@@ -223,12 +223,21 @@ Item {
     }
 
     // ── v0.2 menu strip: horizontal row of top-level menu buttons ──
+    //
+    // PR #50 fix: anchor strip to FILL the parent vertically (was
+    // verticalCenter only). Each button Rectangle now also fills the
+    // full bar height — earlier `implicitHeight: barHeight - marginS*2`
+    // produced a centered button shorter than the visible row, leaving
+    // dead-zones above and below where MouseArea wouldn't fire. Pedro
+    // hovered "File" but the click silently dropped because the cursor
+    // landed in the dead-zone above the rectangle.
     Row {
         id: strip
         visible: root.topLevel.length > 0
         anchors.left: parent.left
         anchors.leftMargin: Style.marginS
-        anchors.verticalCenter: parent.verticalCenter
+        anchors.top: parent.top
+        anchors.bottom: parent.bottom
         spacing: Style.marginS
 
         Repeater {
@@ -248,7 +257,11 @@ Item {
                 radius: Style.marginXS !== undefined ? Style.marginXS : 4
                 border.width: 0
 
-                implicitHeight: Style.barHeight - Style.marginS * 2
+                // Fill full strip height (= bar height). Eliminates
+                // the click dead-zone the earlier "barHeight - marginS*2"
+                // sizing introduced — MouseArea now covers everything
+                // a user would visually associate with the button.
+                height: strip.height
                 implicitWidth: btnLabel.implicitWidth + Style.marginM * 2
 
                 Text {
@@ -267,9 +280,20 @@ Item {
                     id: hover
                     anchors.fill: parent
                     hoverEnabled: true
+                    acceptedButtons: Qt.LeftButton
                     enabled: btn.modelData && btn.modelData.enabled !== false
                     onClicked: {
                         if (!btn.modelData) return;
+                        // Trace clicks (PR #50) — surfaced in
+                        // `journalctl --user -u noctalia-shell`.
+                        // Helps diagnose "click does nothing" reports
+                        // by confirming whether the MouseArea fires.
+                        console.log("[appmenu] click on top-level:",
+                                    btn.modelData.label,
+                                    "children:",
+                                    (btn.modelData.children
+                                        ? btn.modelData.children.length
+                                        : 0));
                         if (btn.modelData.children && btn.modelData.children.length > 0) {
                             popup.menuItem = btn.modelData;
                             popup.anchorItem = btn;
