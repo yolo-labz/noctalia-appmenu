@@ -292,20 +292,20 @@ pub async fn run(
             None
         };
 
-        // Synthetic fallback (PR #42): when AT-SPI returns no menu
-        // (terminals, electron-no-a11y, native Wayland with no a11y
-        // plugin), surface a universal "Window" submenu wired to
-        // niri-IPC actions so the bar always shows something useful.
-        // macOS philosophy: every focused app has menus, even when
-        // the app itself doesn't ship them.
-        let final_menu: Option<atspi::MenuItem> = match menu {
-            Some(m) => Some(m),
-            None if snapshot.focus_pid != 0 => Some(atspi::synthetic_menu(&snapshot.app_id)),
-            None => None,
-        };
-        if final_menu.is_some() {
-            write_active_json(&active_json_path, &snapshot, final_menu.as_ref());
-        }
+        // Split-the-loss (PR #47, 2026-05-10 swarm synthesis): if the
+        // focused app exposes a real menu via AT-SPI, render it.
+        // Otherwise emit `menu: null` so the QML widget collapses to
+        // zero-width. No more wtype-faked Edit, no synthetic Window
+        // submenu impersonating compositor actions as if they were
+        // app menus. Honest beats lying.
+        //
+        // Apps without AT-SPI exposure (terminals, electron-no-a11y,
+        // native Wayland no-a11y) get nothing — the bar widget hides
+        // entirely. Power users who want compositor-action menus on
+        // those apps can either (a) get the same actions via niri
+        // keybinds directly or (b) opt into an `appOverrides` static
+        // menu in plugin settings (future work).
+        write_active_json(&active_json_path, &snapshot, menu.as_ref());
     }
 
     Ok(())

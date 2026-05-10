@@ -83,16 +83,19 @@ Item {
         return (fromEnv && fromEnv.length > 0) ? fromEnv : "noctalia-appmenu-bridge";
     }
 
-    /// Display string for the v0.1 fallback path (shown only when
-    /// `topLevel.length === 0`). Always non-empty so the widget
-    /// claims layout (ADR-0019).
-    readonly property string fallbackDisplayText: {
-        if (appId !== "")
-            return appId;
-        if (fallbackText !== "")
-            return fallbackText;
-        return "·";
-    }
+    /// Whether the widget should claim any layout space at all.
+    /// Pedro's split-the-loss UX (PR #47, 2026-05-10 swarm synthesis):
+    /// the bar widget is HONEST or HIDDEN — it shows real menus when
+    /// the focused app exposes them, and collapses to zero width
+    /// otherwise. No app-id-as-fallback text, no synthetic Window
+    /// submenu, no wtype-faked Edit. macOS has 100% coverage because
+    /// Apple owns Cocoa; Wayland-niri can't, so we don't pretend.
+    ///
+    /// `fallbackText` (per-instance widget setting) opts into showing
+    /// a static label even when no menu is present — for users who
+    /// want to claim bar real estate as a label slot. Default empty.
+    readonly property bool hasMenu: topLevel.length > 0
+    readonly property bool shouldRender: hasMenu || fallbackText !== ""
 
     /// Apply a parsed bridge snapshot object (the JSON written to
     /// `active.json` and pushed via IPC) to the widget's exposed
@@ -132,7 +135,16 @@ Item {
     /// run left there.
     IpcHandler {
         target: "appmenu"
-        function update(json) {
+
+        // Quickshell's IpcHandler MOC dispatcher cannot transit
+        // QVariant across the IPC socket. Untyped `function update(json)`
+        // is rejected at registration with "Type of argument 1 (json:
+        // QVariant) cannot be used across IPC". Typing the param as
+        // `string` is the canonical idiom — every IpcHandler in
+        // upstream `noctalia-shell/Services/Control/IPCService.qml`
+        // uses this pattern (e.g. `function send(json: string)` for
+        // toast). Bridge writes JSON-encoded strings.
+        function update(json: string): void {
             try {
                 const j = JSON.parse(json);
                 root.applySnapshot(j);
@@ -177,29 +189,33 @@ Item {
     }
 
     // ── Layout ───────────────────────────────────────────────────────
-    // Slot reserves up to `maxStripWidth` (default 600). Strip grows
-    // up to that limit then elides items past it (clipped by the
-    // RowLayout). Fallback path uses the smaller `maxLabelWidth`
-    // budget per ADR-0020.
+    // Split-the-loss (PR #47): widget claims layout ONLY when there's
+    // either a real menu strip OR a user-configured static label
+    // (`fallbackText`). Apps with no exposed menu render zero-width
+    // and the bar collapses, so terminals/electron-no-a11y don't get
+    // a useless app-id text occupying the slot. Honest beats lying.
     implicitHeight: Style.barHeight
-    implicitWidth: topLevel.length > 0
-        ? Math.min(maxStripWidth, strip.implicitWidth + Style.marginM * 2)
-        : maxLabelWidth + Style.marginM * 2
+    implicitWidth: {
+        if (hasMenu) return Math.min(maxStripWidth, strip.implicitWidth + Style.marginM * 2);
+        if (fallbackText !== "") return maxLabelWidth + Style.marginM * 2;
+        return 0;
+    }
+    visible: shouldRender
+    opacity: 1.0
 
-    opacity: (topLevel.length > 0 || appId !== "" || fallbackText !== "") ? 1.0 : 0.45
-
-    // ── v0.1 fallback: app-id text label ────────────────────────────
-    // Shown when no app has registered a DBusMenu (most apps until
-    // Phase E ships the env vars). Identical to v0.1.9 behavior.
+    // ── Static fallback label (opt-in) ─────────────────────────────
+    // Only renders when `fallbackText` is configured per-widget. With
+    // empty fallbackText (default) we hide entirely instead of showing
+    // app_id-as-text, per Pedro's split-the-loss UX.
     Text {
         id: fallbackLabel
-        visible: root.topLevel.length === 0
+        visible: !root.hasMenu && root.fallbackText !== ""
         anchors.fill: parent
         anchors.leftMargin: Style.marginM
         anchors.rightMargin: Style.marginM
         verticalAlignment: Text.AlignVCenter
         horizontalAlignment: Text.AlignLeft
-        text: root.fallbackDisplayText
+        text: root.fallbackText
         color: Color.mOnSurface
         font.family: Settings.data.ui.fontDefault || "Inter"
         font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
