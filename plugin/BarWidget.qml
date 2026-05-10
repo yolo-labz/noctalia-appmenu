@@ -290,16 +290,21 @@ Item {
         property var menuItem: null
         property var anchorItem: null
 
-        // Anchor below the clicked top-level button. Quickshell's
-        // PopupWindow positions relative to a parent surface +
-        // anchor.rect; we use the Bar's screen as parent and compute
-        // a bar-relative rect from the anchor item.
-        anchor.window: root.QsWindow.window
-        anchor.rect: {
-            if (!anchorItem) return Qt.rect(0, 0, 0, 0);
-            const p = anchorItem.mapToItem(null, 0, anchorItem.height);
-            return Qt.rect(p.x, p.y, anchorItem.width, 1);
-        }
+        // Anchor BELOW the clicked top-level button (PR #49).
+        //
+        // Earlier alpha used `anchor.window: root.QsWindow.window` +
+        // manual `anchor.rect` math — that path didn't open the
+        // popup because the `QsWindow` attached property isn't
+        // reliably bound from inside a plugin BarWidget loaded by
+        // noctalia BarSection. The canonical Quickshell pattern
+        // (matches noctalia-shell's `NPopupContextMenu.qml`) sets
+        // `anchor.item` directly to the clicked Item — Quickshell
+        // resolves the surface + positions the popup.
+        //
+        // `Edges.Bottom` + `gravity: Edges.Bottom` open the popup
+        // BELOW the button (top edge of popup pinned to bottom edge
+        // of anchor). Behavior matches macOS menubar dropdowns.
+        anchor.item: anchorItem
         anchor.edges: Edges.Bottom
         anchor.gravity: Edges.Bottom
 
