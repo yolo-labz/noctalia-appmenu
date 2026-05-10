@@ -53,8 +53,42 @@ use zbus::{interface, Connection};
 /// and `path` now point at AT-SPI accessibles instead of `DBusMenu`
 /// items, but downstream click forwarding routes through the new
 /// `atspi-click` subcommand which speaks the AT-SPI Action interface.
-fn write_active_json(path: &Path, snap: &ActiveSnapshot, menu: Option<&atspi::MenuItem>) {
+/// Schema version for `active.json`. Bumped when the field set or
+/// semantic shape changes incompatibly. Plugin reads this and falls
+/// back to its zero-paint slot when it doesn't recognise `v`.
+///
+/// History:
+/// - v0.1: `{app_id, title}` (early DBusMenu placeholder)
+/// - v0.2: `+menu_service +menu_path +menu (DBusMenu tree)`
+/// - v0.3: `menu` carries the AT-SPI walked tree; `menu_service` and
+///   `menu_path` retained for backward-compat but `menu` is the
+///   authoritative source.
+/// - **v1 (this commit, post-spec-003)**: explicit `"v": 1` field
+///   for forward/backward compat. Field set unchanged from v0.3.
+const ACTIVE_JSON_SCHEMA_VERSION: u32 = 1;
+
+/// Build + write the active-snapshot JSON, with **producer-side
+/// dedup** — when the serialised payload is byte-identical to the
+/// previous successful write, skip both the file write and the IPC
+/// push entirely. Per Swarm H of the v3 best-practices synthesis,
+/// this saves the round-trip cost (≈5 ms per `qs ipc call` spawn)
+/// on the >80 % of bridge events that are no-op focus reshuffles
+/// within the same app — the bridge currently re-pushes the full
+/// menu tree on every `WindowFocusChanged`, but the payload only
+/// changes when title or menu structure actually moves.
+///
+/// `last_body` is the caller-owned hash sentinel. Storing the full
+/// body (≈4 KiB) is cheaper than hashing for a single-writer task
+/// and lets us avoid the `xxhash`/`twox-hash` dep — comparison is
+/// `as_deref() == Some(...)`, ≈100 ns on a memcmp fast-path.
+fn write_active_json(
+    path: &Path,
+    snap: &ActiveSnapshot,
+    menu: Option<&atspi::MenuItem>,
+    last_body: &mut Option<String>,
+) {
     let payload = serde_json::json!({
+        "v": ACTIVE_JSON_SCHEMA_VERSION,
         "focus_pid": snap.focus_pid,
         "app_id": snap.app_id,
         "title": snap.title,
@@ -63,8 +97,22 @@ fn write_active_json(path: &Path, snap: &ActiveSnapshot, menu: Option<&atspi::Me
         "menu": menu,
     });
     let body = payload.to_string();
+
+    if last_body.as_deref() == Some(body.as_str()) {
+        // No-op publish: identical to last successful write. Skip
+        // both file write and IPC push. Both sides idempotent so
+        // skipping is safe; widget already has the latest state.
+        tracing::trace!("active.json publish coalesced (payload unchanged)");
+        return;
+    }
+
     if let Err(e) = std::fs::write(path, &body) {
         warn!(error=?e, path=%path.display(), "active.json write failed");
+        // Don't update last_body on write failure — next call should
+        // retry the file write. IPC push still attempted because the
+        // failure is on disk-write, not on the payload itself.
+    } else {
+        *last_body = Some(body.clone());
     }
     push_ipc_update(&body);
 }
@@ -209,7 +257,11 @@ pub async fn run(
 
     // Emit an initial empty snapshot so the file exists at startup
     // (matters for first-load of the QML widget).
-    write_active_json(&active_json_path, &ActiveSnapshot::empty(), None);
+    // Caller-owned dedup state for write_active_json. Persists across
+    // loop iterations so consecutive identical payloads coalesce.
+    let mut last_body: Option<String> = None;
+
+    write_active_json(&active_json_path, &ActiveSnapshot::empty(), None, &mut last_body);
 
     loop {
         if active_rx.changed().await.is_err() {
@@ -223,7 +275,7 @@ pub async fn run(
         // the QML widget waits up to ~3.6s (timeout + retries)
         // before showing the new app's title — a regression vs the
         // pre-retry v0.3.0-alpha.6 behaviour (codex review of #40).
-        write_active_json(&active_json_path, &snapshot, None);
+        write_active_json(&active_json_path, &snapshot, None, &mut last_body);
         publish_props(&conn, &cfg, &proxy, &snapshot).await?;
 
         // v0.3 substrate: walk the focused app's AT-SPI menubar
@@ -264,7 +316,7 @@ pub async fn run(
                                     break;
                                 }
                                 snapshot = active_rx.borrow_and_update().clone();
-                                write_active_json(&active_json_path, &snapshot, None);
+                                write_active_json(&active_json_path, &snapshot, None, &mut last_body);
                                 publish_props(&conn, &cfg, &proxy, &snapshot).await?;
                                 if snapshot.focus_pid == 0 {
                                     break;
@@ -305,7 +357,7 @@ pub async fn run(
         // those apps can either (a) get the same actions via niri
         // keybinds directly or (b) opt into an `appOverrides` static
         // menu in plugin settings (future work).
-        write_active_json(&active_json_path, &snapshot, menu.as_ref());
+        write_active_json(&active_json_path, &snapshot, menu.as_ref(), &mut last_body);
     }
 
     Ok(())
