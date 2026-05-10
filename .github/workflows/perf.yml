@@ -12,6 +12,10 @@ on:
 
 permissions: {}
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: perf-${{ github.ref }}
   cancel-in-progress: false
