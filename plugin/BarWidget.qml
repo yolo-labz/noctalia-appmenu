@@ -102,13 +102,24 @@ Item {
     /// state. Pure — both the FileView (cold-start) and IpcHandler
     /// (steady-state push, PR #44) call into here so the two paths
     /// stay byte-identical.
+    ///
+    /// PR #51 — identity-stable topLevel guard. Mirrors the upstream
+    /// fix for noctalia#2546 (dock/workspace icons flickering on every
+    /// `titleChanged` because the model was wholesale-replaced even
+    /// when nothing actually changed). We compare `id`/`label`/`enabled`
+    /// of each top-level entry; if all match, we skip the assignment
+    /// entirely and the Repeater never tears down its delegates. The
+    /// bridge currently re-pushes the full menu tree on every focus
+    /// change even when the focused app didn't change, so this guard
+    /// is the difference between "delegates rebuilt N times per
+    /// minute" and "delegates rebuilt only on real menu changes."
     function applySnapshot(j) {
         if (!j) {
             root.appId = "";
             root.title = "";
             root.menuService = "";
             root.menuPath = "";
-            root.topLevel = [];
+            if (root.topLevel.length > 0) root.topLevel = [];
             return;
         }
         root.appId = j.app_id || "";
@@ -118,7 +129,27 @@ Item {
         // Walk into menu.children. Defaults to empty when bridge
         // wrote `menu: null` (e.g. focused app has no menu and no
         // synthetic fallback applied).
-        root.topLevel = (j.menu && j.menu.children) ? j.menu.children : [];
+        const newTopLevel = (j.menu && j.menu.children) ? j.menu.children : [];
+        if (!root._sameTopLevel(root.topLevel, newTopLevel)) {
+            root.topLevel = newTopLevel;
+        }
+    }
+
+    /// Cheap structural-equality check for top-level menu arrays. Compares
+    /// the three fields that drive the bar strip (id, label, enabled);
+    /// children are intentionally NOT compared — submenu changes do not
+    /// affect the strip render and would force a delegate rebuild we don't
+    /// need. Returns true when both arrays describe an identical strip.
+    function _sameTopLevel(a, b) {
+        if (a === b) return true;
+        if (!a || !b) return false;
+        if (a.length !== b.length) return false;
+        for (let i = 0; i < a.length; i++) {
+            if (a[i].id !== b[i].id) return false;
+            if (a[i].label !== b[i].label) return false;
+            if (a[i].enabled !== b[i].enabled) return false;
+        }
+        return true;
     }
 
     /// Push channel (PR #44 — replaces FileView as the steady-state
@@ -189,19 +220,73 @@ Item {
     }
 
     // ── Layout ───────────────────────────────────────────────────────
-    // Split-the-loss (PR #47): widget claims layout ONLY when there's
-    // either a real menu strip OR a user-configured static label
-    // (`fallbackText`). Apps with no exposed menu render zero-width
-    // and the bar collapses, so terminals/electron-no-a11y don't get
-    // a useless app-id text occupying the slot. Honest beats lying.
+    //
+    // PR #51 — STABLE-SLOT, ANIMATED, NO FLICKER.
+    //
+    // Earlier alpha (PR #47..#50) toggled `visible` and swung
+    // `implicitWidth` between 0 and `strip.implicitWidth + margins`
+    // on every focus change. Pedro reported full-screen flicker as
+    // bar state changed — root cause documented in research note
+    // `Documents/Notes/Research/noctalia-appmenu-2026-05-10-v2/01-quickshell-flicker.md`:
+    //
+    //   1. noctalia v4 puts the entire bar (and dropdowns) on a single
+    //      full-screen PanelWindow (`MainScreen.qml`) so the dimmed
+    //      backdrop and inverted-corner shadow can share one surface.
+    //      See noctalia#2216 ("MainScreen panels and desktop widgets
+    //      always damage entire screen", closed → addressed in v5).
+    //   2. ANY layout change to ANY bar widget marks the whole shared
+    //      surface damaged. niri redraws the whole output. AMD GPUs
+    //      manifest the redraw as visible flicker (Pedro's class).
+    //   3. Our plugin was the worst offender on Pedro's bar — the
+    //      only widget that swung 0↔~600px on every focus change.
+    //
+    // Fix triplet (mirrors noctalia ActiveWindow.qml — the canonical
+    // "widget that comes and goes by focus" pattern):
+    //
+    //   • `reserveSlot` (default true): widget always claims
+    //     `maxStripWidth + margins`. Width is constant regardless
+    //     of focused app, so the bar layout pass never re-runs and
+    //     the bar surface is never marked damaged on focus change.
+    //   • `Behavior on implicitWidth` 180ms InOutCubic: even with
+    //     reserveSlot=false, residual width changes (Firefox menu
+    //     vs GIMP menu have different `strip.implicitWidth`) are
+    //     spread over many frames as small deltas instead of a
+    //     single-frame jump.
+    //   • `Behavior on opacity` 180ms OutCubic + `visible: shouldRender
+    //     || opacity > 0`: the Item stays in the QML layout tree until
+    //     the fade completes. Layout invalidation is therefore deferred
+    //     and smoothed, and the GPU compositor renders opacity=0
+    //     subtrees as a no-op.
+    //
+    // `reserveSlot=false` is opt-out for users who want the
+    // collapse-to-zero behaviour and accept the AMD flicker.
+    //
+    // `fallbackText` opt-in still works: when set with reserveSlot=false,
+    // the slot is sized to `maxLabelWidth` instead, and the text label
+    // is always painted.
+    readonly property bool reserveSlot: widgetSettings.reserveSlot !== undefined
+        ? widgetSettings.reserveSlot
+        : true
+
     implicitHeight: Style.barHeight
     implicitWidth: {
-        if (hasMenu) return Math.min(maxStripWidth, strip.implicitWidth + Style.marginM * 2);
+        if (reserveSlot) return maxStripWidth + Style.marginM * 2;
+        if (hasMenu) return maxStripWidth + Style.marginM * 2;
         if (fallbackText !== "") return maxLabelWidth + Style.marginM * 2;
         return 0;
     }
-    visible: shouldRender
-    opacity: 1.0
+    // Stay in layout tree until fade completes. Toggling `visible`
+    // mid-fade reintroduces a single-frame layout invalidation; this
+    // bridges the two states so the layout pass is deferred until
+    // opacity has actually settled.
+    visible: shouldRender || opacity > 0
+    opacity: shouldRender ? 1.0 : 0.0
+    Behavior on opacity {
+        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+    }
+    Behavior on implicitWidth {
+        NumberAnimation { duration: 180; easing.type: Easing.InOutCubic }
+    }
 
     // ── Static fallback label (opt-in) ─────────────────────────────
     // Only renders when `fallbackText` is configured per-widget. With
