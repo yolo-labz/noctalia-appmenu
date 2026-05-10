@@ -95,7 +95,40 @@ Item {
     /// a static label even when no menu is present — for users who
     /// want to claim bar real estate as a label slot. Default empty.
     readonly property bool hasMenu: topLevel.length > 0
-    readonly property bool shouldRender: hasMenu || fallbackText !== ""
+    readonly property bool shouldRender: (hasMenu || fallbackText !== "") && !_failedState
+
+    // ── Spec 003 isolation envelope (FR-008..010 + Swarm I) ──────────
+    //
+    // `_failedState` flips to true when ANY user-facing entry point
+    // (applySnapshot, IpcHandler.update, FileView.onLoaded) throws.
+    // While true, `shouldRender` is forced false so the widget
+    // collapses to its zero-paint stable slot. Resets on the next
+    // valid snapshot (set inside _applyPending success path).
+    //
+    // Pattern mirrors GNOME 45+ "fail closed" extension model and
+    // noctalia upstream's PluginService.recordPluginError + disablePlugin
+    // pair (Services/Noctalia/PluginService.qml:639). Local equivalent
+    // since noctalia's runtime trap doesn't auto-disable us yet.
+    property bool _failedState: false
+
+    // `_pendingSnapshot` is the latest received payload waiting to be
+    // applied on the next Qt event-loop tick. Qt.callLater coalesces
+    // multiple emits to one apply (free debounce per Qt docs). We MUST
+    // route every snapshot through this defer because:
+    //
+    //   1. IpcHandler.update fires synchronously on the bridge IPC
+    //      marshal stack; mutating root.topLevel mid-marshal can race
+    //      with the QML engine's binding eval. Bar.qml:158-172 hit a
+    //      SIGSEGV in QV4::Object::insertMember from the same class
+    //      and fixed it via Qt.callLater(_initModels).
+    //   2. FileView.onLoaded fires while the QML engine is finalising
+    //      Component construction at startup; deferring to the next
+    //      tick lets initialisation settle.
+    //   3. Throws inside the apply path now land on a fresh stack
+    //      frame, bounded by the per-call try/catch envelope. They
+    //      cannot poison the bridge IPC dispatcher or the FileView
+    //      reload pipeline.
+    property var _pendingSnapshot: undefined
 
     /// Apply a parsed bridge snapshot object (the JSON written to
     /// `active.json` and pushed via IPC) to the widget's exposed
@@ -113,7 +146,54 @@ Item {
     /// change even when the focused app didn't change, so this guard
     /// is the difference between "delegates rebuilt N times per
     /// minute" and "delegates rebuilt only on real menu changes."
+    /// Public API entry — same shape and contract as before, but the
+    /// implementation now defers the actual mutation through
+    /// Qt.callLater. This keeps the call site simple (callers still
+    /// just `root.applySnapshot(j)`) while routing every state mutation
+    /// through the isolation envelope (`_pendingSnapshot` + `_applyPending`).
     function applySnapshot(j) {
+        // null is a sentinel "clear state". `undefined` is the unset
+        // sentinel for `_pendingSnapshot` so we encode null explicitly.
+        root._pendingSnapshot = (j === null) ? null : j;
+        Qt.callLater(root._applyPending);
+    }
+
+    /// Internal: runs on the next Qt event-loop tick. Wraps the entire
+    /// state mutation in a try/catch envelope. On throw, flips
+    /// `_failedState` so `shouldRender` becomes false and the widget
+    /// falls back to its zero-paint stable slot. Subsequent valid
+    /// snapshots clear the failed state.
+    ///
+    /// Coalescing: if `applySnapshot` is called multiple times in one
+    /// tick, only the LAST `_pendingSnapshot` value is observed —
+    /// `Qt.callLater` deduplicates within the tick and the variable
+    /// retains the latest write. This gives free debounce.
+    function _applyPending() {
+        const pending = root._pendingSnapshot;
+        if (pending === undefined) {
+            // Already drained on a prior tick; nothing to do.
+            return;
+        }
+        // Drain BEFORE running so a throw doesn't trap us in a retry
+        // loop on the same bad payload.
+        root._pendingSnapshot = undefined;
+        try {
+            root._applySnapshotInner(pending);
+            if (root._failedState) {
+                console.log("[appmenu] envelope cleared; resuming render");
+                root._failedState = false;
+            }
+        } catch (e) {
+            console.error("[appmenu] envelope caught in _applyPending:", e,
+                          "stack:", (e && e.stack) || "(no stack)");
+            root._failedState = true;
+        }
+    }
+
+    /// The actual state mutation. Called only from `_applyPending`
+    /// inside the envelope. Throws on malformed input are caught
+    /// upstream.
+    function _applySnapshotInner(j) {
         if (!j) {
             root.appId = "";
             root.title = "";
@@ -176,14 +256,20 @@ Item {
         // uses this pattern (e.g. `function send(json: string)` for
         // toast). Bridge writes JSON-encoded strings.
         function update(json: string): void {
+            // Spec 003 envelope (FR-008): wrap the entry-point so
+            // a JSON parse error or malformed payload trips the
+            // failed-state flag instead of poisoning the IPC
+            // dispatcher. `applySnapshot` itself is already
+            // Qt.callLater-deferred so the inner mutation cannot
+            // re-enter the IpcHandler stack.
             try {
                 const j = JSON.parse(json);
                 root.applySnapshot(j);
             } catch (e) {
-                // Bridge sent a malformed payload — drop the update
-                // rather than corrupt widget state. Steady-state
-                // bridge writes are well-formed; this is a defensive
-                // guard for future protocol drift.
+                console.error("[appmenu] envelope caught in IpcHandler.update:", e,
+                              "stack:", (e && e.stack) || "(no stack)",
+                              "json-prefix:", json ? json.substring(0, 80) : "(empty)");
+                root._failedState = true;
             }
         }
     }
@@ -204,17 +290,25 @@ Item {
 
         onFileChanged: reload()
         onLoaded: {
-            // FileView's `text` is a FUNCTION call (ADR-0021).
-            const content = text();
-            if (!content || content.length === 0) {
-                root.applySnapshot(null);
-                return;
-            }
+            // Spec 003 envelope (FR-008): same protection as
+            // IpcHandler.update. FileView.onLoaded fires synchronously
+            // when the inotify watch trips; a throw here used to
+            // propagate to noctalia's parent FileView reload pipeline.
             try {
+                // FileView's `text` is a FUNCTION call (ADR-0021).
+                const content = text();
+                if (!content || content.length === 0) {
+                    root.applySnapshot(null);
+                    return;
+                }
                 const j = JSON.parse(content);
                 root.applySnapshot(j);
             } catch (e) {
-                // Partial-write; ignore until next change.
+                // Partial-write or malformed file — skip this load,
+                // wait for next inotify event. Don't trip _failedState
+                // for this case: cold-start often races bridge writes
+                // and the next reload will succeed naturally.
+                console.log("[appmenu] FileView.onLoaded skipped:", e ? e.message : "(unknown)");
             }
         }
     }
