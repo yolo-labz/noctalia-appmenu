@@ -43,9 +43,15 @@ allow = [
   "Unicode-DFS-2016",
   "Unicode-3.0",
   "CC0-1.0",
+  "GPL-3.0-or-later",
 ]
 confidence-threshold = 0.93
 exceptions = []
+# cargo-deny v2 license-not-encountered defaults to fail; downgrade to
+# warn so the allow list above can carry pre-staged entries (Zlib,
+# Unicode-DFS-2016) without forcing a deny.toml churn PR every time
+# the dep closure shifts. Real license violations still fail the build.
+unused-allowed-license = "warn"
 
 [[licenses.clarify]]
 crate = "ring"

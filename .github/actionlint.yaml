@@ -1,11 +1,16 @@
 self-hosted-runner:
   # Custom labels not in actionlint's built-in matrix.
-  # Any runner that has the `noctalia-appmenu` label is a valid CI host
-  # for this repo (VM103, the desktop host, future runners). The
-  # workflows do not reference host-specific labels (vm103, desktop) —
-  # see ADR-0013 (runner-agnostic CI).
+  # `noctalia-appmenu` matches any of our self-hosted runners (vm103,
+  # desktop, future hosts) and is the default for runner-agnostic
+  # workflows (ADR-0013). `desktop` and `vm103` are per-host labels
+  # used when a workflow needs runner-specific capabilities — e.g.
+  # `cargo-machete.yml` and `actionlint.yml` pin to `desktop` because
+  # vm103's job-started hook injects NODE_OPTIONS via $GITHUB_ENV
+  # which breaks both setups.
   labels:
     - noctalia-appmenu
+    - desktop
+    - vm103
 
 config-variables:
   - SONAR_HOST_URL
