@@ -35,3 +35,4 @@
 - [ADR-0012 — Self-hosted runner only](adr/ADR-0012-self-hosted-runner-only.md)
 - [ADR-0013 — Runner-agnostic labels](adr/ADR-0013-runner-agnostic-ci.md)
 - [ADR-0014 — Local-first CI (lefthook)](adr/ADR-0014-local-first-ci.md)
+- [ADR-0015 — v0.1 fallback-only shipping](adr/ADR-0015-v01-fallback-only-shipping.md)

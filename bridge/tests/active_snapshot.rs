@@ -1,4 +1,4 @@
-//! Smoke test for ActiveSnapshot::empty() — verifies the public surface
+//! Smoke test for `ActiveSnapshot::empty()` — verifies the public surface
 //! exposed to the proxy module hasn't drifted.
 
 use noctalia_appmenu_bridge::active::ActiveSnapshot;

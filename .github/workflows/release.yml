@@ -6,6 +6,10 @@ on:
 
 permissions: {}
 
+defaults:
+  run:
+    shell: bash
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
@@ -62,19 +66,25 @@ jobs:
           SYFT_AMD64_SHA256="7b98251d2d08926bb5d4639b56b1f0996a58ef6667c5830e3fe3cd3ad5f4214a"
           mkdir -p "$HOME/.local/bin"
           tarball="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
-          gh release download "v${SYFT_VERSION}" --repo anchore/syft --pattern "${tarball}" --output "/tmp/${tarball}"
-          actual_sha="$(sha256sum "/tmp/${tarball}" | awk '{print $1}')"
+          gh release download "v${SYFT_VERSION}" --repo anchore/syft --pattern "${tarball}" --output "$RUNNER_TEMP/${tarball}" --clobber
+          actual_sha="$(sha256sum "$RUNNER_TEMP/${tarball}" | awk '{print $1}')"
           if [ "$actual_sha" != "$SYFT_AMD64_SHA256" ]; then
             echo "::error::syft tarball sha256 mismatch"; exit 1
           fi
-          tar xzf "/tmp/${tarball}" -C "$HOME/.local/bin" syft
+          tar xzf "$RUNNER_TEMP/${tarball}" -C "$HOME/.local/bin" syft
           export PATH="$HOME/.local/bin:$PATH"
           syft . \
             -o cyclonedx-json@1.6=dist/sbom.cdx.json \
             -o spdx-json=dist/sbom.spdx.json
 
       - name: Generate cargo-cyclonedx SBOM (Rust-native)
-        run: nix develop --command bash -c 'cd bridge && cargo cyclonedx --format json --override-filename ../dist/sbom.cargo.cdx'
+        # cargo-cyclonedx writes to <crate_root>/<package>.cdx.json by
+        # default. --override-filename rejects path separators (Illegal
+        # characters in custom prefix string: /). Run then move.
+        run: |
+          set -eu
+          nix develop --command bash -c 'cd bridge && cargo cyclonedx --format json'
+          mv bridge/*.cdx.json dist/sbom.cargo.cdx.json
 
       - name: Compute checksums
         run: |
@@ -106,9 +116,9 @@ jobs:
           set -eu
           GC_VERSION=2.6.1
           tarball="git-cliff-${GC_VERSION}-x86_64-unknown-linux-gnu.tar.gz"
-          gh release download "v${GC_VERSION}" --repo orhun/git-cliff --pattern "${tarball}" --output "/tmp/${tarball}"
-          tar -xzf "/tmp/${tarball}" -C /tmp
-          install -m 0755 "/tmp/git-cliff-${GC_VERSION}/git-cliff" "$HOME/.local/bin/git-cliff"
+          gh release download "v${GC_VERSION}" --repo orhun/git-cliff --pattern "${tarball}" --output "$RUNNER_TEMP/${tarball}" --clobber
+          tar -xzf "$RUNNER_TEMP/${tarball}" -C "$RUNNER_TEMP"
+          install -m 0755 "$RUNNER_TEMP/git-cliff-${GC_VERSION}/git-cliff" "$HOME/.local/bin/git-cliff"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Generate CHANGELOG

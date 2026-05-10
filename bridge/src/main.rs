@@ -5,14 +5,14 @@
 //! - `niri`: subscribe to niri-IPC's event-stream, expose a focus-pid feed.
 //! - `registrar`: subscribe to com.canonical.AppMenu.Registrar, expose a
 //!   pid → (busName, objectPath) map keyed by D-Bus connection PID.
-//! - `active`: produce a debounced (focus_pid, menu_address) signal by
+//! - `active`: produce a debounced (`focus_pid`, `menu_address`) signal by
 //!   joining the two feeds.
 //! - `proxy`: own org.noctalia.AppMenu, expose a fixed-path active-app
-//!   proxy that mirrors the upstream DBusMenu of the focused app.
+//!   proxy that mirrors the upstream `DBusMenu` of the focused app.
 
-use anyhow::Result;
-use clap::Parser;
-use noctalia_appmenu_bridge::{active, config, niri, proxy, registrar};
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use noctalia_appmenu_bridge::{active, atspi, config, niri, proxy, registrar};
 use tracing::{info, warn};
 
 #[derive(Parser, Debug)]
@@ -29,6 +29,44 @@ struct Cli {
     /// Path to bridge config (TOML). Default: $XDG_CONFIG_HOME/noctalia-appmenu-bridge/config.toml
     #[arg(long)]
     config: Option<std::path::PathBuf>,
+
+    #[command(subcommand)]
+    cmd: Option<Cmd>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Forward a click event to a registered `DBusMenu` item. Invoked
+    /// from the QML widget on user click.
+    ///
+    /// Calls `com.canonical.dbusmenu::Event(itemId, "clicked", "",
+    /// timestamp)` on the registered app's menu service. Apps
+    /// respond by activating the corresponding menu action — same
+    /// effect as if the user had clicked it in-window.
+    ///
+    /// v0.2 phase D — invoked from QML via Process.spawn.
+    Click {
+        /// D-Bus bus name (well-known or unique) of the registered app.
+        bus_name: String,
+        /// Object path of the app's `com.canonical.dbusmenu` service.
+        menu_path: String,
+        /// Menu item id from the layout returned by `GetLayout`.
+        item_id: i32,
+    },
+
+    /// AT-SPI click forward (v0.3 substrate). Calls
+    /// `org.a11y.atspi.Action.DoAction(0)` on the accessible at the
+    /// given (service, path) coordinates — the same pair the QML
+    /// widget reads out of `active.json`'s menu tree.
+    ///
+    /// One-shot subcommand: spawn, call, exit. Bridge daemon stays
+    /// up; this short-lived process does the click and goes away.
+    AtspiClick {
+        /// AT-SPI bus name (e.g. `:1.42` — unique connection).
+        service: String,
+        /// AT-SPI object path (e.g. `/org/a11y/atspi/accessible/12`).
+        path: String,
+    },
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -44,10 +82,36 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    // CLI subcommands run in their own short-lived process — no
+    // tracing setup, no daemon machinery, no D-Bus listener. Just
+    // do the call and exit.
+    match cli.cmd {
+        Some(Cmd::Click {
+            ref bus_name,
+            ref menu_path,
+            item_id,
+        }) => return handle_click(bus_name, menu_path, item_id).await,
+        Some(Cmd::AtspiClick {
+            ref service,
+            ref path,
+        }) => return atspi::do_action(service, path).await,
+        None => {}
+    }
+
     init_tracing(cli.foreground);
 
     let cfg = config::Config::load(cli.config.as_deref())?;
     info!(?cfg, "starting noctalia-appmenu-bridge");
+
+    // Flip `org.a11y.Status.IsEnabled = true` so Qt apps register
+    // their accessible trees on the a11y bus. niri ships no AT
+    // (Orca etc), so nobody else flips it; without this, the
+    // registry stays empty and our walker finds nothing.
+    if let Err(e) = atspi::enable_a11y().await {
+        warn!(error = ?e, "atspi enable failed — qt apps may not expose menus");
+    } else {
+        info!("atspi a11y bus enabled");
+    }
 
     // Connect to the user session bus — the bridge is a per-user daemon.
     let conn = zbus::Connection::session().await?;
@@ -59,21 +123,113 @@ async fn main() -> Result<()> {
     let (active_tx, active_rx) = tokio::sync::watch::channel(active::ActiveSnapshot::empty());
 
     let niri_task = tokio::spawn(niri::run(focus_tx, cfg.clone()));
-    let registrar_task = tokio::spawn(registrar::run(conn.clone(), menus_tx, cfg.clone()));
     let active_task = tokio::spawn(active::run(focus_rx, menus_rx, active_tx, cfg.clone()));
     let proxy_task = tokio::spawn(proxy::run(conn.clone(), active_rx, cfg.clone()));
+
+    // The DBusMenu Registrar is v0.2 plumbing, retained as a
+    // best-effort fallback for KDE Plasma users where Qt6's
+    // `org_kde_kwin_appmenu_manager` integration registers menus
+    // via the canonical AppMenu protocol. v0.3's primary substrate
+    // is AT-SPI (proxy.rs feeds from `atspi::fetch_menubar_for_pid`
+    // directly, ignoring `menus_rx`). If another registrar daemon
+    // (vala-panel-appmenu-daemon) already owns the bus name, the
+    // task exits cleanly — we log a warning and continue without
+    // it. Codex P0 #1 (yolo-labz/noctalia-appmenu#34): pre-fix this
+    // exit was fatal and killed the entire bridge whenever a
+    // sibling daemon held the name.
+    // Bind the JoinHandle to a named variable so it stays alive until
+    // `main` returns. `let _ = ...` would drop it immediately and
+    // cancel the task; clippy::let_underscore_future flags that
+    // exact pattern. Naming with a leading underscore silences the
+    // unused-variable lint without triggering let_underscore_future.
+    let _registrar_task = tokio::spawn(async move {
+        if let Err(e) = registrar::run(conn.clone(), menus_tx, cfg.clone()).await {
+            warn!(error = ?e, "registrar task exited (KDE legacy DBusMenu fallback unavailable)");
+        }
+    });
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
 
+    // Select on the v0.3 critical-path tasks. Registrar exit is
+    // non-fatal (handled inside the task above); only niri / active /
+    // proxy failures abort the bridge. SIGTERM/SIGINT are graceful
+    // shutdowns (exit 0).
     tokio::select! {
-        _ = sigterm.recv() => warn!("SIGTERM — shutting down"),
-        _ = sigint.recv() => warn!("SIGINT — shutting down"),
-        r = niri_task => warn!(?r, "niri task exited unexpectedly"),
-        r = registrar_task => warn!(?r, "registrar task exited unexpectedly"),
-        r = active_task => warn!(?r, "active task exited unexpectedly"),
-        r = proxy_task => warn!(?r, "proxy task exited unexpectedly"),
+        _ = sigterm.recv() => {
+            warn!("SIGTERM — shutting down");
+            Ok(())
+        }
+        _ = sigint.recv() => {
+            warn!("SIGINT — shutting down");
+            Ok(())
+        }
+        r = niri_task => {
+            warn!(?r, "niri task exited unexpectedly");
+            anyhow::bail!("niri task exited: {r:?}")
+        }
+        r = active_task => {
+            warn!(?r, "active task exited unexpectedly");
+            anyhow::bail!("active task exited: {r:?}")
+        }
+        r = proxy_task => {
+            warn!(?r, "proxy task exited unexpectedly");
+            anyhow::bail!("proxy task exited: {r:?}")
+        }
     }
+}
+
+/// CLI `click` subcommand: forward an Event(itemId, "clicked", "",
+/// timestamp) call to the registered app's `DBusMenu` service.
+///
+/// Run as a one-shot child process spawned by the QML widget. We
+/// intentionally don't bring up the full bridge runtime — connect,
+/// call, exit. The widget gets click responsiveness while the
+/// long-running bridge stays focused on its job.
+///
+/// **Failure modes (all logged + non-fatal exit):**
+/// - App disappeared between fetch and click → zbus call returns
+///   error; we log + exit non-zero. Widget gets feedback via
+///   process exit code (no UX consequence today; v0.2.1 could
+///   re-fetch the menu tree on error to remove stale items).
+/// - Invalid bus name / object path → parse error at proxy build
+///   time; stderr line + non-zero exit.
+async fn handle_click(bus_name: &str, menu_path: &str, item_id: i32) -> Result<()> {
+    use zbus::zvariant::Value;
+
+    let conn = zbus::Connection::session()
+        .await
+        .context("connecting to session bus for click")?;
+
+    // Build a one-shot dbusmenu proxy. We can't reuse the
+    // dbusmenu.rs proxy directly because it's `trait`-private to
+    // that module — but since this is a separate process, we
+    // instantiate the same wire interface inline and skip the
+    // full module abstraction.
+    let proxy_path: zbus::zvariant::ObjectPath<'_> = menu_path
+        .try_into()
+        .with_context(|| format!("parsing object path {menu_path}"))?;
+    let proxy_dest: zbus::names::BusName<'_> = bus_name
+        .try_into()
+        .with_context(|| format!("parsing bus name {bus_name}"))?;
+
+    let timestamp: u32 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as u32);
+
+    let proxy = zbus::Proxy::new(&conn, proxy_dest, proxy_path, "com.canonical.dbusmenu")
+        .await
+        .context("building dbusmenu proxy for click")?;
+
+    // dbusmenu Event: (i, s, v, u). The variant data carries
+    // optional event payload; "" (empty string) is the documented
+    // value for plain clicks.
+    proxy
+        .call_method("Event", &(item_id, "clicked", Value::from(""), timestamp))
+        .await
+        .with_context(|| {
+            format!("Event({item_id}, \"clicked\") failed — app may have left the bus")
+        })?;
 
     Ok(())
 }

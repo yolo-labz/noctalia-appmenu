@@ -5,6 +5,7 @@
 # Project- and ecosystem-specific terms typos's default dictionary
 # would otherwise flag. Add new entries with a one-line rationale
 # in a follow-up PR's commit body, not inline.
+aas = "aas"
 ans = "ans"
 bw = "bw"
 caf = "caf"
