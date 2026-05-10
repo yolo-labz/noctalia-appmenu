@@ -7,32 +7,52 @@
 //!
 //! Run: `cargo bench --bench iai --features iai` (requires valgrind
 //! on the host — devShell ships it).
+//!
+//! Post-PR-54 update: niri::handle_event was retired when the bridge
+//! adopted niri-ipc::Socket + EventStreamState. The replacement pure
+//! transducer is `niri::detect_focus_change(event, state)`. Benches
+//! below exercise it against a populated EventStreamState seeded from
+//! a WindowsChanged event with N synthetic windows.
 
 use iai_callgrind::{library_benchmark, library_benchmark_group, main};
+use niri_ipc::state::{EventStreamState, EventStreamStatePart};
+use niri_ipc::{Event, Window, WindowLayout};
 use noctalia_appmenu_bridge::{
     active::snapshot,
-    niri::{handle_event, FocusEvent, NiriEvent, NiriWindow},
+    niri::{detect_focus_change, FocusEvent},
     registrar::MenuMap,
 };
 use std::collections::HashMap;
 use zbus::zvariant::ObjectPath;
 
-fn build_cache(n: u64) -> HashMap<u64, NiriWindow> {
-    let mut cache = HashMap::new();
-    for i in 0..n {
-        cache.insert(
-            i,
-            NiriWindow {
-                id: i,
-                app_id: Some(format!("app-{i}")),
-                title: Some(format!("title-{i}")),
-                pid: Some(1000 + i as u32),
-                workspace_id: Some(1),
-                is_focused: Some(false),
-            },
-        );
+fn make_window(id: u64, pid: Option<i32>, focused: bool) -> Window {
+    Window {
+        id,
+        app_id: Some(format!("app-{id}")),
+        title: Some(format!("title-{id}")),
+        pid,
+        workspace_id: Some(1),
+        is_focused: focused,
+        is_floating: false,
+        is_urgent: false,
+        layout: WindowLayout {
+            pos_in_scrolling_layout: None,
+            tile_size: (0.0, 0.0),
+            window_size: (0, 0),
+            tile_pos_in_workspace_view: None,
+            window_offset_in_tile: (0.0, 0.0),
+        },
+        focus_timestamp: None,
     }
-    cache
+}
+
+fn seeded_state(n: u64) -> EventStreamState {
+    let windows: Vec<Window> = (0..n)
+        .map(|i| make_window(i, Some(1000 + i as i32), false))
+        .collect();
+    let mut state = EventStreamState::default();
+    let _ = state.apply(Event::WindowsChanged { windows });
+    state
 }
 
 fn build_menus(n: u32) -> MenuMap {
@@ -52,21 +72,17 @@ fn build_menus(n: u32) -> MenuMap {
 }
 
 #[library_benchmark]
-fn handle_focus_known() {
-    let cache = build_cache(50);
-    let _ = std::hint::black_box(handle_event(
-        NiriEvent::WindowFocusChanged { id: Some(7) },
-        &cache,
-    ));
+fn detect_focus_known() {
+    let state = seeded_state(50);
+    let evt = Event::WindowFocusChanged { id: Some(7) };
+    let _ = std::hint::black_box(detect_focus_change(&evt, &state));
 }
 
 #[library_benchmark]
-fn handle_focus_unknown() {
-    let cache = build_cache(50);
-    let _ = std::hint::black_box(handle_event(
-        NiriEvent::WindowFocusChanged { id: Some(99) },
-        &cache,
-    ));
+fn detect_focus_unknown() {
+    let state = seeded_state(50);
+    let evt = Event::WindowFocusChanged { id: Some(99) };
+    let _ = std::hint::black_box(detect_focus_change(&evt, &state));
 }
 
 #[library_benchmark]
@@ -95,7 +111,7 @@ fn snapshot_no_match() {
 
 library_benchmark_group!(
     name = hot;
-    benchmarks = handle_focus_known, handle_focus_unknown, snapshot_match, snapshot_no_match
+    benchmarks = detect_focus_known, detect_focus_unknown, snapshot_match, snapshot_no_match
 );
 
 main!(library_benchmark_groups = hot);

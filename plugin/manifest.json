@@ -2,7 +2,7 @@
   "$schema": "https://docs.noctalia.dev/schemas/plugin-manifest-v1.json",
   "id": "noctalia-appmenu",
   "name": "AppMenu",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "macOS-style global menu for the focused application — niri only.",
   "author": "Pedro H S Balbino <phsb5321@gmail.com>",
   "homepage": "https://github.com/yolo-labz/noctalia-appmenu",
@@ -14,8 +14,14 @@
     "services": ["org.noctalia.AppMenu"],
     "binaries": ["noctalia-appmenu-bridge"]
   },
-  "entrypoint": "BarWidget.qml",
-  "widgetIds": ["AppMenu"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "metadata": {
+    "label": "AppMenu",
+    "icon": "menu",
+    "cpuIntensive": false
+  },
   "settings": {
     "fallbackText": "",
     "maxLabelWidth": 200,

@@ -3,14 +3,19 @@ name: actionlint + zizmor
 on:
   push:
     branches: [main]
+  # Run on EVERY PR — this check is in the required-status-checks set,
+  # so a `paths:` filter creates a dead-required-check trap on PRs that
+  # don't touch `.github/workflows/`. The job is fast (~15s) and runs
+  # standalone tools (actionlint + zizmor) so paying it on every PR is
+  # cheap insurance against merge-blocked-by-skipped-required-check.
   pull_request:
-    paths:
-      - ".github/workflows/**"
-      - ".github/actionlint*"
-      - ".github/zizmor.yml"
   workflow_dispatch:
 
 permissions: {}
+
+defaults:
+  run:
+    shell: bash
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -18,7 +23,14 @@ env:
 jobs:
   scan:
     name: workflow static analysis
-    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
+    # Pin to desktop runner: vm103's job-started hook
+    # (`runner-balloon-hook.sh`) writes NODE_OPTIONS to $GITHUB_ENV
+    # which fails actionlint setup with "Can't store NODE_OPTIONS
+    # output parameter using '$GITHUB_ENV' command". Desktop runner
+    # uses the simpler chmod-only hook and works cleanly. This check
+    # is required-for-merge so we cannot tolerate routing it to a
+    # poisoned runner.
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu, desktop]
     timeout-minutes: 5
     permissions:
       contents: read
