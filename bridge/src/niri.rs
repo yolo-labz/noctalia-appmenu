@@ -160,11 +160,64 @@ pub fn handle_event(event: NiriEvent, cache: &HashMap<u64, NiriWindow>) -> MapOp
 /// Long-running task: subscribe to niri's event-stream and forward
 /// debounced focus events on `tx`.
 ///
-/// Hard-fails on initial-seed errors (per audit P1 — silent fallback
-/// led to "menu invisible" without journalctl evidence). Exits when
-/// niri's pipe closes; systemd then restarts the unit.
+/// **Resilience (PR #46).** The `niri msg event-stream` subprocess
+/// is the bridge's only source of focus events but it's been a
+/// repeated failure point:
+///
+/// - **Schema drift:** when bridge's pinned niri client (e.g. 25.11)
+///   talks to a newer compositor (e.g. 26.04) and reads a new event
+///   variant (`CastsChanged`), the client itself crashes — its own
+///   serde fails. Bridge sees pipe close + non-zero exit and used
+///   to bail, killing the whole bridge process. systemd would
+///   restart, hit the same event, crash again — observed at 578
+///   restart cycles in <30 seconds.
+/// - **Compositor session restarts:** if the user `systemctl --user
+///   restart niri.service` (rare but possible), pipe closes, child
+///   exits.
+///
+/// Fix: outer loop respawns the event-stream child on exit with
+/// exponential backoff (200ms → 1s → 5s → 30s ceiling). Initial
+/// seed-snapshot is also retried on failure since niri may be
+/// briefly unavailable during compositor startup. Only exits when
+/// `tx` is closed (caller dropped the receiver — graceful shutdown).
+///
+/// The catch-all `NiriEvent::Other` handles unknown event variants
+/// EMITTED to OUR parser, but doesn't help when the niri binary
+/// itself can't parse the wire format. The respawn loop below is
+/// the fallback for that class.
 pub async fn run(tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> Result<()> {
-    let mut by_winid = snapshot_windows(&cfg)
+    let mut backoff = std::time::Duration::from_millis(200);
+    const BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(30);
+
+    loop {
+        // Receiver dropped → graceful shutdown.
+        if tx.is_closed() {
+            return Ok(());
+        }
+        match run_once(&tx, &cfg).await {
+            Ok(()) => {
+                // Inner loop exited cleanly (tx closed mid-iteration).
+                return Ok(());
+            }
+            Err(e) => {
+                warn!(
+                    error = ?e,
+                    backoff_ms = backoff.as_millis(),
+                    "niri event-stream session failed; respawning after backoff"
+                );
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(BACKOFF_MAX);
+            }
+        }
+    }
+}
+
+/// Single niri event-stream session. Spawns the child, reads + parses
+/// events until pipe closes or read fails. Returns `Ok(())` only on
+/// graceful shutdown (`tx` closed); any other exit path is `Err` so
+/// the outer loop respawns.
+async fn run_once(tx: &watch::Sender<Option<FocusEvent>>, cfg: &Config) -> Result<()> {
+    let mut by_winid = snapshot_windows(cfg)
         .await
         .context("seeding niri window map; is `niri` reachable?")?;
 
@@ -192,6 +245,8 @@ pub async fn run(tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> Result<(
     let mut child = Command::new(&cfg.niri_binary)
         .args(["msg", "--json", "event-stream"])
         .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
         .spawn()
         .with_context(|| format!("spawning {} msg event-stream", cfg.niri_binary.display()))?;
 
@@ -202,6 +257,11 @@ pub async fn run(tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> Result<(
     let mut lines = BufReader::new(stdout).lines();
 
     while let Some(line) = lines.next_line().await? {
+        if tx.is_closed() {
+            // Caller dropped receiver — graceful shutdown.
+            let _ = child.kill().await;
+            return Ok(());
+        }
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -223,7 +283,7 @@ pub async fn run(tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> Result<(
             }
             MapOp::FocusUnknown(id) => {
                 warn!(winid = id, "focused window not in cache; resyncing");
-                if let Ok(fresh) = snapshot_windows(&cfg).await {
+                if let Ok(fresh) = snapshot_windows(cfg).await {
                     by_winid = fresh;
                 }
             }
@@ -240,11 +300,12 @@ pub async fn run(tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> Result<(
         }
     }
 
-    // niri's pipe closed — usually because niri itself exited or the
-    // user logged out of the session. NOT a fatal error; warn-level
-    // and let the caller's systemd unit restart us cleanly.
-    warn!("niri event-stream ended");
-    Err(anyhow!("niri event-stream ended"))
+    // Pipe closed — niri client exited (schema drift, niri restart,
+    // user logout). Surface as Err so the outer loop respawns.
+    let status = child.wait().await.ok();
+    Err(anyhow!(
+        "niri event-stream ended (child exit status: {status:?})"
+    ))
 }
 
 async fn snapshot_windows(cfg: &Config) -> Result<HashMap<u64, NiriWindow>> {
