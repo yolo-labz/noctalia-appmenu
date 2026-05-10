@@ -24,6 +24,31 @@ in {
         description = "Bridge daemon derivation.";
       };
 
+      niriPackage = lib.mkOption {
+        type = lib.types.nullOr lib.types.package;
+        default = null;
+        example = lib.literalExpression "pkgs.niri";
+        description = ''
+          Explicit niri client package to use for `niri msg event-stream`
+          / `niri msg windows`. When null (default) the bridge invokes
+          bare `niri` (PATH-resolved from the systemd user manager's
+          PATH, which includes `/run/current-system/sw/bin` on NixOS) —
+          this means the bridge follows whatever niri version the
+          system has installed, not the niri pinned in this flake's
+          nixpkgs input.
+
+          **Why default null (PATH):** the bridge's flake pins niri
+          via its own `nixpkgs` input. When that input lags the system
+          niri (e.g. flake at 25.11, system at 26.04), the pinned client
+          crashes parsing newer compositor events (`CastsChanged` etc).
+          PATH resolution avoids version drift. PR #46's respawn loop
+          tolerates the crash but the spam fills journalctl every 30s.
+
+          Set explicitly to override (e.g. for testing a specific niri
+          version, or when the user lacks niri on PATH).
+        '';
+      };
+
       config = lib.mkOption {
         type = lib.types.attrsOf lib.types.anything;
         default = {};
@@ -35,6 +60,9 @@ in {
             niri_binary             = "niri"
             publish_service         = "org.noctalia.AppMenu"
             publish_path            = "/org/noctalia/AppMenu/Active"
+
+          User keys here override the defaults (including
+          `niri_binary` if `niriPackage` is left null).
         '';
       };
     };
@@ -105,10 +133,20 @@ in {
     # quoting + types correctly). `lib.generators.toTOML` does not
     # exist in nixpkgs (the formatter lives in `pkgs.formats`).
     xdg.configFile."noctalia-appmenu-bridge/config.toml".source = let
+      # niri_binary default behaviour:
+      # - cfg.bridge.niriPackage == null (default): use bare `niri`,
+      #   PATH-resolved from systemd user manager (includes
+      #   /run/current-system/sw/bin on NixOS). This tracks whatever
+      #   niri version the host has installed → no flake-input drift.
+      # - cfg.bridge.niriPackage set: use that store-path explicitly.
+      niriBinary =
+        if cfg.bridge.niriPackage != null
+        then "${cfg.bridge.niriPackage}/bin/niri"
+        else "niri";
       defaults = {
         focus_debounce_ms = 75;
         registrar_debounce_ms = 250;
-        niri_binary = "${pkgs.niri}/bin/niri";
+        niri_binary = niriBinary;
         publish_service = "org.noctalia.AppMenu";
         publish_path = "/org/noctalia/AppMenu/Active";
       };
