@@ -380,9 +380,7 @@ Item {
                                         ? btn.modelData.children.length
                                         : 0));
                         if (btn.modelData.children && btn.modelData.children.length > 0) {
-                            popup.menuItem = btn.modelData;
-                            popup.anchorItem = btn;
-                            popup.visible = true;
+                            popup.openAt(btn, btn.modelData);
                         } else {
                             // Leaf at top level — fire click directly.
                             root.fireClick(btn.modelData);
@@ -393,138 +391,36 @@ Item {
         }
     }
 
-    // ── Submenu popup ────────────────────────────────────────────────
-    PopupWindow {
+    // ── Submenu dropdown — sibling top-level PanelWindow ─────────────
+    //
+    // PR #52 — replaces the inline `PopupWindow` (PR #49 / alpha.13) with
+    // a sibling layer-shell `PanelWindow` declared at the BarWidget
+    // root. Why: research note 02-popupwindow-input.md identified the
+    // bar-click-dead-zone Pedro reported as a Wayland PROTOCOL property
+    // of `Quickshell.PopupWindow`:
+    //
+    //   • grabFocus=true → Qt::Popup → xdg_popup.grab(wl_seat) →
+    //     compositor MUST route ALL pointer/keyboard input to the
+    //     popup until popup_done. Bar surface receives zero events.
+    //   • grabFocus=false → Qt::ToolTip → Qt-Quick scene-graph capture
+    //     keeps pointer events on the popup root. propagateComposedEvents
+    //     bubbles only within ONE QML scene; cannot cross wl_surface.
+    //
+    // Either way the bar feels frozen while the menu is open. There is
+    // no compositor knob and no QML knob; the fix is to STOP using
+    // PopupWindow for bar dropdowns.
+    //
+    // AppmenuPopupWindow is the sibling layer-shell surface
+    // (`WlrLayer.Top`, `keyboardFocus: None`, `exclusionMode: Ignore`).
+    // Wayland routes input surface-by-surface based on cursor position,
+    // so the bar stays clickable while the menu is up. Outside-click is
+    // caught by a full-screen MouseArea inside the popup window itself.
+    AppmenuPopupWindow {
         id: popup
-        property var menuItem: null
-        property var anchorItem: null
+        screen: root.screen
 
-        // Anchor BELOW the clicked top-level button (PR #49).
-        //
-        // Earlier alpha used `anchor.window: root.QsWindow.window` +
-        // manual `anchor.rect` math — that path didn't open the
-        // popup because the `QsWindow` attached property isn't
-        // reliably bound from inside a plugin BarWidget loaded by
-        // noctalia BarSection. The canonical Quickshell pattern
-        // (matches noctalia-shell's `NPopupContextMenu.qml`) sets
-        // `anchor.item` directly to the clicked Item — Quickshell
-        // resolves the surface + positions the popup.
-        //
-        // `Edges.Bottom` + `gravity: Edges.Bottom` open the popup
-        // BELOW the button (top edge of popup pinned to bottom edge
-        // of anchor). Behavior matches macOS menubar dropdowns.
-        anchor.item: anchorItem
-        anchor.edges: Edges.Bottom
-        anchor.gravity: Edges.Bottom
-
-        visible: false
-        implicitWidth: Math.max(180, popupCol.implicitWidth + Style.marginM * 2)
-        implicitHeight: popupCol.implicitHeight + Style.marginM * 2
-
-        // Click outside dismisses the popup.
-        MouseArea {
-            anchors.fill: parent
-            onClicked: popup.visible = false
-            propagateComposedEvents: true
-        }
-
-        Rectangle {
-            anchors.fill: parent
-            color: Color.mSurface
-            border.color: Color.mOutline
-            border.width: 1
-            radius: Style.marginS
-
-            Column {
-                id: popupCol
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.top: parent.top
-                anchors.margins: Style.marginXS !== undefined ? Style.marginXS : 4
-                spacing: 0
-
-                Repeater {
-                    model: popup.menuItem ? (popup.menuItem.children || []) : []
-                    delegate: Item {
-                        id: item
-                        required property var modelData
-                        readonly property bool isSeparator: modelData && modelData.type === "separator"
-                        readonly property bool isVisible: !modelData || modelData.visible !== false
-                        visible: isVisible
-                        width: parent ? parent.width : 0
-                        height: isSeparator ? Style.marginXS * 2 : (Style.barHeight - Style.marginS)
-
-                        // Separator
-                        Rectangle {
-                            visible: item.isSeparator
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.leftMargin: Style.marginS
-                            anchors.rightMargin: Style.marginS
-                            height: 1
-                            color: Color.mOutline
-                            opacity: 0.4
-                        }
-
-                        // Action / submenu item
-                        Rectangle {
-                            visible: !item.isSeparator
-                            anchors.fill: parent
-                            color: itemHover.containsMouse
-                                ? Color.mSurfaceVariant
-                                : "transparent"
-                            radius: Style.marginXS !== undefined ? Style.marginXS : 4
-
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: Style.marginS
-                                anchors.rightMargin: Style.marginS
-                                spacing: Style.marginS
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: (item.modelData ? item.modelData.label : "").replace(/_/g, "")
-                                    color: item.modelData && item.modelData.enabled === false
-                                        ? Color.mOnSurfaceVariant
-                                        : Color.mOnSurface
-                                    font.family: Settings.data.ui.fontDefault || "Inter"
-                                    font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
-                                    verticalAlignment: Text.AlignVCenter
-                                    elide: Text.ElideRight
-                                }
-
-                                // Submenu indicator
-                                Text {
-                                    visible: item.modelData && item.modelData.children && item.modelData.children.length > 0
-                                    text: "›"
-                                    color: Color.mOnSurfaceVariant
-                                    font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
-                                }
-                            }
-
-                            MouseArea {
-                                id: itemHover
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                enabled: item.modelData && item.modelData.enabled !== false
-                                onClicked: {
-                                    if (!item.modelData) return;
-                                    // v0.3.0-alpha: only fire on leaf
-                                    // items. Nested submenus deferred —
-                                    // the popup-of-popup work belongs
-                                    // with the broader v0.3.x QML pass.
-                                    const hasChildren = item.modelData.children && item.modelData.children.length > 0;
-                                    if (!hasChildren) {
-                                        root.fireClick(item.modelData);
-                                        popup.visible = false;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        onItemActivated: function (item) {
+            root.fireClick(item);
         }
     }
 
