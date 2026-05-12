@@ -4,9 +4,7 @@ macOS-style global menu for [noctalia-shell](https://github.com/noctalia-dev/noc
 
 When you focus a Qt or GTK application, its menubar (`File`, `Edit`, `View`, …) appears in noctalia's topbar instead of inside the window. The behaviour mirrors macOS and Plasma's `appmenu` applet.
 
-> **Status:** **v0.1 = app-name-only fallback. Full menu-tree rendering lands in v0.2** (see [ADR-0015](docs/adr/ADR-0015-v01-fallback-only-shipping.md) and [spec 002](specs/002-bridge-dbusmenu-mirror/spec.md)). niri only. Qt6 support primary; GTK3/4 secondary; Electron / Firefox unsupported by design.
->
-> v0.1 ships the full bridge plumbing (focus tracking, registrar consumer, active-app D-Bus proxy, hardened systemd-user units, full release-engineering pipeline). The bar widget renders the focused application's name. v0.2 adds a server-side `com.canonical.dbusmenu` mirror to the bridge so the QML widget can attach a Quickshell `DBusMenuHandle` to a constant address and render the full menu tree. The mirror is the v0.1→v0.2 delta, not a rewrite — see spec 002.
+> **Status:** v1.0.0 release candidate. AT-SPI substrate ([ADR-0024](docs/adr/ADR-0024-atspi-substrate.md)) replaces the v0.1 DBusMenu/Registrar pipeline. Qt6 primary; GTK4 secondary. Firefox/Electron supported via documented toolkit flags — see [Caveats](#caveats). niri only by design ([ADR-0005](docs/adr/ADR-0005-niri-only-v1.md)); compositor-abstraction door is open but unwired ([spec 004 FR-003](specs/004-project-completion/spec.md)).
 
 ## How it works
 
@@ -14,11 +12,11 @@ Three pieces collaborate:
 
 | Component | Role |
 |---|---|
-| **`appmenu-registrar`** (vala-panel-appmenu) | Standard `com.canonical.AppMenu.Registrar` D-Bus service. Apps register their menus here. |
-| **`noctalia-appmenu-bridge`** (this repo, Rust) | Sidecar daemon. Subscribes to niri's IPC event-stream for focus changes, resolves registrar entries by D-Bus connection PID (because the registrar's `windowId` is an X11 XID — meaningless on Wayland), and re-exports the *active* window's menu at a stable D-Bus address: `org.noctalia.AppMenu.Active`. |
-| **`noctalia-appmenu` plugin** (this repo, QML) | A noctalia bar widget that consumes `org.noctalia.AppMenu.Active` and renders the menu tree using Quickshell's existing `DBusMenu` consumer types. |
+| **`at-spi2-core`** (`services.gnome.at-spi2-core.enable = true`) | System-wide accessibility bus. Qt and GTK toolkits export their menu structure here when `QT_ACCESSIBILITY=1` / GTK a11y is active. |
+| **`noctalia-appmenu-bridge`** (this repo, Rust) | Sidecar daemon. Subscribes to niri's IPC event-stream for focus changes, walks the focused application's AT-SPI accessibility tree to extract its menubar, and writes the snapshot to `~/.cache/noctalia-appmenu/active.json` (schema v=1, [ADR-0023](docs/adr/ADR-0023-dbusmenu-fetch-on-focus.md)) plus a fixed D-Bus address (`org.noctalia.AppMenu /org/noctalia/AppMenu/Active`). |
+| **`noctalia-appmenu` plugin** (this repo, QML) | A noctalia bar widget that subscribes to the snapshot file and renders the menu strip in the topbar. Click events are forwarded back to the bridge, which invokes `AT-SPI DoAction` against the original accessible. |
 
-The bridge exists because Quickshell's `DBusMenuHandle` is `QML_UNCREATABLE` — there is no public way to bind QML to an arbitrary `(busName, objectPath)` pair. The bridge mirrors the active app's menu at a fixed path that the QML widget can attach to. See [ADR-0007](docs/adr/ADR-0007-fixed-proxy-vs-quickshell-pr.md).
+The bridge exists because Quickshell's `DBusMenuHandle` is `QML_UNCREATABLE` — there is no public way to bind QML to an arbitrary `(busName, objectPath)` pair. The bridge mirrors the active app's menu at a fixed path that the QML widget can attach to. See [ADR-0007](docs/adr/ADR-0007-fixed-proxy-vs-quickshell-pr.md) for the original constraint and [ADR-0024](docs/adr/ADR-0024-atspi-substrate.md) for the substrate decision.
 
 ## Install (NixOS / Home-Manager)
 
@@ -34,8 +32,9 @@ The bridge exists because Quickshell's `DBusMenuHandle` is `QML_UNCREATABLE` —
         {
           programs.noctalia.plugins.appmenu = {
             enable = true;
-            hideInWindowMenubar = true;   # sets QT_QPA_PLATFORMTHEME + GTK_MODULES
-            registrar = "vala-panel";     # or "internal" for built-in (planned v0.2)
+            # `registrar` is deprecated in v1.0.0 — the AT-SPI substrate
+            # does not use it. The option is recognised for one cycle
+            # so existing configs do not break; it is removed in v1.1.
           };
         }
       ];
@@ -44,54 +43,171 @@ The bridge exists because Quickshell's `DBusMenuHandle` is `QML_UNCREATABLE` —
 }
 ```
 
-The module installs `appmenu-registrar`, the bridge binary, the QML plugin, and a `systemd --user` unit that brings the bridge up with `graphical-session.target`.
+The Home-Manager module installs the bridge binary, the QML plugin payload, the hardened `systemd --user` unit (`noctalia-appmenu-bridge.service`), and exports `QT_ACCESSIBILITY=1` into the session environment. System-level prerequisites (the AT-SPI bus) must be enabled at the NixOS layer separately — see [Verify the install](#verify-the-install) §1.
 
 ## Compatibility
 
 | Toolkit | Status | Notes |
 |---|---|---|
-| Qt6 (KDE Frameworks apps, Anki, Telegram, Krita, qutebrowser) | Works | Requires `QT_QPA_PLATFORMTHEME=appmenu-qt5` in session env. |
-| GTK3 / GTK4 | Works | Requires [`appmenu-gtk-module-wayland`](https://github.com/guiodic/appmenu-gtk-module-wayland) — mainline `appmenu-gtk-module` is broken on Wayland ([KDE bug 424485](https://bugs.kde.org/show_bug.cgi?id=424485)). |
-| XWayland Qt5/GTK | Works | `xprop`-style XID is registered; bridge ignores it and matches by PID anyway. |
-| Electron / Chromium | Unsupported | Chromium's [DBus appmenu code](https://github.com/chromium/chromium/commit/9c30fb37950c6a0a7ab2875f38ca3953e27963ae) exists but is flag-gated and brittle. |
-| Firefox | Unsupported | No DBusMenu integration upstream. |
+| Qt6 (KDE Frameworks apps, Anki, Telegram, Krita, qutebrowser) | Works | Requires `QT_ACCESSIBILITY=1` in session env (set automatically by the HM module). |
+| GTK3 / GTK4 | Works | GTK4 `GtkPopoverMenuBar` (Nautilus 45+) exposes `MENU_BAR` role with zero children when the menu is closed; bridge falls back to a `.desktop`-derived pseudo-menu in that case ([spec 004 FR-004](specs/004-project-completion/spec.md)). |
+| XWayland Qt5/GTK | Works | AT-SPI walker is toolkit-agnostic; X11 windowing does not interfere. |
+| Electron / Chromium | Workaround | Launch with `--force-accessibility`. See [Caveats](#caveats). |
+| Firefox / Thunderbird | Workaround | Set `accessibility.force_disabled = 0` in `about:config` and restart. See [Caveats](#caveats). |
 
 ## Verify the install
 
-```bash
-# 1. Registrar is up
-busctl --user list | grep com.canonical.AppMenu.Registrar
+Reproduces [`specs/004-project-completion/quickstart.md`](specs/004-project-completion/quickstart.md) condensed for a fresh-NixOS user. Time budget: ≤ 10 min from a clean shell to a working Anki menubar.
 
-# 2. Bridge is up and publishing
-busctl --user list | grep org.noctalia.AppMenu
+### 1. System prerequisites
 
-# 3. Active proxy reflects focus
-busctl --user introspect org.noctalia.AppMenu /org/noctalia/AppMenu/Active
+You need:
 
-# 4. Build provenance (pre-install)
-gh attestation verify result/lib/libnoctalia-appmenu-bridge --owner yolo-labz
+- NixOS 25.05 or newer (any channel with `niri >= 25.04` and `at-spi2-core >= 2.50`).
+- `niri` running as your Wayland compositor.
+- `noctalia-shell >= 1.0.0` running.
+- A login session that activates the `graphical-session.target` systemd user target (the default under `niri`).
+
+In your NixOS configuration:
+
+```nix
+{
+  services.gnome.at-spi2-core.enable = true;
+}
 ```
+
+Rebuild + activate:
+
+```bash
+sudo nixos-rebuild switch
+```
+
+Verify:
+
+```bash
+niri msg version | head -1
+# expect: niri 25.xx
+qs --version | head -1
+# expect: quickshell 0.3.0 or newer
+systemctl --user is-active graphical-session.target
+# expect: active
+systemctl --user is-active at-spi-dbus-bus.service
+# expect: active
+busctl --user list | grep org.a11y.Bus
+# expect: org.a11y.Bus  :1.NN  ...
+```
+
+If any check fails, fix the underlying prerequisite before proceeding.
+
+### 2. Plugin enablement (Home-Manager)
+
+Add the input + module as shown in [Install](#install-nixos--home-manager). Rebuild Home-Manager:
+
+```bash
+home-manager switch
+# or, for a flake-bound HM-on-NixOS host:
+nh os switch .
+```
+
+The rebuild output should mention:
+
+- `noctalia-appmenu-bridge` binary installed under `~/.nix-profile/bin/` (or equivalent).
+- Plugin payload at `~/.config/noctalia/plugins/noctalia-appmenu/`.
+- Systemd user unit `noctalia-appmenu-bridge.service` enabled.
+- `QT_ACCESSIBILITY=1` exported in your session env.
+
+If you forgot to enable `services.gnome.at-spi2-core` system-wide, the HM module emits an assertion error (or `lib.warn` at evaluation) telling you which knob to set.
+
+### 3. Start the bridge + reload noctalia
+
+```bash
+systemctl --user start noctalia-appmenu-bridge.service
+systemctl --user status noctalia-appmenu-bridge.service
+# expect: Active: active (running)
+
+qs -c noctalia-shell ipc reload
+# OR:
+systemctl --user restart noctalia-shell.service
+```
+
+You should now see the appmenu slot in the noctalia topbar (initially empty when no a11y-aware app is focused).
+
+### 4. Verify with a real Qt6 app
+
+```bash
+anki &
+```
+
+Within ≤ 200 ms of Anki receiving keyboard focus, the appmenu slot renders Anki's menu strip (`File`, `Edit`, `View`, `Tools`, `Help`, `Ankimon`, `AnKing`). Clicking `File` opens a popup matching Anki's in-window menu; clicking `File → Export…` activates the action in Anki, exactly as if the in-window menu had been clicked.
+
+If the menu does not appear:
+
+```bash
+journalctl --user -u noctalia-appmenu-bridge.service -n 100 --no-pager
+# Look for [atspi] lines: "found app for pid", "fetched menubar", "no app for pid", …
+```
+
+| Symptom | Diagnosis | Fix |
+|---|---|---|
+| `[atspi] no app found for pid` | App did not register on the a11y bus | Verify `QT_ACCESSIBILITY=1` is set in the app's environment: `tr '\0' '\n' < /proc/$(pidof anki)/environ \| grep QT_`. |
+| Bridge log shows menu fetched but bar is empty | Plugin not loaded by noctalia-shell | `qs -c noctalia-shell ipc reload`; check `journalctl --user -u noctalia-shell.service` for plugin-load errors. |
+| Submenu (`File → Open Recent`) does not open | spec 004 FR-010 regression | Capture `journalctl` output and file a bug. |
+
+### 5. Verify the release artefact (optional, recommended)
+
+After upgrading to `v1.0.0` (or installing from a release tarball):
+
+```bash
+gh release download v1.0.0 --repo yolo-labz/noctalia-appmenu --pattern 'noctalia-appmenu-bridge*'
+gh attestation verify ./noctalia-appmenu-bridge --owner yolo-labz
+# expect: Loaded digest sha256:...
+# expect: ✓ Verification succeeded!
+
+gh release download v1.0.0 --repo yolo-labz/noctalia-appmenu --pattern 'sbom.cdx.json'
+jq '.bomFormat, .specVersion' sbom.cdx.json
+# expect: "CycloneDX"
+# expect: "1.7"
+```
+
+A second build from source should produce a byte-identical binary:
+
+```bash
+nix build github:yolo-labz/noctalia-appmenu/v1.0.0#noctalia-appmenu-bridge
+sha256sum result/bin/noctalia-appmenu-bridge ./noctalia-appmenu-bridge
+# expect: identical hashes
+```
+
+## Caveats
+
+Known limitations at `v1.0.0`. Each item is tracked against a follow-up spec or ADR.
+
+- **Firefox / Thunderbird.** Menus surface only when `accessibility.force_disabled = 0` is set in `about:config` and the browser is restarted. Mozilla iterated on the Wayland a11y export through 2025–2026; the regression-free default is still partial. See [`specs/004-project-completion/research.md` §7](specs/004-project-completion/research.md) for the upstream status.
+- **Electron apps.** VS Code, Slack, Discord, etc. expose menus only when launched with `--force-accessibility`. Wrap the launch command or set the flag in your `.desktop` file. Chromium's native AT-SPI export is "quite good" but flag-gated.
+- **Multi-monitor menubar duplication.** `v1.0.0` renders the focused-output menu only — no duplication across monitors. Deferred to v2 ([spec 004 §Out of scope](specs/004-project-completion/spec.md)).
+- **Alt-letter mnemonics / global Alt-F intercept.** Pressing `Alt-F` does NOT open the File menu via the appmenu. The in-window menu (if visible) still receives the keystroke. Deferred to v2 per [ADR-0010](docs/adr/ADR-0010-no-keybind-intercept-v1.md) — no clean Quickshell hook exists for global keybind interception at v1.
+- **GTK4 popover menubars.** GTK4 apps using `GtkPopoverMenuBar` (Nautilus 45+, some GNOME apps) expose menu structure only when the menu is open in-window. The bridge falls back to a `.desktop`-derived pseudo-menu for these ([spec 004 FR-004](specs/004-project-completion/spec.md)).
+- **AT-SPI bus restart.** If `at-spi-bus-launcher` crashes and is restarted by D-Bus activation, the bridge re-flips `org.a11y.Status.IsEnabled = true` on its next focus-change attempt and resumes within ≤ 5 s. The QML widget collapses to a zero-paint stable slot during the gap (no error spam, no crash) — see [spec 004 Scenario 5](specs/004-project-completion/spec.md).
+- **niri reload.** `niri msg reload-config` may produce a ≤ 2 s blank-bar gap while the bridge reconnects; the backoff resets to its floor after any cleanly-EOF'd session ≥ 30 s, so successive reloads do not compound ([spec 004 FR-001](specs/004-project-completion/spec.md)).
+- **Compositor support.** niri is the only supported compositor at v1.0.0. Hyprland / Sway / KWin / COSMIC focus tracking is deferred to v2 ([ADR-0005](docs/adr/ADR-0005-niri-only-v1.md)); the bridge's focus-tracker abstraction door (`FocusSink` trait) is open but unwired.
 
 ## Develop
 
 ```bash
 nix develop                       # devShell: rust, cargo, alejandra, lefthook, gitleaks, qmllint
-just bridge.test                  # unit tests
-just plugin.lint                  # qmllint
-just integration                  # niri --headless + fake registrar end-to-end
+just bridge.test                  # cargo test --all-features --locked
+just plugin.lint                  # qmllint (SARIF emit + upload runs in CI — FR-024)
+just integration                  # niri --headless + AT-SPI fixture end-to-end (Lane A)
 ```
 
-The `tools/fake-registrar/` Python helper publishes a canned DBusMenu tree at a known `(service, path)`, so tests don't need a real Qt or GTK app.
+The bridge integration test (`bridge/tests/atspi_integration.rs`, FR-022) walks a fake AT-SPI registry stub and asserts the JSON snapshot shape end-to-end. CI runs it on every PR; locally you can run `cargo test --test atspi_integration` from `bridge/`.
 
 ## Verification (release artefacts)
 
 Every tagged release ships:
 
-- Rust bridge binary built reproducibly with `SOURCE_DATE_EPOCH`, attested via `actions/attest-build-provenance@v2`.
-- CycloneDX 1.7 + SPDX 2.3 SBOMs (via syft + `cyclonedx-rust-cargo`).
-- Sigstore-keyless cosign signature on the binary blob.
-
-Verify before installing manually:
+- Rust bridge binary built reproducibly with `SOURCE_DATE_EPOCH`, attested via [`actions/attest-build-provenance`](https://github.com/actions/attest-build-provenance) (v4 family).
+- CycloneDX 1.7 + SPDX 2.3 SBOMs (via `syft` + [`cyclonedx-rust-cargo`](https://github.com/CycloneDX/cyclonedx-rust-cargo)).
+- GitHub-native build-provenance attestation. Verify with a single command:
 
 ```bash
 gh attestation verify noctalia-appmenu-bridge --owner yolo-labz
@@ -103,15 +219,18 @@ See [SECURITY.md](SECURITY.md) for the full release-engineering posture and vuln
 
 ```
 noctalia-appmenu/
-├── plugin/                         # noctalia plugin (QML, ships as-is to ~/.config/noctalia/plugins/)
+├── plugin/                         # noctalia plugin (QML; ships to ~/.config/noctalia/plugins/)
 │   ├── manifest.json
-│   └── BarWidget.qml
-├── bridge/                         # Rust sidecar (com.canonical.AppMenu.Registrar consumer + active-app re-publisher)
+│   ├── BarWidget.qml
+│   └── AppmenuPopupWindow.qml
+├── bridge/                         # Rust sidecar (AT-SPI walker + fixed-proxy publisher)
 │   ├── Cargo.toml
-│   └── src/
-├── nix/                            # flake-modules: package, devShell, HM module
-├── specs/001-global-menu/          # speckit spec / plan / tasks
-├── docs/adr/                       # architecture decision records
+│   ├── src/
+│   └── tests/
+├── nix/                            # flake modules: package, devShell, HM module
+├── specs/004-project-completion/   # v0.3 → v1.0.0 roadmap (umbrella)
+├── specs/008-ci-quality-docs/      # Lane D — CI + quality gate + docs
+├── docs/adr/                       # architecture decision records (1–25)
 ├── .specify/memory/constitution.md # project constitution
 ├── .claude/agents/                 # specialised agents (qml-architect, dbusmenu-expert, …)
 └── .github/workflows/              # CI: ci, release, sonar, codeql, osv-scan, scorecard, reproducibility, actionlint, zizmor
@@ -119,9 +238,9 @@ noctalia-appmenu/
 
 ## Acknowledgements
 
-- [Quickshell](https://quickshell.org) by `outfoxxed` — DBusMenu consumer primitives.
+- [Quickshell](https://quickshell.org) by `outfoxxed` — QML widget toolkit.
 - [noctalia-shell](https://github.com/noctalia-dev/noctalia-shell) — bar plugin host.
-- [vala-panel-appmenu](https://github.com/rilian-la-te/vala-panel-appmenu) — registrar daemon.
+- [at-spi2-core](https://gitlab.gnome.org/GNOME/at-spi2-core) — Linux accessibility bus.
 - [niri](https://github.com/YaLTeR/niri) by Ivan "YaLTeR" Molodetskikh — IPC event-stream.
 
 ## License

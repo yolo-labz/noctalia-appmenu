@@ -54,6 +54,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      security-events: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
@@ -64,12 +65,104 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: qmllint
-        # qmllint has no native SARIF emitter; we just verify exit code
-        # and pipe output to console for human review. plugin/components/
-        # was retired in v0.1.3 (BarWidget FileView rewrite); only the
-        # top-level BarWidget.qml ships in v0.1.x.
-        run: nix develop --command bash -c 'qmllint --version && qmllint plugin/BarWidget.qml'
+      - name: qmllint over plugin/*.qml — emit SARIF + console output
+        # FR-024: lint every QML file under plugin/ (globbed so future
+        # SubmenuPopup.qml from Lane B is auto-included). qmllint has
+        # no native SARIF emitter; transform stable JSON output via jq
+        # into SARIF 2.1.0 for upload to GitHub code-scanning. Exit
+        # code is preserved so a hard qmllint failure still fails the
+        # job — SARIF upload is additive.
+        id: qmllint
+        run: |
+          set -eu
+          mapfile -t qml_files < <(find plugin -maxdepth 1 -name '*.qml' -print | sort)
+          mkdir -p .qmllint
+          # Empty-glob branch: emit an empty SARIF document (heredoc so
+          # the `$schema` key is a JSON literal, not a shell expansion).
+          if [ ${#qml_files[@]} -eq 0 ]; then
+            echo "::warning::no plugin/*.qml found — skipping qmllint"
+            cat > qmllint.sarif <<'EMPTY_SARIF'
+          {"$schema":"https://json.schemastore.org/sarif-2.1.0.json","version":"2.1.0","runs":[{"tool":{"driver":{"name":"qmllint","informationUri":"https://doc.qt.io/qt-6/qtquick-tool-qmllint.html"}},"results":[]}]}
+          EMPTY_SARIF
+            exit 0
+          fi
+          : > .qmllint/raw.json
+          # `nix develop --command` re-prints the devShell banner on
+          # every invocation; route stdout through a tmpfile so banner
+          # text never lands in the JSON pipeline.
+          nix develop --command qmllint --version >/dev/null 2>&1 || true
+          # Run once per file so a parse failure in one doesn't lose
+          # findings from the others. Preserve qmllint's exit code so
+          # a hard parse failure still fails the job — SARIF upload
+          # itself is additive.
+          rc=0
+          for f in "${qml_files[@]}"; do
+            echo "::group::qmllint $f"
+            # qmllint 6.x: --json <output-file> writes the report to a
+            # path, not stdout. Two positional args: --json OUT IN.
+            tmp_json=$(mktemp --suffix=.qmllint.json)
+            if ! nix develop --command qmllint --json "$tmp_json" "$f" >/dev/null 2>&1; then
+              rc=1
+            fi
+            # Some qmllint versions emit nothing on a perfectly clean
+            # file. Provide an empty JSON object so jq -s sees a valid
+            # sequence.
+            if [ ! -s "$tmp_json" ]; then
+              printf '{}' > "$tmp_json"
+            fi
+            cat "$tmp_json" >> .qmllint/raw.json
+            rm -f "$tmp_json"
+            echo "::endgroup::"
+          done
+          # jq filter lives in a heredoc — single quotes around jq
+          # variables (`$file`) and the SARIF `$schema` JSON key are
+          # intentional jq/JSON literals, not shell expansions.
+          cat > .qmllint/sarif.jq <<'JQ'
+          def map_sev: if . == "error" then "error" elif . == "warning" then "warning" else "note" end;
+          {
+            "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+            version: "2.1.0",
+            runs: [{
+              tool: { driver: {
+                name: "qmllint",
+                informationUri: "https://doc.qt.io/qt-6/qtquick-tool-qmllint.html",
+                rules: []
+              }},
+              results: [
+                ( .[] | .files[]? as $file
+                  | $file.warnings[]?
+                  | {
+                      ruleId: (.type // "qmllint"),
+                      level: ((.type // "warning") | map_sev),
+                      message: { text: (.message // "qmllint diagnostic") },
+                      locations: [{
+                        physicalLocation: {
+                          artifactLocation: { uri: ($file.filename // "unknown.qml") },
+                          region: {
+                            startLine: (.line // 1),
+                            startColumn: (.column // 1)
+                          }
+                        }
+                      }]
+                    }
+                )
+              ]
+            }]
+          }
+          JQ
+          # jq lives in the system profile; calling it via `nix develop
+          # --command jq` would prepend the devShell banner to stdout,
+          # corrupting the SARIF document on its way to the file.
+          jq -s -f .qmllint/sarif.jq .qmllint/raw.json > qmllint.sarif
+          echo "qmllint diagnostics: $(jq '.runs[0].results | length' qmllint.sarif)"
+          exit $rc
+
+      - name: Upload qmllint SARIF to code-scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@68bde559dea0fdcac2102bfdf6230c5f70eb485e # v4.35.4
+        with:
+          sarif_file: qmllint.sarif
+          category: qmllint
 
       - name: manifest schema check
         # Mirror noctalia-shell's `validateManifest` (PluginRegistry.qml):
@@ -142,3 +235,33 @@ jobs:
             exit 1
           fi
           echo "ok: $subject"
+
+  atspi-integration:
+    name: AT-SPI integration test
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@a5ad31d6a139d249332a2605b85202e8c0b78450 # v2.19.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Run AT-SPI integration test (file-existence gated)
+        # FR-022: exercises Lane A's fake-AT-SPI-registry harness at
+        # bridge/tests/atspi_integration.rs. Until Lane A merges, the
+        # file is absent and this job no-ops with success so Lane D's
+        # required-check stays green vacuously. Once Lane A merges, a
+        # follow-up commit removes this gate so absence → red CI.
+        run: |
+          set -eu
+          if [ ! -f bridge/tests/atspi_integration.rs ]; then
+            echo "::notice::bridge/tests/atspi_integration.rs not present yet (Lane A pending) — skipping"
+            exit 0
+          fi
+          nix develop --command bash -c 'cd bridge && cargo test --test atspi_integration --locked --no-fail-fast'

@@ -40,6 +40,13 @@
 //! still apply at the protocol level.
 
 use crate::config::Config;
+// `FocusEvent` and `FocusOp` were defined here until spec 005 lifted
+// them into `crate::focus` (FR-003). They are re-exported below so
+// existing call sites that imported `crate::niri::FocusEvent` still
+// resolve — new code SHOULD prefer `crate::focus::FocusEvent` to keep
+// niri-implementation details out of consumer modules.
+pub use crate::focus::{FocusEvent, FocusOp};
+use crate::focus::{FocusRunFuture, FocusSink};
 use anyhow::{anyhow, Context, Result};
 use niri_ipc::socket::SOCKET_PATH_ENV;
 use niri_ipc::state::{EventStreamState, EventStreamStatePart};
@@ -49,47 +56,6 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
-
-/// What we publish for downstream consumers (registrar / proxy).
-///
-/// `pid` is the wl_client owning the focused surface — used by AT-SPI
-/// walker to find the matching accessible application. niri reports
-/// PID as `i32` but the bridge has long used `u32` everywhere; we cast
-/// at the boundary.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FocusEvent {
-    /// niri's stable per-session window identifier.
-    pub winid: u64,
-    /// Process ID of the wl_client owning the focused surface.
-    pub pid: u32,
-    /// Wayland app-id for the focused surface.
-    pub app_id: String,
-    /// Title of the focused surface at focus time.
-    pub title: String,
-}
-
-/// Pure transducer: given a parsed niri event, the maintained state,
-/// and the previously-emitted focus id, decide whether to emit a new
-/// focus event, signal defocus, or do nothing.
-///
-/// Extracted so tests can drive the focus-detection logic without
-/// connecting a niri socket. The caller is responsible for applying
-/// the event to `state` (`state.apply(event.clone())`) BEFORE calling
-/// this function — focus detection reads from the post-apply state.
-#[derive(Debug, PartialEq, Eq)]
-pub enum FocusOp {
-    /// Emit this focus event downstream.
-    Emit(FocusEvent),
-    /// Caller should clear the published focus.
-    Defocus,
-    /// No focus-relevant change.
-    NoChange,
-    /// Focused id is set but we have no record of it in `state.windows`
-    /// (stale event ordering — niri's docs warn of cross-event
-    /// inconsistency). Caller logs + skips; will resync on the next
-    /// `WindowOpenedOrChanged`.
-    UnknownWindow(u64),
-}
 
 /// Inspect a freshly-applied event and decide what to publish.
 #[must_use]
@@ -152,19 +118,30 @@ fn focus_event(id: u64, pid: i32, window: &Window) -> FocusEvent {
 /// retained for API compatibility and future per-config options;
 /// niri socket path is read from the `NIRI_SOCKET` env var.
 pub async fn run(tx: watch::Sender<Option<FocusEvent>>, _cfg: Config) -> Result<()> {
-    let mut backoff = std::time::Duration::from_millis(200);
-    const BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(30);
+    let mut backoff = BACKOFF_FLOOR;
 
     loop {
         if tx.is_closed() {
             return Ok(());
         }
+        let started = std::time::Instant::now();
         match run_once(&tx).await {
             Ok(()) => return Ok(()),
             Err(e) => {
+                let session = started.elapsed();
+                let next = next_backoff(backoff, session);
+                if next < backoff {
+                    info!(
+                        session_secs = session.as_secs(),
+                        prev_backoff_ms = backoff.as_millis(),
+                        "niri session was long-lived; resetting backoff to floor"
+                    );
+                }
+                backoff = next;
                 warn!(
                     error = ?e,
                     backoff_ms = backoff.as_millis(),
+                    session_secs = session.as_secs(),
                     "niri socket session ended; reconnecting after backoff"
                 );
                 tokio::time::sleep(backoff).await;
@@ -174,9 +151,80 @@ pub async fn run(tx: watch::Sender<Option<FocusEvent>>, _cfg: Config) -> Result<
     }
 }
 
+/// Pure backoff state-transition for FR-001.
+///
+/// Given the current backoff and the duration of the just-ended
+/// session, return the backoff to *sleep* before reconnecting (the
+/// caller doubles it afterwards for the next failure cycle).
+///
+/// Contract:
+/// - If the session was at least [`CONNECTED_RESET_THRESHOLD`] long,
+///   return [`BACKOFF_FLOOR`] — niri stayed up long enough to call
+///   the previous reconnect a success, and we should not penalise a
+///   future restart with stacked exponential delay.
+/// - Otherwise return `current` unchanged.
+///
+/// Extracted as a free fn so the FR-001 regression test can drive it
+/// without sleeping 30 s of wall clock per cycle.
+#[must_use]
+pub fn next_backoff(
+    current: std::time::Duration,
+    session: std::time::Duration,
+) -> std::time::Duration {
+    if session >= CONNECTED_RESET_THRESHOLD {
+        BACKOFF_FLOOR
+    } else {
+        current
+    }
+}
+
+/// Floor (minimum) reconnect delay used by [`run`] and the FR-001
+/// regression test. Public so the test harness can refer to the same
+/// constant without duplicating the literal.
+pub const BACKOFF_FLOOR: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Ceiling on the exponential backoff growth.
+pub const BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Minimum connected-session duration that resets the backoff to
+/// [`BACKOFF_FLOOR`] on the next reconnect (FR-001 contract).
+pub const CONNECTED_RESET_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `FocusSink` implementor for niri compositors (the only one at
+/// v1.0.0; constitution principle I).
+///
+/// Zero-state struct — all session state lives inside [`run`]'s
+/// stack frame. Construct via [`NiriFocusSink::new`] and pass to
+/// `tokio::spawn` via the trait's `run` method:
+///
+/// ```ignore
+/// use noctalia_appmenu_bridge::focus::FocusSink;
+/// let task = tokio::spawn(NiriFocusSink::new().run(tx, cfg));
+/// ```
+#[derive(Debug, Default, Clone, Copy)]
+pub struct NiriFocusSink;
+
+impl NiriFocusSink {
+    /// Construct a fresh niri focus sink. Cheap — zero allocation.
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl FocusSink for NiriFocusSink {
+    fn run(self, tx: watch::Sender<Option<FocusEvent>>, cfg: Config) -> FocusRunFuture {
+        Box::pin(run(tx, cfg))
+    }
+}
+
 /// Single niri socket session: connect → request EventStream → read
 /// events until socket close or shutdown signal. Any non-graceful exit
 /// returns `Err` so the outer loop reconnects.
+///
+/// Resolves the niri socket path from the [`SOCKET_PATH_ENV`] env var.
+/// Tests should call [`run_once_at`] directly with an explicit path
+/// instead of mutating the env (race-free under parallel `cargo test`).
 async fn run_once(tx: &watch::Sender<Option<FocusEvent>>) -> Result<()> {
     let socket_path: OsString = std::env::var_os(SOCKET_PATH_ENV).ok_or_else(|| {
         anyhow!(
@@ -184,8 +232,20 @@ async fn run_once(tx: &watch::Sender<Option<FocusEvent>>) -> Result<()> {
              (or override via systemd Environment=)"
         )
     })?;
+    run_once_at(&socket_path, tx).await
+}
 
-    let stream = UnixStream::connect(&socket_path)
+/// Like [`run_once`] but the niri socket path is provided explicitly
+/// instead of read from the [`SOCKET_PATH_ENV`] env var. Exposed for
+/// integration tests (FR-002) that stand up a fake niri server on a
+/// temp `UnixListener` and want to exercise the connect / ack /
+/// reject paths without touching process-wide env state.
+pub async fn run_once_at(
+    socket_path: impl AsRef<std::path::Path>,
+    tx: &watch::Sender<Option<FocusEvent>>,
+) -> Result<()> {
+    let socket_path = socket_path.as_ref();
+    let stream = UnixStream::connect(socket_path)
         .await
         .with_context(|| format!("connecting to niri socket at {:?}", socket_path))?;
 
@@ -339,6 +399,44 @@ where
 mod tests {
     use super::*;
     use niri_ipc::Window;
+    use std::time::Duration;
+
+    #[test]
+    fn next_backoff_resets_after_long_session() {
+        // A 60-second connected session triggers the FR-001 reset.
+        let after_long = next_backoff(Duration::from_secs(8), Duration::from_secs(60));
+        assert_eq!(after_long, BACKOFF_FLOOR);
+    }
+
+    #[test]
+    fn next_backoff_resets_at_exact_threshold() {
+        // Threshold is inclusive — exactly 30 s qualifies.
+        let after_threshold = next_backoff(Duration::from_secs(16), CONNECTED_RESET_THRESHOLD);
+        assert_eq!(after_threshold, BACKOFF_FLOOR);
+    }
+
+    #[test]
+    fn next_backoff_holds_when_session_short() {
+        // A flapping session (< 30 s) keeps the current backoff so
+        // the caller's `(backoff * 2).min(BACKOFF_MAX)` step still
+        // grows it.
+        let current = Duration::from_secs(4);
+        let held = next_backoff(current, Duration::from_secs(2));
+        assert_eq!(held, current);
+    }
+
+    #[test]
+    fn backoff_floor_matches_focus_sink_contract() {
+        // contracts/focus-sink-trait.md §3 pins the floor at 250 ms.
+        assert_eq!(BACKOFF_FLOOR, Duration::from_millis(250));
+    }
+
+    #[test]
+    fn niri_focus_sink_constructs_without_state() {
+        // FR-003 abstraction door — NiriFocusSink::new is the only
+        // FocusSink impl at v1.0.0 and must remain zero-state.
+        let _ = NiriFocusSink::new();
+    }
 
     fn window(id: u64, pid: Option<i32>, focused: bool) -> Window {
         Window {
