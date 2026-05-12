@@ -20,7 +20,5 @@
 pub mod active;
 pub mod atspi;
 pub mod config;
-pub mod dbusmenu;
 pub mod niri;
 pub mod proxy;
-pub mod registrar;
