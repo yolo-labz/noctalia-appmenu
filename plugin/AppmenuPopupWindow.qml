@@ -42,11 +42,13 @@
 // canonical noctalia pattern after they refactored away from
 // PopupWindow for the same reason).
 //
-// **Submenus**: still legitimately want input lockout to the parent
-// menu while open (so keyboard nav works without leaking to the bar).
-// Submenus stay as `PopupWindow` parented to the menu rectangle, NOT
-// to the bar. This file does not implement them yet (alpha.19 ships
-// only the top-level fix; nested-submenu work tracked separately).
+// **Submenus (FR-010 spec 004, this revision)**: nested submenus open
+// on a *separate* sibling top-level `PanelWindow` (`SubmenuPopup`),
+// declared below as a child of this surface's QML tree but mounted as
+// its own Wayland surface — Quickshell `PanelWindow` is always a
+// top-level layer-shell surface, never a `Popup` of its declarative
+// parent. Cascading depth ≥ 3 is supported recursively from inside
+// `SubmenuPopup.qml`.
 
 import QtQuick
 import QtQuick.Layouts
@@ -71,8 +73,14 @@ PanelWindow {
     /// Set by `openAt`; null while popup is closed.
     property var menuItem: null
 
+    /// FR-013 (spec 004) — multi-screen popup-routing guard. When
+    /// non-empty and ≠ `screen.name`, `openAt` refuses to open. Set
+    /// from `BarWidget` based on the focused window's output.
+    property string focusedScreenName: ""
+
     /// Emitted when the user activates a leaf row (one without
-    /// children). BarWidget connects this and delegates to fireClick.
+    /// children, at any nesting depth). BarWidget connects this and
+    /// delegates to fireClick.
     signal itemActivated(var item)
 
     anchors.top: true
@@ -91,12 +99,26 @@ PanelWindow {
     /// `menuTree.children` populating the rows.
     function openAt(item, menuTree) {
         if (!item || !menuTree) return;
+        if (root.focusedScreenName.length > 0
+            && root.screen
+            && root.focusedScreenName !== root.screen.name) {
+            // FR-013 — refuse to open on the wrong screen. Visible only
+            // in `journalctl --user -u noctalia-shell`; no user-facing
+            // failure.
+            console.log("[appmenu] cross-screen open refused:",
+                        "popup-screen=", root.screen.name,
+                        "focused-screen=", root.focusedScreenName);
+            return;
+        }
         anchorItem = item;
         menuItem = menuTree;
         visible = true;
     }
 
     function close() {
+        // Tear down any open submenu chain first so we close
+        // leaf-to-root and don't leave orphan surfaces.
+        if (submenu.visible) submenu.close();
         visible = false;
         // Don't null anchorItem/menuItem — bindings can briefly read
         // them during the visible transition; let the next openAt
@@ -173,84 +195,42 @@ PanelWindow {
 
             Repeater {
                 model: root.menuItem ? (root.menuItem.children || []) : []
-                delegate: Item {
-                    id: row
-                    required property var modelData
-                    readonly property bool isSeparator: modelData && modelData.type === "separator"
-                    readonly property bool isVisible: !modelData || modelData.visible !== false
-                    visible: isVisible
-                    width: parent ? parent.width : 0
-                    height: isSeparator ? Style.marginXS * 2 : (Style.barHeight - Style.marginS)
-
-                    // Separator
-                    Rectangle {
-                        visible: row.isSeparator
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        anchors.leftMargin: Style.marginS
-                        anchors.rightMargin: Style.marginS
-                        height: 1
-                        color: Color.mOutline
-                        opacity: 0.4
+                delegate: MenuRow {
+                    onClicked: function (item) {
+                        // Leaf at this depth — bubble to BarWidget +
+                        // collapse the whole popup chain.
+                        root.itemActivated(item);
+                        root.close();
                     }
-
-                    // Action / submenu row
-                    Rectangle {
-                        visible: !row.isSeparator
-                        anchors.fill: parent
-                        color: rowHover.containsMouse
-                            ? Color.mSurfaceVariant
-                            : "transparent"
-                        radius: Style.marginXS !== undefined ? Style.marginXS : 4
-
-                        RowLayout {
-                            anchors.fill: parent
-                            anchors.leftMargin: Style.marginS
-                            anchors.rightMargin: Style.marginS
-                            spacing: Style.marginS
-
-                            Text {
-                                Layout.fillWidth: true
-                                text: (row.modelData ? row.modelData.label : "").replace(/_/g, "")
-                                color: row.modelData && row.modelData.enabled === false
-                                    ? Color.mOnSurfaceVariant
-                                    : Color.mOnSurface
-                                font.family: Settings.data.ui.fontDefault || "Inter"
-                                font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
-                                verticalAlignment: Text.AlignVCenter
-                                elide: Text.ElideRight
-                            }
-
-                            // Submenu indicator
-                            Text {
-                                visible: row.modelData && row.modelData.children && row.modelData.children.length > 0
-                                text: "›"
-                                color: Color.mOnSurfaceVariant
-                                font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
-                            }
-                        }
-
-                        MouseArea {
-                            id: rowHover
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            acceptedButtons: Qt.LeftButton
-                            enabled: row.modelData && row.modelData.enabled !== false
-                            onClicked: {
-                                if (!row.modelData) return;
-                                const hasChildren = row.modelData.children && row.modelData.children.length > 0;
-                                if (!hasChildren) {
-                                    root.itemActivated(row.modelData);
-                                    root.close();
-                                }
-                                // Nested submenus: TODO alpha.19+. For
-                                // now, leaf-only activation.
-                            }
-                        }
+                    onSubmenuRequested: function (item, anchor) {
+                        // FR-010 — open the nested SubmenuPopup as a
+                        // sibling top-level surface. anchorRect carries
+                        // the row's geometry in window-local coords.
+                        if (submenu.visible) submenu.close();
+                        submenu.open(item, anchor);
                     }
                 }
             }
+        }
+    }
+
+    // ── Nested submenu (FR-010) ─────────────────────────────────────
+    // SubmenuPopup is its own top-level Wayland surface — declaring it
+    // inside this QML object does NOT make it a child Wayland surface;
+    // Quickshell `PanelWindow` always promotes to a layer-shell
+    // top-level. Each level of submenu therefore stays clickable
+    // independently of the bar and of this popup.
+    SubmenuPopup {
+        id: submenu
+        screen: root.screen
+        focusedScreenName: root.focusedScreenName
+
+        onItemActivated: function (item) {
+            // Leaf activation at any deeper depth bubbles through the
+            // chain. AppmenuPopupWindow signals BarWidget; submenu has
+            // already closed itself.
+            root.itemActivated(item);
+            root.close();
         }
     }
 }

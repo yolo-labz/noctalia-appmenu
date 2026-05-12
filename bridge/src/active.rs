@@ -1,12 +1,13 @@
-//! Joins the niri focus stream and the registrar menu map into a
-//! single debounced "active app menu" snapshot.
+//! Joins the niri focus stream into a debounced "active app menu"
+//! snapshot. The AT-SPI walker fires from inside [`run`] on each
+//! debounced focus tick.
 //!
-//! The joiner is a stateless reducer: take the current `Option<FocusEvent>`
-//! from niri and the current `MenuMap` from the registrar consumer,
-//! return the cross-product as an `ActiveSnapshot`. Debounce sits on the
-//! input side — see [`run`] for the loop.
+//! Per ADR-0024 the v0.2 DBusMenu/Registrar substrate is retired;
+//! `menu_service` and `menu_path` on [`ActiveSnapshot`] remain only
+//! as backward-compatible empty fields so the proxy's D-Bus property
+//! contract stays stable for any consumer that has not yet migrated.
 
-use crate::{config::Config, niri::FocusEvent, registrar::MenuMap};
+use crate::{config::Config, focus::FocusEvent};
 use std::time::Duration;
 use tokio::sync::watch;
 use tracing::debug;
@@ -43,58 +44,57 @@ impl ActiveSnapshot {
     }
 }
 
-/// Pure reducer — produced an `ActiveSnapshot` from the current state of
-/// the two upstream watch channels. Extracted from `run()` so it can be
-/// unit-tested independently of the debounce loop.
+/// Pure reducer — produces an `ActiveSnapshot` from the latest niri
+/// focus event. Extracted from `run()` so it can be unit-tested
+/// independently of the debounce loop.
+///
+/// `menu_service` and `menu_path` are always empty/`None` under the
+/// AT-SPI substrate (ADR-0024); they survive on the snapshot only as
+/// legacy D-Bus property carriers for `proxy.rs` and are scheduled for
+/// removal in a coordinated schema-v2 PR.
 #[must_use]
-pub fn snapshot(focus: Option<&FocusEvent>, menus: &MenuMap) -> ActiveSnapshot {
+pub fn snapshot(focus: Option<&FocusEvent>) -> ActiveSnapshot {
     match focus {
         None => ActiveSnapshot::empty(),
-        Some(f) => {
-            let menu = menus.by_pid.get(&f.pid).cloned();
-            ActiveSnapshot {
-                focus_pid: f.pid,
-                app_id: f.app_id.clone(),
-                title: f.title.clone(),
-                menu_service: menu.as_ref().map(|(s, _)| s.clone()).unwrap_or_default(),
-                menu_path: menu.map(|(_, p)| p),
-            }
-        }
+        Some(f) => ActiveSnapshot {
+            focus_pid: f.pid,
+            app_id: f.app_id.clone(),
+            title: f.title.clone(),
+            menu_service: String::new(),
+            menu_path: None,
+        },
     }
 }
 
-/// Long-running task: trail-edge-debounce changes on either input
-/// channel and publish a fresh `ActiveSnapshot` to `tx`.
+/// Long-running task: trail-edge-debounce changes on the niri focus
+/// channel and publish a fresh `ActiveSnapshot` to `tx`. The AT-SPI
+/// walk that turns the focus event into a full menu tree fires
+/// downstream of this loop — see [`crate::proxy::run`] / the
+/// active-loop in this module's sibling code paths.
 ///
-/// `tokio::select!` semantics: the loop body fires when *either* input
-/// has changed. We then sleep for `cfg.focus_debounce_ms` and read the
-/// latest values via `borrow_and_update()`, which acks both watch
-/// channels for the next iteration. If a third change arrives during
-/// the sleep, the next loop iteration consumes it via the next
-/// `select!`. There is no requirement for "both ready"; either-changed
-/// is the contract — see ADR-0009.
+/// Per ADR-0009 the debounce is trailing-edge: on every focus change
+/// we sleep for `cfg.focus_debounce_ms` and then read the latest value
+/// via `borrow_and_update()`. A focus change during the sleep is
+/// absorbed by the next iteration's `changed()` await.
 ///
 /// Returns only on watch channel close (sender dropped) or error.
 pub async fn run(
     mut focus_rx: watch::Receiver<Option<FocusEvent>>,
-    mut menus_rx: watch::Receiver<MenuMap>,
     tx: watch::Sender<ActiveSnapshot>,
     cfg: Config,
 ) -> anyhow::Result<()> {
     let debounce = Duration::from_millis(cfg.focus_debounce_ms);
 
     loop {
-        tokio::select! {
-            _ = focus_rx.changed() => {}
-            _ = menus_rx.changed() => {}
+        if focus_rx.changed().await.is_err() {
+            return Ok(());
         }
 
         // Wait for stillness before publishing.
         tokio::time::sleep(debounce).await;
 
         let focus = focus_rx.borrow_and_update().clone();
-        let menus = menus_rx.borrow_and_update().clone();
-        let snap = snapshot(focus.as_ref(), &menus);
+        let snap = snapshot(focus.as_ref());
 
         debug!(?snap, "active snapshot");
         let _ = tx.send(snap);
@@ -104,8 +104,6 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use zbus::zvariant::ObjectPath;
 
     fn focus(pid: u32, app: &str) -> FocusEvent {
         FocusEvent {
@@ -116,38 +114,26 @@ mod tests {
         }
     }
 
-    fn op(s: &str) -> OwnedObjectPath {
-        ObjectPath::try_from(s).unwrap().into()
-    }
-
     #[test]
     fn no_focus_yields_empty() {
-        let menus = MenuMap::default();
-        assert_eq!(snapshot(None, &menus), ActiveSnapshot::empty());
+        assert_eq!(snapshot(None), ActiveSnapshot::empty());
     }
 
     #[test]
-    fn focus_with_matching_menu_populates_all_fields() {
-        let mut by_pid = HashMap::new();
-        by_pid.insert(
-            123u32,
-            ("org.example.App".into(), op("/org/example/App/menu")),
-        );
-        let menus = MenuMap { by_pid };
+    fn focus_populates_pid_app_id_title() {
         let f = focus(123, "App");
-        let snap = snapshot(Some(&f), &menus);
+        let snap = snapshot(Some(&f));
         assert_eq!(snap.focus_pid, 123);
         assert_eq!(snap.app_id, "App");
-        assert_eq!(snap.menu_service, "org.example.App");
-        assert!(snap.menu_path.is_some());
+        assert_eq!(snap.title, "t");
     }
 
     #[test]
-    fn focus_without_matching_menu_keeps_appid_drops_menu() {
-        let menus = MenuMap::default();
+    fn snapshot_omits_legacy_dbusmenu_fields_post_atspi() {
+        // ADR-0024: menu_service / menu_path are AT-SPI-substrate
+        // dead fields — kept for proxy D-Bus property carrier only.
         let f = focus(99, "Firefox");
-        let snap = snapshot(Some(&f), &menus);
-        assert_eq!(snap.app_id, "Firefox");
+        let snap = snapshot(Some(&f));
         assert!(snap.menu_service.is_empty());
         assert!(snap.menu_path.is_none());
     }

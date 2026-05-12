@@ -17,7 +17,7 @@
 use crate::{active::ActiveSnapshot, atspi, config::Config};
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{watch, Mutex, Notify};
 use tracing::{debug, info, warn};
 use zbus::{interface, Connection};
 
@@ -63,9 +63,42 @@ use zbus::{interface, Connection};
 /// - v0.3: `menu` carries the AT-SPI walked tree; `menu_service` and
 ///   `menu_path` retained for backward-compat but `menu` is the
 ///   authoritative source.
-/// - **v1 (this commit, post-spec-003)**: explicit `"v": 1` field
-///   for forward/backward compat. Field set unchanged from v0.3.
+/// - v1 (post-spec-003): explicit `"v": 1` field for forward/backward
+///   compat. Field set unchanged from v0.3.
+/// - **v=1.1 (this commit, spec 005 FR-004)**: additive
+///   `"source": "atspi" | "synthetic" | "empty"` top-level field —
+///   `v` stays `1` because the change is wire-compat (consumers
+///   ignoring the field continue to parse the rest of the payload).
+///   See `specs/004-project-completion/contracts/active-json-schema.md`.
 const ACTIVE_JSON_SCHEMA_VERSION: u32 = 1;
+
+/// Provenance of the `menu` field in the active.json payload (spec
+/// 005 FR-004). Serialises into the `source` top-level field; the
+/// QML widget can render different placeholder styles based on the
+/// source value (e.g. dim the bar when "synthetic", hide it when
+/// "empty").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuSource {
+    /// Menu walked from the focused app's AT-SPI accessible tree.
+    Atspi,
+    /// Menu synthesised from `app_id` because the focused app has no
+    /// usable AT-SPI menubar (GTK4 empty-children quirk, terminals,
+    /// electron-no-a11y, native Wayland with no a11y plugin).
+    Synthetic,
+    /// No focus on a window (or focus on a pidless surface). `menu`
+    /// is `null` in this case.
+    Empty,
+}
+
+impl MenuSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Atspi => "atspi",
+            Self::Synthetic => "synthetic",
+            Self::Empty => "empty",
+        }
+    }
+}
 
 /// Build + write the active-snapshot JSON, with **producer-side
 /// dedup** — when the serialised payload is byte-identical to the
@@ -85,6 +118,7 @@ fn write_active_json(
     path: &Path,
     snap: &ActiveSnapshot,
     menu: Option<&atspi::MenuItem>,
+    source: MenuSource,
     last_body: &mut Option<String>,
 ) {
     let payload = serde_json::json!({
@@ -92,6 +126,7 @@ fn write_active_json(
         "focus_pid": snap.focus_pid,
         "app_id": snap.app_id,
         "title": snap.title,
+        "source": source.as_str(),
         "menu_service": snap.menu_service,
         "menu_path": snap.menu_path.as_ref().map_or("", |p| p.as_str()),
         "menu": menu,
@@ -179,10 +214,14 @@ pub struct ActiveProxyState {
 
 /// `org.noctalia.AppMenu.Active` D-Bus object. Wraps the state behind a
 /// `Mutex` so async property accessors can read consistently while the
-/// `run()` writer task pushes updates.
+/// `run()` writer task pushes updates. The `refresh_kick` notifier is
+/// the FR-007 wiring: the `atspi-click` CLI calls `RefreshActive` when
+/// it detects a stale path, which wakes the run-loop and triggers an
+/// immediate AT-SPI re-walk against the current snapshot.
 #[derive(Clone, Default)]
 pub struct ActiveProxy {
     inner: Arc<Mutex<ActiveProxyState>>,
+    refresh_kick: Arc<Notify>,
 }
 
 impl ActiveProxy {
@@ -190,6 +229,15 @@ impl ActiveProxy {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Return a shared handle to the refresh-kick notifier. The
+    /// `run()` task awaits on this alongside `active_rx.changed()`
+    /// so a `RefreshActive` D-Bus call short-circuits the next focus
+    /// event and re-walks immediately. Spec 005 FR-007.
+    #[must_use]
+    pub fn refresh_kick(&self) -> Arc<Notify> {
+        self.refresh_kick.clone()
     }
 }
 
@@ -214,6 +262,17 @@ impl ActiveProxy {
     async fn title(&self) -> String {
         self.inner.lock().await.title.clone()
     }
+
+    /// FR-007 refresh trigger. The `atspi-click` CLI invokes this
+    /// after `do_action` returns `MenuError::Stale` so the bridge
+    /// re-walks the focused app's AT-SPI tree before the QML widget
+    /// re-renders. Idempotent and best-effort: a notification is
+    /// coalesced with any concurrent one (`tokio::Notify::notify_one`
+    /// semantics), so a click storm cannot pile up walks.
+    async fn refresh_active(&self) {
+        tracing::debug!("RefreshActive D-Bus method received; kicking active loop");
+        self.refresh_kick.notify_one();
+    }
 }
 
 /// Long-running task: own `org.noctalia.AppMenu`, expose the active
@@ -224,10 +283,12 @@ impl ActiveProxy {
 /// the caller's signal handler is the authoritative shutdown path.
 pub async fn run(
     conn: Connection,
+    client: atspi::AtspiClient,
     mut active_rx: watch::Receiver<ActiveSnapshot>,
     cfg: Config,
 ) -> anyhow::Result<()> {
     let proxy = ActiveProxy::new();
+    let refresh_kick = proxy.refresh_kick();
 
     conn.object_server()
         .at(cfg.publish_path.as_str(), proxy.clone())
@@ -265,12 +326,33 @@ pub async fn run(
         &active_json_path,
         &ActiveSnapshot::empty(),
         None,
+        MenuSource::Empty,
         &mut last_body,
     );
 
     loop {
-        if active_rx.changed().await.is_err() {
-            break;
+        // FR-007 wake-up: in addition to focus-driven changes from
+        // `active_rx`, the loop wakes on a `RefreshActive` D-Bus
+        // call so a stale-path click triggers an immediate re-walk
+        // against the current snapshot. On the notify branch we
+        // intentionally skip `borrow_and_update` of a fresh value —
+        // we want to re-walk the same focused app, not consume a
+        // pending focus event the run-loop hasn't seen yet.
+        tokio::select! {
+            r = active_rx.changed() => {
+                if r.is_err() {
+                    break;
+                }
+            }
+            () = refresh_kick.notified() => {
+                debug!("RefreshActive kick observed; re-walking current snapshot");
+                // Suppress producer-side dedup so the re-walk
+                // always emits, even if the eventual menu tree
+                // happens to serialise byte-identical to the
+                // pre-stale tree — the click handler is waiting
+                // on a real update, not a coalesced no-op.
+                last_body = None;
+            }
         }
         let mut snapshot = active_rx.borrow_and_update().clone();
 
@@ -280,7 +362,22 @@ pub async fn run(
         // the QML widget waits up to ~3.6s (timeout + retries)
         // before showing the new app's title — a regression vs the
         // pre-retry v0.3.0-alpha.6 behaviour (codex review of #40).
-        write_active_json(&active_json_path, &snapshot, None, &mut last_body);
+        // The eager-publish `source` is `empty` when there is no
+        // focus, `atspi` when we expect the upcoming walk to succeed;
+        // the trailing write at the bottom of the loop overrides
+        // with the real provenance.
+        let eager_source = if snapshot.focus_pid == 0 {
+            MenuSource::Empty
+        } else {
+            MenuSource::Atspi
+        };
+        write_active_json(
+            &active_json_path,
+            &snapshot,
+            None,
+            eager_source,
+            &mut last_body,
+        );
         publish_props(&conn, &cfg, &proxy, &snapshot).await?;
 
         // v0.3 substrate: walk the focused app's AT-SPI menubar
@@ -298,7 +395,12 @@ pub async fn run(
             let mut found: Option<atspi::MenuItem> = None;
             let mut attempt: u32 = 0;
             loop {
-                match atspi::fetch_menubar_for_pid(snapshot.focus_pid, Some(&snapshot.app_id)).await
+                match atspi::fetch_menubar_for_pid(
+                    &client,
+                    snapshot.focus_pid,
+                    Some(&snapshot.app_id),
+                )
+                .await
                 {
                     Ok(Some(m)) => {
                         debug!(
@@ -321,7 +423,18 @@ pub async fn run(
                                     break;
                                 }
                                 snapshot = active_rx.borrow_and_update().clone();
-                                write_active_json(&active_json_path, &snapshot, None, &mut last_body);
+                                let mid_source = if snapshot.focus_pid == 0 {
+                                    MenuSource::Empty
+                                } else {
+                                    MenuSource::Atspi
+                                };
+                                write_active_json(
+                                    &active_json_path,
+                                    &snapshot,
+                                    None,
+                                    mid_source,
+                                    &mut last_body,
+                                );
                                 publish_props(&conn, &cfg, &proxy, &snapshot).await?;
                                 if snapshot.focus_pid == 0 {
                                     break;
@@ -349,20 +462,34 @@ pub async fn run(
             None
         };
 
-        // Split-the-loss (PR #47, 2026-05-10 swarm synthesis): if the
-        // focused app exposes a real menu via AT-SPI, render it.
-        // Otherwise emit `menu: null` so the QML widget collapses to
-        // zero-width. No more wtype-faked Edit, no synthetic Window
-        // submenu impersonating compositor actions as if they were
-        // app menus. Honest beats lying.
-        //
-        // Apps without AT-SPI exposure (terminals, electron-no-a11y,
-        // native Wayland no-a11y) get nothing — the bar widget hides
-        // entirely. Power users who want compositor-action menus on
-        // those apps can either (a) get the same actions via niri
-        // keybinds directly or (b) opt into an `appOverrides` static
-        // menu in plugin settings (future work).
-        write_active_json(&active_json_path, &snapshot, menu.as_ref(), &mut last_body);
+        // FR-004 (spec 005): when the focused app has no usable
+        // AT-SPI menubar — `fetch_menubar_for_pid` returned `None`
+        // for GTK4 empty-children, terminals, electron-no-a11y, or
+        // native Wayland clients with no a11y plugin — substitute
+        // the synthetic pseudo-menu so the bar always renders
+        // something useful. Provenance is reflected in the
+        // active.json `source` field so the QML widget can style
+        // synthetic vs real menus differently.
+        let (final_menu, final_source): (Option<atspi::MenuItem>, MenuSource) =
+            if snapshot.focus_pid == 0 {
+                (None, MenuSource::Empty)
+            } else {
+                match menu {
+                    Some(m) => (Some(m), MenuSource::Atspi),
+                    None => (
+                        Some(atspi::synthetic_menu(&snapshot.app_id)),
+                        MenuSource::Synthetic,
+                    ),
+                }
+            };
+
+        write_active_json(
+            &active_json_path,
+            &snapshot,
+            final_menu.as_ref(),
+            final_source,
+            &mut last_body,
+        );
     }
 
     Ok(())
