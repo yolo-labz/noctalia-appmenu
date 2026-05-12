@@ -1,0 +1,75 @@
+{
+  "_comment": [
+    "Checked-in export of the live Repository Ruleset on `main`.",
+    "Source of truth for required-status-checks at v1.0.0 per",
+    "specs/004-project-completion/contracts/ci-required-checks.md (FR-025).",
+    "",
+    "Apply order (per ~/NixOS/meta/yolo-labz-release-engineering-research.md §0):",
+    "  1. `gh api repos/yolo-labz/noctalia-appmenu/rulesets --method POST --input - < .github/rulesets/main.json`",
+    "     with `.enforcement` set to `disabled` (bootstrap).",
+    "  2. Merge a no-op PR to verify the required-checks list resolves",
+    "     against live check-run names.",
+    "  3. PATCH the ruleset to `enforcement: active`.",
+    "  4. Delete any legacy classic branch-protection rules on `main`",
+    "     (Ruleset + classic protection stack additively; stricter silently wins).",
+    "",
+    "Editing this file does NOT change live GitHub config. Pedro applies",
+    "out-of-band via `gh api` after lane review."
+  ],
+  "name": "main protection (v1.0.0)",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {
+    "ref_name": {
+      "include": ["~DEFAULT_BRANCH"],
+      "exclude": []
+    }
+  },
+  "bypass_actors": [],
+  "rules": [
+    { "type": "deletion" },
+    { "type": "non_fast_forward" },
+    {
+      "type": "pull_request",
+      "parameters": {
+        "required_approving_review_count": 0,
+        "dismiss_stale_reviews_on_push": true,
+        "require_code_owner_review": false,
+        "require_last_push_approval": false,
+        "required_review_thread_resolution": false,
+        "allowed_merge_methods": ["squash"]
+      }
+    },
+    {
+      "type": "required_status_checks",
+      "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
+        "required_status_checks": [
+          { "context": "Lint & format" },
+          { "context": "Bridge — cargo test" },
+          { "context": "Plugin — qmllint" },
+          { "context": "Nix flake check" },
+          { "context": "AT-SPI integration test" },
+          { "context": "reproducibility" },
+          { "context": "osv-scanner" },
+          { "context": "scorecard" },
+          { "context": "Analyze (rust)" },
+          { "context": "Analyze (actions)" },
+          { "context": "SonarQube standalone scan" },
+          { "context": "workflow static analysis" },
+          { "context": "PR title commitlint" }
+        ]
+      }
+    },
+    {
+      "type": "commit_message_pattern",
+      "parameters": {
+        "name": "Conventional Commits subject",
+        "negate": false,
+        "operator": "regex",
+        "pattern": "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\\([a-z0-9._/,-]+\\))?!?: .+"
+      }
+    }
+  ]
+}
