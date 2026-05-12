@@ -92,10 +92,16 @@ async fn main() -> Result<()> {
     // Connect to the user session bus — the bridge is a per-user daemon.
     let conn = zbus::Connection::session().await?;
 
+    // Persistent AT-SPI connection holder (FR-006). Cloned into the
+    // active loop (via proxy::run) and the IsEnabled watcher; both
+    // share the same lazy-filled `zbus::Connection`. Invalidated by
+    // `watch_a11y_status` when the a11y bus restarts.
+    let atspi_client = atspi::AtspiClient::new();
+
     // Subsystems run as cancellation-safe tasks; the main task waits
     // for SIGTERM / SIGINT and signals all of them to drain. Post-
     // ADR-0024 the DBusMenu/Registrar substrate is retired; the bridge
-    // walks AT-SPI directly inside the active task, so there is no
+    // walks AT-SPI directly inside the proxy task, so there is no
     // separate menu-map feed.
     let (focus_tx, focus_rx) = tokio::sync::watch::channel(None);
     let (active_tx, active_rx) = tokio::sync::watch::channel(active::ActiveSnapshot::empty());
@@ -106,13 +112,26 @@ async fn main() -> Result<()> {
     // without churning the rest of main.rs.
     let niri_task = tokio::spawn(niri::NiriFocusSink::new().run(focus_tx, cfg.clone()));
     let active_task = tokio::spawn(active::run(focus_rx, active_tx, cfg.clone()));
-    let proxy_task = tokio::spawn(proxy::run(conn.clone(), active_rx, cfg.clone()));
+    let proxy_task = tokio::spawn(proxy::run(
+        conn.clone(),
+        atspi_client.clone(),
+        active_rx,
+        cfg.clone(),
+    ));
+    // FR-005: re-flip IsEnabled + invalidate the AT-SPI cache when
+    // at-spi2-core restarts. Best-effort task — failures are logged
+    // and the loop retries, never fatal.
+    let a11y_watcher_task = tokio::spawn(atspi::watch_a11y_status(atspi_client));
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
 
     // niri / active / proxy failures abort the bridge.
     // SIGTERM/SIGINT are graceful shutdowns (exit 0).
+    // The a11y_watcher_task is best-effort; we drop its handle into a
+    // discard binding so it stays scheduled but its exit does not
+    // tear the bridge down.
+    let _a11y_watcher_handle = a11y_watcher_task;
     tokio::select! {
         _ = sigterm.recv() => {
             warn!("SIGTERM — shutting down");

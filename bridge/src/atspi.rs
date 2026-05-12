@@ -77,6 +77,8 @@
 
 use anyhow::{Context, Result};
 use serde::Serialize;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use zbus::{
     proxy,
     zvariant::{ObjectPath, OwnedObjectPath},
@@ -262,6 +264,11 @@ pub async fn enable_a11y() -> Result<()> {
 /// AT-SPI proxy construction. The session bus is queried first to
 /// discover the a11y bus address, then a fresh connection opens
 /// against that address.
+///
+/// Prefer [`AtspiClient::connection`] in the daemon's hot loop —
+/// this free function builds a fresh connection per call, which is
+/// fine for one-shot CLI subcommands but wasteful for the
+/// per-focus-event AT-SPI walk (FR-006).
 pub async fn connect_a11y() -> Result<Connection> {
     let session = Connection::session()
         .await
@@ -281,6 +288,54 @@ pub async fn connect_a11y() -> Result<Connection> {
         .build()
         .await
         .with_context(|| format!("connecting to a11y bus at {address}"))
+}
+
+/// Long-lived AT-SPI connection holder (FR-006).
+///
+/// The daemon's per-focus-event walks share one `zbus::Connection`
+/// instead of opening a fresh socket each time (zbus's `Connection`
+/// is `Arc`-cloneable; the inner socket survives across all clones).
+/// On a11y bus restart the cache is invalidated by [`AtspiClient::invalidate`]
+/// (called from the IsEnabled watcher — see [`watch_a11y_status`])
+/// so the next [`AtspiClient::connection`] call re-discovers the new
+/// bus address.
+///
+/// The struct is cheap to clone (one `Arc` bump). `main.rs` constructs
+/// one instance, hands `.clone()` copies to both the active-snapshot
+/// loop and the IsEnabled watcher task.
+#[derive(Clone, Default)]
+pub struct AtspiClient {
+    inner: Arc<Mutex<Option<Connection>>>,
+}
+
+impl AtspiClient {
+    /// Construct an empty client. The first [`AtspiClient::connection`]
+    /// call lazily opens the AT-SPI bus connection.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return a handle to the cached `zbus::Connection` — opening a
+    /// fresh one if the cache is empty (post-startup or post-
+    /// [`AtspiClient::invalidate`]).
+    pub async fn connection(&self) -> Result<Connection> {
+        let mut guard = self.inner.lock().await;
+        if let Some(c) = guard.as_ref() {
+            return Ok(c.clone());
+        }
+        let c = connect_a11y().await?;
+        *guard = Some(c.clone());
+        Ok(c)
+    }
+
+    /// Drop the cached connection. The next [`AtspiClient::connection`]
+    /// call re-runs `org.a11y.Bus.GetAddress` and opens a fresh socket.
+    /// Used by [`watch_a11y_status`] on a11y bus restart.
+    pub async fn invalidate(&self) {
+        let mut guard = self.inner.lock().await;
+        *guard = None;
+    }
 }
 
 /// Find the AT-SPI Application root for a given PID by walking the
@@ -748,31 +803,40 @@ pub async fn fetch_menu_tree(
 /// One-shot helper: from a focused PID, return the parsed menu
 /// tree (or `None` when no menubar found).
 ///
-/// Composes `connect_a11y` → `find_app_for_pid` → `find_menubar`
-/// → `fetch_menu_tree`. Each step's failure surfaces as
-/// `Err(_)` so the caller can log a warn and write a `null` menu
+/// Composes [`AtspiClient::connection`] → `find_app_for_pid` →
+/// `find_menubar` → `fetch_menu_tree`. Each step's failure surfaces
+/// as `Err(_)` so the caller can log a warn and write a `null` menu
 /// to active.json — letting the QML widget fall back to its
 /// placeholder gracefully.
 ///
-/// **Total budget:** the whole pipeline is wrapped in a 3s
+/// **Total budget:** the whole pipeline is wrapped in a 3 s
 /// `tokio::time::timeout`. AT-SPI calls cross the focused app's
 /// process boundary; a hung or slow app must not freeze the bridge
 /// (codex P1 #3). On timeout we return `Ok(None)` so the QML widget
 /// falls back to the v0.1 placeholder rather than holding the bar
 /// in a stale state.
 ///
-/// **Why 3s, not 1.5s (PR #40):** pass-1 PID resolution iterates
-/// every registered AT-SPI app sequentially. With 8+ apps and a
-/// cold registry the dbus round-trips can stack to >1.5s — even
-/// when the target app is well-behaved. Real-world miss observed
-/// on Firefox-nightly first-focus after bridge restart even though
-/// the manual probe (warm registry) succeeded immediately.
+/// **Persistent connection (FR-006):** the AT-SPI socket is owned
+/// by `client` and reused across focus events. On bus restart the
+/// [`watch_a11y_status`] task invalidates the cache and the next
+/// call here re-discovers the new bus address.
+///
+/// **GTK4 empty fallback (FR-004):** when the post-walk tree has
+/// zero children we return `Ok(None)` instead of an empty
+/// `MenuItem`. `active.rs` substitutes the synthetic pseudo-menu so
+/// the bar always renders something useful.
 pub async fn fetch_menubar_for_pid(
+    client: &AtspiClient,
     pid: u32,
     app_id_hint: Option<&str>,
 ) -> Result<Option<MenuItem>> {
     const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(3000);
-    match tokio::time::timeout(FETCH_BUDGET, fetch_menubar_for_pid_inner(pid, app_id_hint)).await {
+    match tokio::time::timeout(
+        FETCH_BUDGET,
+        fetch_menubar_for_pid_inner(client, pid, app_id_hint),
+    )
+    .await
+    {
         Ok(result) => result,
         Err(_) => {
             tracing::warn!(
@@ -786,10 +850,11 @@ pub async fn fetch_menubar_for_pid(
 }
 
 async fn fetch_menubar_for_pid_inner(
+    client: &AtspiClient,
     pid: u32,
     app_id_hint: Option<&str>,
 ) -> Result<Option<MenuItem>> {
-    let a11y = connect_a11y().await?;
+    let a11y = client.connection().await?;
     let app = match find_app_for_pid(&a11y, pid, app_id_hint).await? {
         Some(a) => a,
         None => return Ok(None),
@@ -799,7 +864,78 @@ async fn fetch_menubar_for_pid_inner(
         None => return Ok(None),
     };
     let tree = fetch_menu_tree(&a11y, &menubar.0, &menubar.1.as_ref(), 0).await?;
+    // FR-004: GTK4 `GtkPopoverMenuBar` exposes MENU_BAR with zero
+    // children pre-popup. Returning the empty tree would render an
+    // empty bar; surfacing None lets active.rs substitute the
+    // synthetic pseudo-menu.
+    if tree.children.is_empty() {
+        tracing::debug!(
+            pid,
+            "menubar walk returned zero children — caller should fall back to synthetic menu"
+        );
+        return Ok(None);
+    }
     Ok(Some(tree))
+}
+
+/// Polls `org.a11y.Status.IsEnabled` on the session bus and re-flips
+/// it to `true` whenever it goes false (FR-005). Also invalidates
+/// `client`'s cached connection so the next walk re-discovers the
+/// (potentially restarted) a11y bus address.
+///
+/// **Why polling, not signal subscription:** the
+/// `org.freedesktop.DBus.Properties.PropertiesChanged` route needs
+/// a `futures_util::StreamExt` (or equivalent) bring-in. The
+/// observable latency budget per Scenario 5 (≤ 5 s) is well within
+/// the 3 s polling interval, and the extra dep wasn't justified
+/// for this single use site. See plan.md §Open questions.
+///
+/// Loops forever — call inside a long-lived task. Per-iteration
+/// errors are logged + caching is invalidated; the loop never exits
+/// so a transient a11y bus restart self-heals on the next poll.
+pub async fn watch_a11y_status(client: AtspiClient) -> Result<()> {
+    const POLL: std::time::Duration = std::time::Duration::from_secs(3);
+    loop {
+        tokio::time::sleep(POLL).await;
+        match is_a11y_enabled().await {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::info!(
+                    "a11y IsEnabled observed false; re-enabling + invalidating AT-SPI cache"
+                );
+                client.invalidate().await;
+                if let Err(e) = enable_a11y().await {
+                    tracing::warn!(error = ?e, "re-enable a11y after IsEnabled flip failed");
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    error = ?e,
+                    "a11y IsEnabled probe failed (bus restart in flight?); invalidating cache"
+                );
+                client.invalidate().await;
+            }
+        }
+    }
+}
+
+/// Read the current value of `org.a11y.Status.IsEnabled` on the
+/// session bus. Returns `Err` if `at-spi2-core` is not running.
+async fn is_a11y_enabled() -> Result<bool> {
+    let session = Connection::session()
+        .await
+        .context("a11y status probe: connecting to session bus")?;
+    let props = zbus::fdo::PropertiesProxy::builder(&session)
+        .destination("org.a11y.Bus")?
+        .path("/org/a11y/bus")?
+        .build()
+        .await
+        .context("a11y status probe: building PropertiesProxy")?;
+    let v = props
+        .get("org.a11y.Status".try_into()?, "IsEnabled")
+        .await
+        .context("a11y status probe: Get(IsEnabled)")?;
+    bool::try_from(v).context("a11y status probe: bool conversion")
 }
 
 /// Click subcommand backend: invoke `Action.DoAction(0)` on the
@@ -1129,5 +1265,24 @@ mod tests {
         let m = synthetic_menu("");
         assert_eq!(m.label, "App");
         assert_eq!(m.children.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn atspi_client_invalidate_is_idempotent() {
+        // FR-006: AtspiClient::invalidate must be safe to call on an
+        // empty cache (e.g. before the first connection() succeeded)
+        // — the watcher hits this path on every a11y bus restart.
+        let c = AtspiClient::new();
+        c.invalidate().await;
+        c.invalidate().await;
+    }
+
+    #[test]
+    fn atspi_client_clone_is_cheap() {
+        // The watcher + active loop share one AtspiClient — clone is
+        // just an Arc bump. Compile-time check; if Clone is removed
+        // from AtspiClient this test fails to build.
+        fn _assert_clone<T: Clone + Send + Sync + 'static>() {}
+        _assert_clone::<AtspiClient>();
     }
 }

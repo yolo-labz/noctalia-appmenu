@@ -224,6 +224,7 @@ impl ActiveProxy {
 /// the caller's signal handler is the authoritative shutdown path.
 pub async fn run(
     conn: Connection,
+    client: atspi::AtspiClient,
     mut active_rx: watch::Receiver<ActiveSnapshot>,
     cfg: Config,
 ) -> anyhow::Result<()> {
@@ -298,7 +299,7 @@ pub async fn run(
             let mut found: Option<atspi::MenuItem> = None;
             let mut attempt: u32 = 0;
             loop {
-                match atspi::fetch_menubar_for_pid(snapshot.focus_pid, Some(&snapshot.app_id)).await
+                match atspi::fetch_menubar_for_pid(&client, snapshot.focus_pid, Some(&snapshot.app_id)).await
                 {
                     Ok(Some(m)) => {
                         debug!(
