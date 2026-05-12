@@ -1,18 +1,18 @@
 //! noctalia-appmenu-bridge entry point.
 //!
-//! Wires the four subsystems together:
+//! Wires the three subsystems together (post-ADR-0024 substrate):
 //!
-//! - `niri`: subscribe to niri-IPC's event-stream, expose a focus-pid feed.
-//! - `registrar`: subscribe to com.canonical.AppMenu.Registrar, expose a
-//!   pid → (busName, objectPath) map keyed by D-Bus connection PID.
-//! - `active`: produce a debounced (`focus_pid`, `menu_address`) signal by
-//!   joining the two feeds.
+//! - `niri`: subscribe to niri-IPC's event-stream, expose a focus-pid feed
+//!   (the only `FocusSink` implementor at v1).
+//! - `active`: walk the focused app's AT-SPI menubar on each focus tick,
+//!   emit `active.json` + push it via Quickshell IPC.
 //! - `proxy`: own org.noctalia.AppMenu, expose a fixed-path active-app
-//!   proxy that mirrors the upstream `DBusMenu` of the focused app.
+//!   proxy with the focused window's metadata as D-Bus properties.
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use noctalia_appmenu_bridge::{active, atspi, config, niri, proxy, registrar};
+use noctalia_appmenu_bridge::focus::FocusSink;
+use noctalia_appmenu_bridge::{active, atspi, config, niri, proxy};
 use tracing::{info, warn};
 
 #[derive(Parser, Debug)]
@@ -36,24 +36,6 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Forward a click event to a registered `DBusMenu` item. Invoked
-    /// from the QML widget on user click.
-    ///
-    /// Calls `com.canonical.dbusmenu::Event(itemId, "clicked", "",
-    /// timestamp)` on the registered app's menu service. Apps
-    /// respond by activating the corresponding menu action — same
-    /// effect as if the user had clicked it in-window.
-    ///
-    /// v0.2 phase D — invoked from QML via Process.spawn.
-    Click {
-        /// D-Bus bus name (well-known or unique) of the registered app.
-        bus_name: String,
-        /// Object path of the app's `com.canonical.dbusmenu` service.
-        menu_path: String,
-        /// Menu item id from the layout returned by `GetLayout`.
-        item_id: i32,
-    },
-
     /// AT-SPI click forward (v0.3 substrate). Calls
     /// `org.a11y.atspi.Action.DoAction(0)` on the accessible at the
     /// given (service, path) coordinates — the same pair the QML
@@ -61,6 +43,9 @@ enum Cmd {
     ///
     /// One-shot subcommand: spawn, call, exit. Bridge daemon stays
     /// up; this short-lived process does the click and goes away.
+    /// On stale path (the app rebuilt its widget tree between
+    /// snapshot and click) the subcommand exits with code 2 +
+    /// stderr `MenuError::Stale {...}` — see spec 005 FR-007.
     AtspiClick {
         /// AT-SPI bus name (e.g. `:1.42` — unique connection).
         service: String,
@@ -85,17 +70,8 @@ async fn main() -> Result<()> {
     // CLI subcommands run in their own short-lived process — no
     // tracing setup, no daemon machinery, no D-Bus listener. Just
     // do the call and exit.
-    match cli.cmd {
-        Some(Cmd::Click {
-            ref bus_name,
-            ref menu_path,
-            item_id,
-        }) => return handle_click(bus_name, menu_path, item_id).await,
-        Some(Cmd::AtspiClick {
-            ref service,
-            ref path,
-        }) => return atspi::do_action(service, path).await,
-        None => {}
+    if let Some(Cmd::AtspiClick { service, path }) = cli.cmd.as_ref() {
+        return run_atspi_click(service, path).await;
     }
 
     init_tracing(cli.foreground);
@@ -116,45 +92,46 @@ async fn main() -> Result<()> {
     // Connect to the user session bus — the bridge is a per-user daemon.
     let conn = zbus::Connection::session().await?;
 
+    // Persistent AT-SPI connection holder (FR-006). Cloned into the
+    // active loop (via proxy::run) and the IsEnabled watcher; both
+    // share the same lazy-filled `zbus::Connection`. Invalidated by
+    // `watch_a11y_status` when the a11y bus restarts.
+    let atspi_client = atspi::AtspiClient::new();
+
     // Subsystems run as cancellation-safe tasks; the main task waits
-    // for SIGTERM / SIGINT and signals all of them to drain.
+    // for SIGTERM / SIGINT and signals all of them to drain. Post-
+    // ADR-0024 the DBusMenu/Registrar substrate is retired; the bridge
+    // walks AT-SPI directly inside the proxy task, so there is no
+    // separate menu-map feed.
     let (focus_tx, focus_rx) = tokio::sync::watch::channel(None);
-    let (menus_tx, menus_rx) = tokio::sync::watch::channel(registrar::MenuMap::default());
     let (active_tx, active_rx) = tokio::sync::watch::channel(active::ActiveSnapshot::empty());
 
-    let niri_task = tokio::spawn(niri::run(focus_tx, cfg.clone()));
-    let active_task = tokio::spawn(active::run(focus_rx, menus_rx, active_tx, cfg.clone()));
-    let proxy_task = tokio::spawn(proxy::run(conn.clone(), active_rx, cfg.clone()));
-
-    // The DBusMenu Registrar is v0.2 plumbing, retained as a
-    // best-effort fallback for KDE Plasma users where Qt6's
-    // `org_kde_kwin_appmenu_manager` integration registers menus
-    // via the canonical AppMenu protocol. v0.3's primary substrate
-    // is AT-SPI (proxy.rs feeds from `atspi::fetch_menubar_for_pid`
-    // directly, ignoring `menus_rx`). If another registrar daemon
-    // (vala-panel-appmenu-daemon) already owns the bus name, the
-    // task exits cleanly — we log a warning and continue without
-    // it. Codex P0 #1 (yolo-labz/noctalia-appmenu#34): pre-fix this
-    // exit was fatal and killed the entire bridge whenever a
-    // sibling daemon held the name.
-    // Bind the JoinHandle to a named variable so it stays alive until
-    // `main` returns. `let _ = ...` would drop it immediately and
-    // cancel the task; clippy::let_underscore_future flags that
-    // exact pattern. Naming with a leading underscore silences the
-    // unused-variable lint without triggering let_underscore_future.
-    let _registrar_task = tokio::spawn(async move {
-        if let Err(e) = registrar::run(conn.clone(), menus_tx, cfg.clone()).await {
-            warn!(error = ?e, "registrar task exited (KDE legacy DBusMenu fallback unavailable)");
-        }
-    });
+    // The `FocusSink` trait is the abstraction door — at v1.0.0 the
+    // only implementor is `NiriFocusSink` (constitution principle I).
+    // Hyprland / Sway / KWin implementors will slot in here in v2
+    // without churning the rest of main.rs.
+    let niri_task = tokio::spawn(niri::NiriFocusSink::new().run(focus_tx, cfg.clone()));
+    let active_task = tokio::spawn(active::run(focus_rx, active_tx, cfg.clone()));
+    let proxy_task = tokio::spawn(proxy::run(
+        conn.clone(),
+        atspi_client.clone(),
+        active_rx,
+        cfg.clone(),
+    ));
+    // FR-005: re-flip IsEnabled + invalidate the AT-SPI cache when
+    // at-spi2-core restarts. Best-effort task — failures are logged
+    // and the loop retries, never fatal.
+    let a11y_watcher_task = tokio::spawn(atspi::watch_a11y_status(atspi_client));
 
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
 
-    // Select on the v0.3 critical-path tasks. Registrar exit is
-    // non-fatal (handled inside the task above); only niri / active /
-    // proxy failures abort the bridge. SIGTERM/SIGINT are graceful
-    // shutdowns (exit 0).
+    // niri / active / proxy failures abort the bridge.
+    // SIGTERM/SIGINT are graceful shutdowns (exit 0).
+    // The a11y_watcher_task is best-effort; we drop its handle into a
+    // discard binding so it stays scheduled but its exit does not
+    // tear the bridge down.
+    let _a11y_watcher_handle = a11y_watcher_task;
     tokio::select! {
         _ = sigterm.recv() => {
             warn!("SIGTERM — shutting down");
@@ -179,58 +156,53 @@ async fn main() -> Result<()> {
     }
 }
 
-/// CLI `click` subcommand: forward an Event(itemId, "clicked", "",
-/// timestamp) call to the registered app's `DBusMenu` service.
+/// CLI `atspi-click` subcommand: forward the click to the AT-SPI
+/// accessible at `(service, path)`. Delegates to [`atspi::do_action`].
 ///
-/// Run as a one-shot child process spawned by the QML widget. We
-/// intentionally don't bring up the full bridge runtime — connect,
-/// call, exit. The widget gets click responsiveness while the
-/// long-running bridge stays focused on its job.
-///
-/// **Failure modes (all logged + non-fatal exit):**
-/// - App disappeared between fetch and click → zbus call returns
-///   error; we log + exit non-zero. Widget gets feedback via
-///   process exit code (no UX consequence today; v0.2.1 could
-///   re-fetch the menu tree on error to remove stale items).
-/// - Invalid bus name / object path → parse error at proxy build
-///   time; stderr line + non-zero exit.
-async fn handle_click(bus_name: &str, menu_path: &str, item_id: i32) -> Result<()> {
-    use zbus::zvariant::Value;
+/// FR-007 stale handling: when `do_action` surfaces
+/// [`atspi::MenuError::Stale`] we signal the long-running bridge to
+/// re-walk the focused app (`org.noctalia.AppMenu.Active.RefreshActive`)
+/// and exit with status 2 + a `MenuError::Stale {...}` line on stderr.
+/// The QML widget interprets exit-2 as "click missed, snapshot will
+/// repaint shortly" and re-renders against the refreshed `active.json`.
+async fn run_atspi_click(service: &str, path: &str) -> Result<()> {
+    match atspi::do_action(service, path).await {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            if let Some(stale) = err.downcast_ref::<atspi::MenuError>() {
+                if let Err(e) = signal_refresh_active().await {
+                    // Best-effort: even if the daemon is unreachable
+                    // the exit-2 still tells the widget to give up
+                    // on this click; the next focus event will
+                    // naturally refresh the menu tree.
+                    eprintln!(
+                        "warning: RefreshActive signal failed: {e:#}; bridge will refresh on next focus event"
+                    );
+                }
+                eprintln!("{stale}");
+                std::process::exit(2);
+            }
+            Err(err)
+        }
+    }
+}
 
+/// Send a `RefreshActive` D-Bus method call to the running bridge so
+/// it re-walks the focused app's AT-SPI tree immediately. Used by the
+/// short-lived `atspi-click` subprocess when it detects a stale path.
+async fn signal_refresh_active() -> Result<()> {
     let conn = zbus::Connection::session()
         .await
-        .context("connecting to session bus for click")?;
-
-    // Build a one-shot dbusmenu proxy. We can't reuse the
-    // dbusmenu.rs proxy directly because it's `trait`-private to
-    // that module — but since this is a separate process, we
-    // instantiate the same wire interface inline and skip the
-    // full module abstraction.
-    let proxy_path: zbus::zvariant::ObjectPath<'_> = menu_path
-        .try_into()
-        .with_context(|| format!("parsing object path {menu_path}"))?;
-    let proxy_dest: zbus::names::BusName<'_> = bus_name
-        .try_into()
-        .with_context(|| format!("parsing bus name {bus_name}"))?;
-
-    let timestamp: u32 = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as u32);
-
-    let proxy = zbus::Proxy::new(&conn, proxy_dest, proxy_path, "com.canonical.dbusmenu")
-        .await
-        .context("building dbusmenu proxy for click")?;
-
-    // dbusmenu Event: (i, s, v, u). The variant data carries
-    // optional event payload; "" (empty string) is the documented
-    // value for plain clicks.
-    proxy
-        .call_method("Event", &(item_id, "clicked", Value::from(""), timestamp))
-        .await
-        .with_context(|| {
-            format!("Event({item_id}, \"clicked\") failed — app may have left the bus")
-        })?;
-
+        .context("connecting to session bus for RefreshActive")?;
+    conn.call_method(
+        Some("org.noctalia.AppMenu"),
+        "/org/noctalia/AppMenu/Active",
+        Some("org.noctalia.AppMenu.Active"),
+        "RefreshActive",
+        &(),
+    )
+    .await
+    .context("calling org.noctalia.AppMenu.Active.RefreshActive")?;
     Ok(())
 }
 

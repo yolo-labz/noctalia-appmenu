@@ -20,10 +20,7 @@ use niri_ipc::{Event, Window, WindowLayout};
 use noctalia_appmenu_bridge::{
     active::snapshot,
     niri::{detect_focus_change, FocusEvent},
-    registrar::MenuMap,
 };
-use std::collections::HashMap;
-use zbus::zvariant::ObjectPath;
 
 fn make_window(id: u64, pid: Option<i32>, focused: bool) -> Window {
     Window {
@@ -55,22 +52,6 @@ fn seeded_state(n: u64) -> EventStreamState {
     state
 }
 
-fn build_menus(n: u32) -> MenuMap {
-    let mut by_pid = HashMap::new();
-    for i in 0..n {
-        by_pid.insert(
-            1000 + i,
-            (
-                format!("org.example.App{i}"),
-                ObjectPath::try_from(format!("/org/example/App{i}/menu"))
-                    .unwrap()
-                    .into(),
-            ),
-        );
-    }
-    MenuMap { by_pid }
-}
-
 #[library_benchmark]
 fn detect_focus_known() {
     let state = seeded_state(50);
@@ -86,32 +67,24 @@ fn detect_focus_unknown() {
 }
 
 #[library_benchmark]
-fn snapshot_match() {
-    let menus = build_menus(100);
+fn snapshot_focus_present() {
     let focus = FocusEvent {
         winid: 1,
         pid: 1042,
         app_id: "App".into(),
         title: "Title".into(),
     };
-    let _ = std::hint::black_box(snapshot(Some(&focus), &menus));
+    let _ = std::hint::black_box(snapshot(Some(&focus)));
 }
 
 #[library_benchmark]
-fn snapshot_no_match() {
-    let menus = build_menus(100);
-    let focus = FocusEvent {
-        winid: 1,
-        pid: 99999,
-        app_id: "Firefox".into(),
-        title: "Title".into(),
-    };
-    let _ = std::hint::black_box(snapshot(Some(&focus), &menus));
+fn snapshot_no_focus() {
+    let _ = std::hint::black_box(snapshot(None));
 }
 
 library_benchmark_group!(
     name = hot;
-    benchmarks = detect_focus_known, detect_focus_unknown, snapshot_match, snapshot_no_match
+    benchmarks = detect_focus_known, detect_focus_unknown, snapshot_focus_present, snapshot_no_focus
 );
 
 main!(library_benchmark_groups = hot);

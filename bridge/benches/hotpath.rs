@@ -19,10 +19,7 @@ use niri_ipc::{Event, Window, WindowLayout};
 use noctalia_appmenu_bridge::{
     active::{snapshot, ActiveSnapshot},
     niri::{detect_focus_change, FocusEvent},
-    registrar::MenuMap,
 };
-use std::collections::HashMap;
-use zbus::zvariant::ObjectPath;
 
 fn main() {
     divan::main();
@@ -67,22 +64,6 @@ fn make_focus(pid: u32) -> FocusEvent {
     }
 }
 
-fn make_menus(n: usize) -> MenuMap {
-    let mut by_pid = HashMap::new();
-    for i in 0..n {
-        by_pid.insert(
-            (1000 + i) as u32,
-            (
-                format!("org.example.App{i}"),
-                ObjectPath::try_from(format!("/org/example/App{i}/menu"))
-                    .unwrap()
-                    .into(),
-            ),
-        );
-    }
-    MenuMap { by_pid }
-}
-
 #[divan::bench]
 fn focus_known_window(bencher: Bencher) {
     let state = seeded_state(50);
@@ -105,24 +86,15 @@ fn focus_unknown_window_resyncs(bencher: Bencher) {
     });
 }
 
-#[divan::bench(args = [10, 100, 1000])]
-fn snapshot_with_n_menus(bencher: Bencher, n: usize) {
-    let menus = make_menus(n);
+#[divan::bench]
+fn snapshot_focus_present(bencher: Bencher) {
     let focus = make_focus(1500);
-    bencher.bench(|| snapshot(black_box(Some(&focus)), black_box(&menus)));
+    bencher.bench(|| snapshot(black_box(Some(&focus))));
 }
 
 #[divan::bench]
 fn snapshot_no_focus(bencher: Bencher) {
-    let menus = make_menus(100);
-    bencher.bench(|| snapshot(black_box(None), black_box(&menus)));
-}
-
-#[divan::bench]
-fn snapshot_focus_no_match(bencher: Bencher) {
-    let menus = make_menus(100);
-    let focus = make_focus(99999);
-    bencher.bench(|| snapshot(black_box(Some(&focus)), black_box(&menus)));
+    bencher.bench(|| snapshot(black_box(None)));
 }
 
 #[divan::bench]
