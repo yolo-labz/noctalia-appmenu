@@ -67,11 +67,15 @@ After this spec ships, every `v1.0.0` blocker has a written acceptance test, eve
 
 ### Bridge — focus tracker (`bridge/src/niri.rs`)
 
+**ADR refs:** ADR-0009 (debounce policy), ADR-0016 (niri event-stream schema).
+
 - **FR-001** Backoff resets to floor (250 ms) after any cleanly-EOF'd session of duration ≥ 30 s, so transient niri restarts (`reload-config`, session resume) do not compound into multi-second blank-bar gaps. Verifiable by a test that drives three EOF cycles, each preceded by a 30 s sleep, and asserts the post-third-EOF reconnect attempt fires within 500 ms.
 - **FR-002** The connect/handshake/ack path (`run_once`) carries an integration test that asserts a successful `EventStream` ack is parsed; a regression in ack wire-format produces a test failure, not silent permanent backoff.
 - **FR-003** A focus tracker abstraction lives at `bridge/src/focus.rs` exposing a `FocusSink` trait + the `FocusEvent` / `FocusOp` types; `niri.rs` is one concrete implementor. No compositor-specific type leaks beyond `niri.rs`. This unblocks (but does not implement) future Hyprland/Sway sinks.
 
 ### Bridge — AT-SPI walker (`bridge/src/atspi.rs`)
+
+**ADR refs:** ADR-0024 (AT-SPI substrate; supersedes ADR-0022, ADR-0023).
 
 - **FR-004** When the walker finds a `MENU_BAR` accessible whose child count is zero (GTK4 `GtkPopoverMenuBar` quirk), it falls back to the `.desktop`-derived pseudo-menu (Scenario 1 of spec 001), instead of rendering an empty bar.
 - **FR-005** The bridge subscribes to `org.a11y.Status` `PropertiesChanged` (or an equivalent monitor) and re-invokes `enable_a11y()` whenever `IsEnabled` flips to false — including after a fresh a11y bus instance comes up post-crash. Scenario 5 above is the acceptance scenario.
@@ -85,12 +89,16 @@ After this spec ships, every `v1.0.0` blocker has a written acceptance test, eve
 
 ### Plugin (`plugin/*.qml`)
 
+**ADR refs:** ADR-0008 (popup window for submenus), ADR-0018 (bar widget API contract), ADR-0019 (always-visible bar widget), ADR-0020 (fixed-width slot).
+
 - **FR-010** A `SubmenuPopup.qml` component exists and is instantiated when a menu item's `hasChildren` is true. The submenu is hosted on a sibling top-level layer-shell surface (not nested inside the parent popup) per ADR-0008. Clicking the parent item opens the submenu; clicking a leaf in the submenu activates the AT-SPI action and closes both popups.
 - **FR-011** The popup row delegate renders the `toggle_state` field — `checkmark`-typed items show a visible indicator when state is 1, an empty slot when state is 0, and continue to align with neighbouring rows in either state.
 - **FR-012** The popup row delegate renders the `icon_name` field via Qt's icon theme lookup when non-empty; renders no leading space when empty. Theme icons inherit Catppuccin Mocha tinting consistent with the rest of the bar.
 - **FR-013** The BarWidget opens its popup on the screen whose `ShellScreen` corresponds to the focused window's output. On a multi-monitor host, focusing an app on screen A while screen B is also showing the bar does NOT cause the popup to render on screen B.
 
 ### Nix / Home-Manager surface (`nix/module.nix`, `flake.nix`)
+
+**ADR refs:** ADR-0011 (Home-Manager module scope — HM-only at v1), ADR-0024 (env-var rationale for AT-SPI substrate).
 
 - **FR-014** The HM module sets `QT_ACCESSIBILITY = "1"` in `home.sessionVariables` unconditionally when `programs.noctalia.plugins.appmenu.enable = true`.
 - **FR-015** The HM module emits an `assertions` entry (or a `lib.warn` at evaluation time when assertions cannot be set in HM scope) telling the user to enable `services.gnome.at-spi2-core` system-wide. The README's "Verify the install" section lists the assertion as a prerequisite check.
@@ -101,6 +109,8 @@ After this spec ships, every `v1.0.0` blocker has a written acceptance test, eve
 - **FR-020** Plugin discovery via noctalia-shell's loader works without a manual `~/.config/noctalia/plugins.json` edit. Either the HM module writes the required entry, or the spec documents an upstream noctalia-shell change that performs directory scanning.
 
 ### CI / release (`.github/workflows/*`)
+
+**ADR refs:** ADR-0012 (self-hosted runner only), ADR-0013 (runner-agnostic CI), ADR-0014 (local-first CI).
 
 - **FR-021** `release.yml` emits CycloneDX 1.7 (not 1.6); the attestation step's claim matches the document version.
 - **FR-022** An AT-SPI integration test runs on every PR. Minimum viable scope: a `cargo test` integration module that stands up a fake AT-SPI registry stub (extending the existing `atspi_probe` example), walks it, and asserts the JSON shape end-to-end. Stretch scope: headless niri + at-spi2-bus + a Qt6 test app, gated to the self-hosted runner.
@@ -137,9 +147,11 @@ These items stay deferred to `v2` or beyond; including them in `v1.0.0` would bl
 - Multi-monitor menubar **duplication** (each monitor showing the same menu); v1 is focused-output only
 - Alt-letter mnemonics + global Alt-F intercept (deferred to v2 — no clean Quickshell hook in v1)
 - AT-SPI `children-changed` subscription full implementation (FR-006 lays prerequisites; subscription itself is a separate spec)
+- AT-SPI mid-render mutation handling (app rebuilds widget tree while popup open); render-time staleness is accepted at v1.0.0, click-time staleness is handled by FR-007
 - NixOS module (system-level) mirror of the HM module (ADR-0011 defers to v2)
 - Plugin marketplace publication / noctalia-shell upstream registry (not blocking v1 install)
 - Telemetry / opt-in usage reporting (no requirement from constitution; explicitly out)
+- Output hotplug while a popup is open (popup may render on the vanished output until the next focus event); v2 follow-up
 
 ## Constraints / dependencies
 
@@ -155,6 +167,7 @@ These items stay deferred to `v2` or beyond; including them in `v1.0.0` would bl
   - ADR-0024 (AT-SPI substrate) — accepted; defines the substrate v1.0.0 ships
   - ADR-0011 (HM module) — accepted; v1.0.0 stays HM-only
   - PRs #64–#72 (Dependabot) — triaged in `research.md`; v1.0.0 must merge or close each
+- **No re-tag of any release.** Constitution + yolo-labz release-engineering invariant restated here for visibility: a defect found post-tag rolls forward to `v1.0.1`; the `v1.0.0` tag is never moved. `slsa-verifier` validates against the commit SHA at signing time, so re-tagging produces stale provenance.
 
 ## Success criteria
 

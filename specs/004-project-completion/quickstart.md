@@ -24,7 +24,7 @@ Verify in a terminal:
 niri msg version | head -1
 # expect: niri 25.xx
 qs --version | head -1
-# expect: quickshell 0.3.x
+# expect: quickshell 0.3.0 or newer
 systemctl --user is-active graphical-session.target
 # expect: active
 ```
