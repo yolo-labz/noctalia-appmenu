@@ -607,7 +607,7 @@ fn normalize_app_id(s: &str) -> String {
 /// `find_active_app_via_state`'s corroboration step.
 ///
 /// The 3-char floor avoids accidental matches on common 2-letter
-/// fragments (`qt`, `ui`, `vm`) that would otherwise mis-pair
+/// fragments (`qt`, `ui`, `vm`) that would otherwise mispair
 /// unrelated apps. Real-world coverage:
 ///
 /// - `kate` vs `kate` (KDE double-prefix → `normalize_app_id`
@@ -1455,7 +1455,7 @@ mod tests {
     fn fuzzy_app_match_rejects_short_and_empty() {
         // 2-char fragments are too generic. `qt` would otherwise
         // collide with anything Qt-named (qBittorrent, KAlgebra,
-        // etc.) and mis-route the menubar.
+        // etc.) and misroute the menubar.
         assert!(!fuzzy_app_match("qt", "qtcreator"));
         assert!(!fuzzy_app_match("ok", "okular"));
 
