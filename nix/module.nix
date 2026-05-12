@@ -2,14 +2,26 @@ self: {
   config,
   lib,
   pkgs,
+  osConfig ? null,
   ...
 }: let
   cfg = config.programs.noctalia.plugins.appmenu;
   bridgePkg = self.packages.${pkgs.system}.noctalia-appmenu-bridge;
   pluginPkg = self.packages.${pkgs.system}.noctalia-appmenu-plugin;
+
+  # FR-015: AT-SPI prerequisite probe. `osConfig` is the surrounding
+  # NixOS config when this HM module is consumed via
+  # `home-manager.users.<u>.imports`; it is null in pure HM-on-non-NixOS
+  # setups. In the null case the probe defaults to `false` so the
+  # eval-time warning fires (user should ensure at-spi2-core is running
+  # under their own system manager).
+  atSpiEnabled =
+    if osConfig == null
+    then false
+    else osConfig.services.gnome.at-spi2-core.enable or false;
 in {
   options.programs.noctalia.plugins.appmenu = {
-    enable = lib.mkEnableOption "noctalia-appmenu (macOS-style global menu)";
+    enable = lib.mkEnableOption "noctalia-appmenu (macOS-style global menu — AT-SPI substrate, ADR-0024)";
 
     package = lib.mkOption {
       type = lib.types.package;
@@ -69,11 +81,25 @@ in {
 
     registrar = lib.mkOption {
       type = lib.types.enum ["vala-panel" "none"];
-      default = "vala-panel";
+      default = "none";
       description = ''
-        Which registrar daemon to install + run.
-        - "vala-panel": pkgs.vala-panel-appmenu's appmenu-registrar (default).
-        - "none": user provides their own.
+        DEPRECATED in v1.0.0 — will be removed entirely in v1.1.
+
+        Pre-AT-SPI (v0.2 and earlier) installed `vala-panel-appmenu`'s
+        `appmenu-registrar` daemon to host the DBusMenu registrar that
+        Qt/GTK apps registered against. v0.3.0 retired DBusMenu in
+        favour of an AT-SPI menubar walker (ADR-0024); the registrar
+        process is no longer required and `vala-panel-appmenu` /
+        `appmenu-gtk-module` are no longer pulled into `home.packages`.
+
+        Setting this option to a non-default value ("vala-panel")
+        emits a warning at evaluation time. The intended migration
+        path is to drop the line from your config (the default —
+        "none" — is the right value for AT-SPI).
+
+        Removal timeline: v1.1 will remove the option declaration; a
+        config that still sets it then will fail with an unknown-option
+        error.
       '';
     };
 
@@ -81,10 +107,20 @@ in {
       type = lib.types.bool;
       default = false;
       description = ''
-        When true, set QT_QPA_PLATFORMTHEME=appmenu-qt5 and
-        GTK_MODULES=appmenu-gtk-module in the user's session env so
-        Qt6 / GTK apps export their menubars over D-Bus instead of
-        rendering them in-window.
+        Hide the in-window menubar of Qt and GTK apps so the noctalia
+        bar surface is the only menu surface.
+
+        Under the AT-SPI substrate (v0.3.0+, ADR-0024) the in-window
+        suppression is cooperative behaviour driven by the toolkit-side
+        Qt platform theme (e.g. `qt.platformTheme.name = "kde"`) and is
+        no longer driven by env-var writes from this module. The v0.2-era
+        writes of `QT_QPA_PLATFORMTHEME = "appmenu-qt5"` and
+        `GTK_MODULES = "appmenu-gtk-module"` have been removed — both
+        targeted DBusMenu only and have no effect on the AT-SPI walker.
+
+        The option is preserved for config compatibility; setting it is
+        a no-op in v1.0.0 and may drive a per-toolkit hint in a future
+        release. Removal scheduled alongside `registrar` in v1.1.
       '';
     };
 
@@ -92,116 +128,185 @@ in {
     # bar widget placement lives in the user's noctalia-shell
     # `settings.json` (Settings.data.bar.widgets.<section>) and
     # noctalia-shell's HM module (not this one) owns serialising it.
-    # Cross-module config rewrite is out of scope for v0.1; users add
+    # Cross-module config rewrite is out of scope for v1.0.0; users add
     # the widget id directly to their bar config:
     #     bar.widgets.left = [
     #       { id = "plugin:noctalia-appmenu"; }
     #     ];
-    # Kept as an option for forward-compat — wiring lands in v0.2
-    # alongside the DBusMenu mirror so the plugin can drive bar
-    # placement declaratively from one home-manager module.
+    # Kept as an option for forward-compat — wiring lands in a later
+    # release alongside an upstream noctalia-shell change that allows
+    # bar placement to be driven declaratively from one HM module.
     widgetPlacement = lib.mkOption {
       type = lib.types.enum ["left" "center" "right"];
       default = "left";
       description = ''
-        Reserved for v0.2: which noctalia bar section the AppMenu
-        widget lives in. v0.1 ignores this — add
+        Reserved for a future release: which noctalia bar section the
+        AppMenu widget lives in. v1.0.0 ignores this — add
         `{ id = "plugin:noctalia-appmenu"; }` to your noctalia-shell
-        bar.widgets list directly.
+        `bar.widgets.<section>` list directly, alongside enabling the
+        plugin via `programs.noctalia-shell.plugins.states.noctalia-appmenu.enabled = true`.
       '';
     };
   };
 
-  config = lib.mkIf cfg.enable {
-    home.packages =
-      [
-        cfg.package
-        cfg.bridge.package
-      ]
-      ++ lib.optionals (cfg.registrar == "vala-panel") [
-        pkgs.vala-panel-appmenu
-        pkgs.appmenu-gtk-module
-      ];
+  # FR-015 / FR-016: surface both the AT-SPI prerequisite and the
+  # `registrar` deprecation as evaluation-time warnings via
+  # `lib.warnIf`. The wrappers gate on `cfg.enable` themselves (rather
+  # than relying on the outer `lib.mkIf` to suppress the trace —
+  # `lib.mkIf` does not stop eager evaluation of the value it is
+  # wrapping, so a naively-nested `lib.warnIf` would trace even when
+  # the plugin is disabled).
+  config =
+    lib.warnIf (cfg.enable && !atSpiEnabled) ''
+      programs.noctalia.plugins.appmenu requires the AT-SPI daemon to
+      be running system-wide. On NixOS, set:
 
-    # Plugin payload landed in user's noctalia plugins dir.
-    xdg.configFile."noctalia/plugins/noctalia-appmenu" = {
-      source = "${cfg.package}/share/noctalia-shell/plugins/noctalia-appmenu";
-      recursive = true;
-    };
+          services.gnome.at-spi2-core.enable = true;
 
-    # Bridge config — emit via pkgs.formats.toml's generator (handles
-    # quoting + types correctly). `lib.generators.toTOML` does not
-    # exist in nixpkgs (the formatter lives in `pkgs.formats`).
-    xdg.configFile."noctalia-appmenu-bridge/config.toml".source = let
-      # niri_binary default behaviour:
-      # - cfg.bridge.niriPackage == null (default): use bare `niri`,
-      #   PATH-resolved from systemd user manager (includes
-      #   /run/current-system/sw/bin on NixOS). This tracks whatever
-      #   niri version the host has installed → no flake-input drift.
-      # - cfg.bridge.niriPackage set: use that store-path explicitly.
-      niriBinary =
-        if cfg.bridge.niriPackage != null
-        then "${cfg.bridge.niriPackage}/bin/niri"
-        else "niri";
-      defaults = {
-        focus_debounce_ms = 75;
-        registrar_debounce_ms = 250;
-        niri_binary = niriBinary;
-        publish_service = "org.noctalia.AppMenu";
-        publish_path = "/org/noctalia/AppMenu/Active";
-      };
-      merged = defaults // cfg.bridge.config;
-    in
-      (pkgs.formats.toml {}).generate "noctalia-appmenu-bridge.toml" merged;
+      Without it, Qt and GTK apps will not register their accessibility
+      trees on the a11y bus and the noctalia bar menu will stay empty.
+      See ADR-0024 for the substrate rationale.
+    ''
+    (
+      lib.warnIf (cfg.enable && cfg.registrar != "none") ''
+        programs.noctalia.plugins.appmenu.registrar = "${cfg.registrar}"
+        is DEPRECATED in v1.0.0 and will be removed entirely in v1.1.
 
-    # systemd --user units
-    systemd.user.services.noctalia-appmenu-bridge = {
-      Unit = {
-        Description = "noctalia-appmenu sidecar bridge";
-        After = ["graphical-session.target"];
-        PartOf = ["graphical-session.target"];
-      };
-      Service = {
-        ExecStart = "${cfg.bridge.package}/bin/noctalia-appmenu-bridge";
-        Restart = "on-failure";
-        RestartSec = "2s";
+        The vala-panel-appmenu registrar daemon is dead under the
+        AT-SPI substrate (ADR-0024) — vala-panel-appmenu and
+        appmenu-gtk-module are no longer installed by this module and
+        the noctalia-appmenu-registrar systemd user unit is no longer
+        generated.
 
-        # Hardening (per SECURITY.md)
-        NoNewPrivileges = true;
-        ProtectSystem = "strict";
-        ProtectHome = "read-only";
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectControlGroups = true;
-        ProtectKernelModules = true;
-        ProtectKernelTunables = true;
-        RestrictAddressFamilies = "AF_UNIX";
-        RestrictNamespaces = true;
-        LockPersonality = true;
-        MemoryDenyWriteExecute = true;
-        SystemCallArchitectures = "native";
-      };
-      Install = {WantedBy = ["graphical-session.target"];};
-    };
+        Drop the option from your config (default is "none").
+      ''
+      (
+        lib.mkIf cfg.enable {
+          # FR-016: home.packages drops vala-panel-appmenu +
+          # appmenu-gtk-module. They were dead post-ADR-0024 but the
+          # v0.3.0 module still pulled them in unconditionally when the
+          # `registrar` option was at its default.
+          home.packages = [
+            cfg.package
+            cfg.bridge.package
+          ];
 
-    systemd.user.services.noctalia-appmenu-registrar = lib.mkIf (cfg.registrar == "vala-panel") {
-      Unit = {
-        Description = "vala-panel-appmenu Registrar";
-        After = ["graphical-session.target"];
-        PartOf = ["graphical-session.target"];
-      };
-      Service = {
-        ExecStart = "${pkgs.vala-panel-appmenu}/libexec/vala-panel-appmenu/appmenu-registrar";
-        Restart = "on-failure";
-        RestartSec = "2s";
-      };
-      Install = {WantedBy = ["graphical-session.target"];};
-    };
+          # FR-014: QT_ACCESSIBILITY=1 unconditional when the plugin is
+          # enabled. Qt only registers its accessibility tree with the
+          # a11y bus when this var is set in the user session; without
+          # it, the AT-SPI walker sees an empty tree and the bar menu
+          # silently stays empty.
+          #
+          # FR-017: the v0.2-era writes of `QT_QPA_PLATFORMTHEME =
+          # "appmenu-qt5"` and `GTK_MODULES = "appmenu-gtk-module"`
+          # (previously gated by `hideInWindowMenubar`) have been removed
+          # — both targeted DBusMenu and have no effect under AT-SPI.
+          home.sessionVariables = {
+            QT_ACCESSIBILITY = "1";
+          };
 
-    # Session env for menubar export (opt-in)
-    home.sessionVariables = lib.mkIf cfg.hideInWindowMenubar {
-      QT_QPA_PLATFORMTHEME = "appmenu-qt5";
-      GTK_MODULES = "appmenu-gtk-module";
-    };
-  };
+          # FR-015: NixOS-scope assertion. HM evaluates `assertions` at
+          # activation; the assertion fires when HM is integrated into a
+          # NixOS host config that omits
+          # `services.gnome.at-spi2-core.enable`. In pure HM-on-non-NixOS
+          # scope, `osConfig` is null and the assertion is suppressed —
+          # the eval-time `lib.warn` wrapping above carries the signal
+          # in that path.
+          assertions = lib.optionals (osConfig != null) [
+            {
+              assertion = atSpiEnabled;
+              message = ''
+                programs.noctalia.plugins.appmenu.enable = true requires
+                the AT-SPI daemon on the surrounding NixOS host.
+
+                Enable it system-wide:
+
+                    services.gnome.at-spi2-core.enable = true;
+              '';
+            }
+          ];
+
+          # FR-020: install the plugin manifest directory. noctalia-shell's
+          # PluginService gates plugin load on
+          # `plugins.json::states.<id>.enabled = true` — verified against
+          # the upstream HM module's contract (see
+          # `programs.noctalia-shell.plugins.states.noctalia-appmenu.enabled`).
+          # That file is owned by the upstream HM option and CANNOT be
+          # written from here without a single-writer conflict, so users
+          # must add the enable entry themselves alongside this option:
+          #
+          #     programs.noctalia.plugins.appmenu.enable = true;
+          #     programs.noctalia-shell.plugins.states.noctalia-appmenu.enabled = true;
+          #
+          # Users wiring noctalia-shell some other way must add the entry
+          # to ~/.config/noctalia/plugins.json manually.
+          xdg.configFile."noctalia/plugins/noctalia-appmenu" = {
+            source = "${cfg.package}/share/noctalia-shell/plugins/noctalia-appmenu";
+            recursive = true;
+          };
+
+          # Bridge config — emit via pkgs.formats.toml's generator
+          # (handles quoting + types correctly). `lib.generators.toTOML`
+          # does not exist in nixpkgs (the formatter lives in
+          # `pkgs.formats`).
+          xdg.configFile."noctalia-appmenu-bridge/config.toml".source = let
+            # niri_binary default behaviour:
+            # - cfg.bridge.niriPackage == null (default): use bare
+            #   `niri`, PATH-resolved from systemd user manager
+            #   (includes /run/current-system/sw/bin on NixOS). This
+            #   tracks whatever niri version the host has installed →
+            #   no flake-input drift.
+            # - cfg.bridge.niriPackage set: use that store-path
+            #   explicitly.
+            niriBinary =
+              if cfg.bridge.niriPackage != null
+              then "${cfg.bridge.niriPackage}/bin/niri"
+              else "niri";
+            defaults = {
+              focus_debounce_ms = 75;
+              registrar_debounce_ms = 250;
+              niri_binary = niriBinary;
+              publish_service = "org.noctalia.AppMenu";
+              publish_path = "/org/noctalia/AppMenu/Active";
+            };
+            merged = defaults // cfg.bridge.config;
+          in
+            (pkgs.formats.toml {}).generate "noctalia-appmenu-bridge.toml" merged;
+
+          # FR-016: `noctalia-appmenu-registrar` systemd user unit
+          # removed. The unit ran vala-panel-appmenu's
+          # `appmenu-registrar` and was dead code post-ADR-0024. The
+          # bridge's own systemd user unit is the only daemon installed
+          # under v1.0.0+.
+          systemd.user.services.noctalia-appmenu-bridge = {
+            Unit = {
+              Description = "noctalia-appmenu sidecar bridge";
+              After = ["graphical-session.target"];
+              PartOf = ["graphical-session.target"];
+            };
+            Service = {
+              ExecStart = "${cfg.bridge.package}/bin/noctalia-appmenu-bridge";
+              Restart = "on-failure";
+              RestartSec = "2s";
+
+              # Hardening (per SECURITY.md)
+              NoNewPrivileges = true;
+              ProtectSystem = "strict";
+              ProtectHome = "read-only";
+              PrivateTmp = true;
+              PrivateDevices = true;
+              ProtectControlGroups = true;
+              ProtectKernelModules = true;
+              ProtectKernelTunables = true;
+              RestrictAddressFamilies = "AF_UNIX";
+              RestrictNamespaces = true;
+              LockPersonality = true;
+              MemoryDenyWriteExecute = true;
+              SystemCallArchitectures = "native";
+            };
+            Install = {WantedBy = ["graphical-session.target"];};
+          };
+        }
+      )
+    );
 }

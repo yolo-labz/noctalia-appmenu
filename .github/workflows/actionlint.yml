@@ -23,14 +23,19 @@ env:
 jobs:
   scan:
     name: workflow static analysis
-    # Pin to desktop runner: vm103's job-started hook
-    # (`runner-balloon-hook.sh`) writes NODE_OPTIONS to $GITHUB_ENV
-    # which fails actionlint setup with "Can't store NODE_OPTIONS
-    # output parameter using '$GITHUB_ENV' command". Desktop runner
-    # uses the simpler chmod-only hook and works cleanly. This check
-    # is required-for-merge so we cannot tolerate routing it to a
-    # poisoned runner.
-    runs-on: [self-hosted, Linux, X64, noctalia-appmenu, desktop]
+    # FR-023 / ADR-0013: runner-agnostic label set. Any runner
+    # registered with the `noctalia-appmenu` project label is a valid
+    # host. The historical `desktop` host-pin existed because vm103's
+    # job-started hook (`runner-balloon-hook.sh`) wrote NODE_OPTIONS
+    # to $GITHUB_ENV, which broke actionlint setup with: "Can't store
+    # NODE_OPTIONS output parameter using '$GITHUB_ENV' command". The
+    # upstream remediation is to fix the runner hook on vm103 (or any
+    # runner that exhibits the pattern) — encoding the workaround at
+    # the workflow level violates ADR-0013 and creates a single point
+    # of failure when the desktop host is down. This check is in the
+    # required-status-checks set so it stays runner-agnostic; if a
+    # runner is poisoned, fix the runner.
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 5
     permissions:
       contents: read
