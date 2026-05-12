@@ -74,8 +74,23 @@ jobs:
           tar xzf "$RUNNER_TEMP/${tarball}" -C "$HOME/.local/bin" syft
           export PATH="$HOME/.local/bin:$PATH"
           syft . \
-            -o cyclonedx-json@1.6=dist/sbom.cdx.json \
+            -o cyclonedx-json@1.7=dist/sbom.cdx.json \
             -o spdx-json=dist/sbom.spdx.json
+
+      - name: Verify CycloneDX SBOM is 1.7
+        # FR-021: the attestation step below claims CycloneDX 1.7. Assert
+        # the emitted document's specVersion matches so a future syft
+        # version bump that silently downgrades the spec is caught at
+        # release-cut time, not by a downstream consumer.
+        run: |
+          set -eu
+          fmt=$(jq -r '.bomFormat' dist/sbom.cdx.json)
+          ver=$(jq -r '.specVersion' dist/sbom.cdx.json)
+          if [ "$fmt" != "CycloneDX" ] || [ "$ver" != "1.7" ]; then
+            echo "::error::CycloneDX SBOM mismatch — bomFormat=${fmt} specVersion=${ver} (want CycloneDX 1.7)"
+            exit 1
+          fi
+          echo "CycloneDX 1.7 OK"
 
       - name: Generate cargo-cyclonedx SBOM (Rust-native)
         # cargo-cyclonedx writes to <crate_root>/<package>.cdx.json by

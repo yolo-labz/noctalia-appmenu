@@ -36,6 +36,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import qs.Commons
 import qs.Services.UI
 
@@ -81,6 +82,29 @@ Item {
     readonly property string bridgeBin: {
         const fromEnv = Quickshell.env("NOCTALIA_APPMENU_BRIDGE");
         return (fromEnv && fromEnv.length > 0) ? fromEnv : "noctalia-appmenu-bridge";
+    }
+
+    /// FR-013 (spec 004) — multi-screen popup-routing guard data
+    /// source. Bound to the focused Wayland toplevel's output name
+    /// via `Quickshell.Wayland.ToplevelManager`. Defensive: empty
+    /// string when no toplevel-tracking data is available (single-
+    /// screen host or upstream API absent), which makes the popup
+    /// guard permissive (falls back to current behaviour). Lane A
+    /// may later supply this from `active.json`'s `focused_output`
+    /// field; the popup consumes either source via the same property.
+    readonly property string focusedScreenName: {
+        try {
+            const tm = ToplevelManager;
+            const active = tm ? tm.activeToplevel : null;
+            const screens = active && active.screens ? active.screens : null;
+            if (screens && screens.length > 0 && screens[0] && screens[0].name) {
+                return screens[0].name;
+            }
+        } catch (_) {
+            // Quickshell.Wayland.ToplevelManager not present — guard
+            // stays permissive.
+        }
+        return "";
     }
 
     /// Whether the widget should claim any layout space at all.
@@ -512,6 +536,7 @@ Item {
     AppmenuPopupWindow {
         id: popup
         screen: root.screen
+        focusedScreenName: root.focusedScreenName
 
         onItemActivated: function (item) {
             root.fireClick(item);

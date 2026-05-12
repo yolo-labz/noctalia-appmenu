@@ -37,22 +37,36 @@
 
         bridgeSrc = craneLib.cleanCargoSource ./bridge;
 
+        # FR-018: single source-of-truth for the package version. Read
+        # once from bridge/Cargo.toml; both bridge + plugin derivations
+        # consume it. Bumping the Cargo manifest is enough — the flake
+        # follows automatically and a divergence is impossible.
+        cargoToml = pkgs.lib.importTOML ./bridge/Cargo.toml;
+        version = cargoToml.package.version;
+
+        # FR-019: SOURCE_DATE_EPOCH injected from outside the sandbox.
+        # self.lastModified is the flake's last-modified timestamp set
+        # by Nix from the working tree (and overridable by the release
+        # workflow via env-var on the calling shell). Replaces the
+        # previous in-sandbox `git log` shellout, which required
+        # `pkgs.git` at build time and silently degraded to a hardcoded
+        # 2025-01-01 fallback when git was unavailable. Now fully
+        # deterministic and pure-eval safe.
+        sourceDateEpoch = toString inputs.self.lastModified;
+
         bridge = craneLib.buildPackage {
           pname = "noctalia-appmenu-bridge";
-          version = "0.1.0";
+          inherit version;
           src = bridgeSrc;
           cargoExtraArgs = "--locked";
 
           nativeBuildInputs = [pkgs.pkg-config];
           buildInputs = [];
 
-          # Reproducibility
-          preBuild = ''
-            export SOURCE_DATE_EPOCH=$(${pkgs.git}/bin/git log -1 --format=%ct 2>/dev/null || echo 1735689600)
-          '';
+          SOURCE_DATE_EPOCH = sourceDateEpoch;
 
           meta = with pkgs.lib; {
-            description = "Sidecar bridge for noctalia-appmenu (niri-IPC + DBusMenu registrar consumer + active-app proxy)";
+            description = "Sidecar bridge for noctalia-appmenu (niri-IPC focus tracker + AT-SPI menubar walker + active-app menu mirror)";
             homepage = "https://github.com/yolo-labz/noctalia-appmenu";
             license = licenses.asl20;
             mainProgram = "noctalia-appmenu-bridge";
@@ -62,7 +76,7 @@
 
         plugin = pkgs.stdenvNoCC.mkDerivation {
           pname = "noctalia-appmenu-plugin";
-          version = "0.1.0";
+          inherit version;
           src = ./plugin;
           dontBuild = true;
           installPhase = ''

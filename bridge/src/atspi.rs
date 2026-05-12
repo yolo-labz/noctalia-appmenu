@@ -77,6 +77,8 @@
 
 use anyhow::{Context, Result};
 use serde::Serialize;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use zbus::{
     proxy,
     zvariant::{ObjectPath, OwnedObjectPath},
@@ -262,6 +264,11 @@ pub async fn enable_a11y() -> Result<()> {
 /// AT-SPI proxy construction. The session bus is queried first to
 /// discover the a11y bus address, then a fresh connection opens
 /// against that address.
+///
+/// Prefer [`AtspiClient::connection`] in the daemon's hot loop —
+/// this free function builds a fresh connection per call, which is
+/// fine for one-shot CLI subcommands but wasteful for the
+/// per-focus-event AT-SPI walk (FR-006).
 pub async fn connect_a11y() -> Result<Connection> {
     let session = Connection::session()
         .await
@@ -281,6 +288,54 @@ pub async fn connect_a11y() -> Result<Connection> {
         .build()
         .await
         .with_context(|| format!("connecting to a11y bus at {address}"))
+}
+
+/// Long-lived AT-SPI connection holder (FR-006).
+///
+/// The daemon's per-focus-event walks share one `zbus::Connection`
+/// instead of opening a fresh socket each time (zbus's `Connection`
+/// is `Arc`-cloneable; the inner socket survives across all clones).
+/// On a11y bus restart the cache is invalidated by [`AtspiClient::invalidate`]
+/// (called from the IsEnabled watcher — see [`watch_a11y_status`])
+/// so the next [`AtspiClient::connection`] call re-discovers the new
+/// bus address.
+///
+/// The struct is cheap to clone (one `Arc` bump). `main.rs` constructs
+/// one instance, hands `.clone()` copies to both the active-snapshot
+/// loop and the IsEnabled watcher task.
+#[derive(Clone, Default)]
+pub struct AtspiClient {
+    inner: Arc<Mutex<Option<Connection>>>,
+}
+
+impl AtspiClient {
+    /// Construct an empty client. The first [`AtspiClient::connection`]
+    /// call lazily opens the AT-SPI bus connection.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Return a handle to the cached `zbus::Connection` — opening a
+    /// fresh one if the cache is empty (post-startup or post-
+    /// [`AtspiClient::invalidate`]).
+    pub async fn connection(&self) -> Result<Connection> {
+        let mut guard = self.inner.lock().await;
+        if let Some(c) = guard.as_ref() {
+            return Ok(c.clone());
+        }
+        let c = connect_a11y().await?;
+        *guard = Some(c.clone());
+        Ok(c)
+    }
+
+    /// Drop the cached connection. The next [`AtspiClient::connection`]
+    /// call re-runs `org.a11y.Bus.GetAddress` and opens a fresh socket.
+    /// Used by [`watch_a11y_status`] on a11y bus restart.
+    pub async fn invalidate(&self) {
+        let mut guard = self.inner.lock().await;
+        *guard = None;
+    }
 }
 
 /// Find the AT-SPI Application root for a given PID by walking the
@@ -384,15 +439,7 @@ pub async fn find_app_for_pid(
                     Err(_) => continue,
                 };
                 let normalized_name = normalize_app_id(&name);
-                if normalized_name.is_empty() {
-                    continue;
-                }
-                let (short, long) = if normalized_name.len() < normalized_hint.len() {
-                    (&normalized_name, &normalized_hint)
-                } else {
-                    (&normalized_hint, &normalized_name)
-                };
-                if short.len() >= 3 && long.contains(short.as_str()) {
+                if fuzzy_app_match(&normalized_hint, &normalized_name) {
                     tracing::debug!(
                         pid,
                         %hint,
@@ -463,15 +510,7 @@ async fn find_active_app_via_state(
             continue;
         };
         let n = normalize_app_id(&name);
-        if n.is_empty() {
-            continue;
-        }
-        let (short, long) = if n.len() < normalized_hint.len() {
-            (&n, &normalized_hint)
-        } else {
-            (&normalized_hint, &n)
-        };
-        if short.len() >= 3 && long.contains(short.as_str()) {
+        if fuzzy_app_match(&normalized_hint, &n) {
             return Some((service.clone(), frame_path));
         }
     }
@@ -559,6 +598,35 @@ fn normalize_app_id(s: &str) -> String {
         }
     }
     trimmed
+}
+
+/// FR-008 pass-2 fuzzy match. Two normalized identifiers are
+/// considered the same app when the shorter is a substring of the
+/// longer AND the shorter is at least 3 characters long. Used by
+/// both `find_app_for_pid`'s name-fallback branch and
+/// `find_active_app_via_state`'s corroboration step.
+///
+/// The 3-char floor avoids accidental matches on common 2-letter
+/// fragments (`qt`, `ui`, `vm`) that would otherwise mispair
+/// unrelated apps. Real-world coverage:
+///
+/// - `kate` vs `kate` (KDE double-prefix → `normalize_app_id`
+///   strips `org.kde.` on both sides, fuzzy returns true even on
+///   exact equality).
+/// - `anki` (niri-reported wrapper `app_id`) vs `anki.bin` (AT-SPI
+///   `Name` from the actual Qt subprocess) → `anki` is a substring
+///   of `anki.bin`, match succeeds.
+/// - `ok` vs `okular` → short side is 2 chars, no match (safety).
+fn fuzzy_app_match(normalized_hint: &str, normalized_name: &str) -> bool {
+    if normalized_hint.is_empty() || normalized_name.is_empty() {
+        return false;
+    }
+    let (short, long) = if normalized_name.len() < normalized_hint.len() {
+        (normalized_name, normalized_hint)
+    } else {
+        (normalized_hint, normalized_name)
+    };
+    short.len() >= 3 && long.contains(short)
 }
 
 /// Depth-first search for the first descendant with role
@@ -748,31 +816,40 @@ pub async fn fetch_menu_tree(
 /// One-shot helper: from a focused PID, return the parsed menu
 /// tree (or `None` when no menubar found).
 ///
-/// Composes `connect_a11y` → `find_app_for_pid` → `find_menubar`
-/// → `fetch_menu_tree`. Each step's failure surfaces as
-/// `Err(_)` so the caller can log a warn and write a `null` menu
+/// Composes [`AtspiClient::connection`] → `find_app_for_pid` →
+/// `find_menubar` → `fetch_menu_tree`. Each step's failure surfaces
+/// as `Err(_)` so the caller can log a warn and write a `null` menu
 /// to active.json — letting the QML widget fall back to its
 /// placeholder gracefully.
 ///
-/// **Total budget:** the whole pipeline is wrapped in a 3s
+/// **Total budget:** the whole pipeline is wrapped in a 3 s
 /// `tokio::time::timeout`. AT-SPI calls cross the focused app's
 /// process boundary; a hung or slow app must not freeze the bridge
 /// (codex P1 #3). On timeout we return `Ok(None)` so the QML widget
 /// falls back to the v0.1 placeholder rather than holding the bar
 /// in a stale state.
 ///
-/// **Why 3s, not 1.5s (PR #40):** pass-1 PID resolution iterates
-/// every registered AT-SPI app sequentially. With 8+ apps and a
-/// cold registry the dbus round-trips can stack to >1.5s — even
-/// when the target app is well-behaved. Real-world miss observed
-/// on Firefox-nightly first-focus after bridge restart even though
-/// the manual probe (warm registry) succeeded immediately.
+/// **Persistent connection (FR-006):** the AT-SPI socket is owned
+/// by `client` and reused across focus events. On bus restart the
+/// [`watch_a11y_status`] task invalidates the cache and the next
+/// call here re-discovers the new bus address.
+///
+/// **GTK4 empty fallback (FR-004):** when the post-walk tree has
+/// zero children we return `Ok(None)` instead of an empty
+/// `MenuItem`. `active.rs` substitutes the synthetic pseudo-menu so
+/// the bar always renders something useful.
 pub async fn fetch_menubar_for_pid(
+    client: &AtspiClient,
     pid: u32,
     app_id_hint: Option<&str>,
 ) -> Result<Option<MenuItem>> {
     const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(3000);
-    match tokio::time::timeout(FETCH_BUDGET, fetch_menubar_for_pid_inner(pid, app_id_hint)).await {
+    match tokio::time::timeout(
+        FETCH_BUDGET,
+        fetch_menubar_for_pid_inner(client, pid, app_id_hint),
+    )
+    .await
+    {
         Ok(result) => result,
         Err(_) => {
             tracing::warn!(
@@ -786,10 +863,11 @@ pub async fn fetch_menubar_for_pid(
 }
 
 async fn fetch_menubar_for_pid_inner(
+    client: &AtspiClient,
     pid: u32,
     app_id_hint: Option<&str>,
 ) -> Result<Option<MenuItem>> {
-    let a11y = connect_a11y().await?;
+    let a11y = client.connection().await?;
     let app = match find_app_for_pid(&a11y, pid, app_id_hint).await? {
         Some(a) => a,
         None => return Ok(None),
@@ -799,8 +877,112 @@ async fn fetch_menubar_for_pid_inner(
         None => return Ok(None),
     };
     let tree = fetch_menu_tree(&a11y, &menubar.0, &menubar.1.as_ref(), 0).await?;
+    if menubar_is_empty(&tree) {
+        tracing::debug!(
+            pid,
+            "menubar walk returned zero children — caller should fall back to synthetic menu"
+        );
+        return Ok(None);
+    }
     Ok(Some(tree))
 }
+
+/// FR-004 predicate: a freshly-walked menubar accessible with zero
+/// children is the GTK4 `GtkPopoverMenuBar` quirk (Nautilus 45+ and
+/// other GTK4 apps that defer child realisation until popup). Other
+/// app classes also surface empty menubars (Qt apps mid-tear-down,
+/// half-initialised electron wrappers). Routing the empty case
+/// through `Ok(None)` lets the caller substitute the synthetic
+/// pseudo-menu instead of rendering a blank bar.
+fn menubar_is_empty(tree: &MenuItem) -> bool {
+    tree.children.is_empty()
+}
+
+/// Polls `org.a11y.Status.IsEnabled` on the session bus and re-flips
+/// it to `true` whenever it goes false (FR-005). Also invalidates
+/// `client`'s cached connection so the next walk re-discovers the
+/// (potentially restarted) a11y bus address.
+///
+/// **Why polling, not signal subscription:** the
+/// `org.freedesktop.DBus.Properties.PropertiesChanged` route needs
+/// a `futures_util::StreamExt` (or equivalent) bring-in. The
+/// observable latency budget per Scenario 5 (≤ 5 s) is well within
+/// the 3 s polling interval, and the extra dep wasn't justified
+/// for this single use site. See plan.md §Open questions.
+///
+/// Loops forever — call inside a long-lived task. Per-iteration
+/// errors are logged + caching is invalidated; the loop never exits
+/// so a transient a11y bus restart self-heals on the next poll.
+pub async fn watch_a11y_status(client: AtspiClient) -> Result<()> {
+    const POLL: std::time::Duration = std::time::Duration::from_secs(3);
+    loop {
+        tokio::time::sleep(POLL).await;
+        match is_a11y_enabled().await {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::info!(
+                    "a11y IsEnabled observed false; re-enabling + invalidating AT-SPI cache"
+                );
+                client.invalidate().await;
+                if let Err(e) = enable_a11y().await {
+                    tracing::warn!(error = ?e, "re-enable a11y after IsEnabled flip failed");
+                }
+            }
+            Err(e) => {
+                tracing::debug!(
+                    error = ?e,
+                    "a11y IsEnabled probe failed (bus restart in flight?); invalidating cache"
+                );
+                client.invalidate().await;
+            }
+        }
+    }
+}
+
+/// Read the current value of `org.a11y.Status.IsEnabled` on the
+/// session bus. Returns `Err` if `at-spi2-core` is not running.
+async fn is_a11y_enabled() -> Result<bool> {
+    let session = Connection::session()
+        .await
+        .context("a11y status probe: connecting to session bus")?;
+    let props = zbus::fdo::PropertiesProxy::builder(&session)
+        .destination("org.a11y.Bus")?
+        .path("/org/a11y/bus")?
+        .build()
+        .await
+        .context("a11y status probe: building PropertiesProxy")?;
+    let v = props
+        .get("org.a11y.Status".try_into()?, "IsEnabled")
+        .await
+        .context("a11y status probe: Get(IsEnabled)")?;
+    bool::try_from(v).context("a11y status probe: bool conversion")
+}
+
+/// Typed error variants surfaced by AT-SPI operations. Generic
+/// failures still funnel through [`anyhow::Error`]; only the
+/// variants callers need to discriminate on are typed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MenuError {
+    /// `do_action` could not resolve the addressed accessible — the
+    /// focused app rebuilt its widget tree between when the bridge
+    /// walked it and when the click arrived. Carries the originating
+    /// (service, path) so the caller can log + signal a snapshot
+    /// refresh. Spec 005 FR-007.
+    Stale { service: String, path: String },
+}
+
+impl std::fmt::Display for MenuError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stale { service, path } => write!(
+                f,
+                "MenuError::Stale {{ service: {service:?}, path: {path:?} }}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MenuError {}
 
 /// Click subcommand backend: invoke `Action.DoAction(0)` on the
 /// AT-SPI accessible at the given (service, path). Action index
@@ -812,6 +994,14 @@ async fn fetch_menubar_for_pid_inner(
 /// items carry `service = "::synthetic"` and `path = "niri:<action>"`
 /// (e.g. `niri:close-window`). On click we route through niri-IPC
 /// instead of AT-SPI's `DoAction`.
+///
+/// **Stale-path detection (FR-007):** before issuing `DoAction(0)`
+/// the function re-fetches the accessible via a `GetRole` probe.
+/// If the app rebuilt its widget tree between snapshot and click,
+/// the probe errors and we surface [`MenuError::Stale`] instead of
+/// letting the raw `UnknownObject` / `UnknownMethod` D-Bus error
+/// bubble up untyped. Callers `downcast_ref::<MenuError>()` to
+/// recognise this and trigger an immediate snapshot refresh.
 pub async fn do_action(service: &str, path: &str) -> Result<()> {
     if service == SYNTHETIC_SERVICE {
         return dispatch_synthetic(path).await;
@@ -820,6 +1010,33 @@ pub async fn do_action(service: &str, path: &str) -> Result<()> {
     let proxy_path: ObjectPath<'_> = path
         .try_into()
         .with_context(|| format!("parsing AT-SPI path {path}"))?;
+
+    // FR-007: re-fetch the addressed accessible. A successful
+    // `GetRole` round-trip is sufficient evidence that the path
+    // still resolves on the focused app's side. The cheap probe
+    // (one method call, no children walked) keeps the click hot
+    // path under a millisecond.
+    let accessible = AccessibleProxy::builder(&a11y)
+        .destination(service.to_owned())?
+        .path(proxy_path.clone())?
+        .cache_properties(zbus::CacheProperties::No)
+        .build()
+        .await
+        .context("re-fetching accessible before DoAction")?;
+    if let Err(probe_err) = accessible.get_role().await {
+        tracing::debug!(
+            service,
+            path,
+            error = ?probe_err,
+            "AT-SPI path stale (re-fetch probe failed); surfacing MenuError::Stale"
+        );
+        return Err(MenuError::Stale {
+            service: service.to_string(),
+            path: path.to_string(),
+        }
+        .into());
+    }
+
     let action = ActionProxy::builder(&a11y)
         .destination(service.to_owned())?
         .path(proxy_path)?
@@ -1129,5 +1346,182 @@ mod tests {
         let m = synthetic_menu("");
         assert_eq!(m.label, "App");
         assert_eq!(m.children.len(), 2);
+    }
+
+    #[test]
+    fn menu_error_stale_round_trips_through_anyhow() {
+        // FR-007 contract: `do_action` returns `Result<(), anyhow::Error>`,
+        // but callers (the `atspi-click` CLI) need to discriminate
+        // `MenuError::Stale` from generic failures so they can trigger
+        // a snapshot refresh + exit 2. The contract is "embed via
+        // `.into()`, recover via `downcast_ref::<MenuError>()`".
+        let err: anyhow::Error = MenuError::Stale {
+            service: ":1.42".to_string(),
+            path: "/org/a11y/atspi/accessible/12".to_string(),
+        }
+        .into();
+        let down = err
+            .downcast_ref::<MenuError>()
+            .expect("MenuError must downcast back out of anyhow::Error");
+        assert_eq!(
+            down,
+            &MenuError::Stale {
+                service: ":1.42".to_string(),
+                path: "/org/a11y/atspi/accessible/12".to_string(),
+            }
+        );
+        // Display includes both fields so log scrapers + the CLI's
+        // stderr line stay greppable.
+        let s = format!("{down}");
+        assert!(s.contains(":1.42"), "Display omits service: {s}");
+        assert!(
+            s.contains("/org/a11y/atspi/accessible/12"),
+            "Display omits path: {s}"
+        );
+        assert!(s.starts_with("MenuError::Stale"), "Display prefix: {s}");
+    }
+
+    #[test]
+    fn normalize_app_id_strips_kde_double_prefix() {
+        // FR-008: KDE apps publish `app_id = "org.kde.<app>"` on
+        // Wayland but expose AT-SPI Name = "<app>" (e.g. "kate",
+        // "Dolphin"). `normalize_app_id` must strip the reverse-DNS
+        // prefix on both sides so the fuzzy match has matching
+        // shapes to compare.
+        assert_eq!(normalize_app_id("org.kde.kate"), "kate");
+        assert_eq!(normalize_app_id("org.kde.dolphin"), "dolphin");
+        assert_eq!(normalize_app_id("org.kde.okular"), "okular");
+        // Case + whitespace fold to the same canonical form so the
+        // accessible-Name capitalisation (`Dolphin`, `Kate`) and
+        // the wayland-app_id casing (`org.kde.dolphin`) collapse.
+        assert_eq!(normalize_app_id("Dolphin"), "dolphin");
+        assert_eq!(normalize_app_id("  Kate  "), "kate");
+    }
+
+    #[test]
+    fn normalize_app_id_preserves_single_dot_suffix() {
+        // Anki ships as a Python wrapper that launches a Qt
+        // subprocess called `anki.bin`. The bridge sees the
+        // wrapper's PID via niri, but the AT-SPI accessible
+        // registers under the subprocess. The fuzzy-match floor
+        // is "3+ char short side, substring of long side", so we
+        // need `normalize_app_id` to NOT strip `.bin` off as if it
+        // were a reverse-DNS suffix (one dot, prefix has zero
+        // dots → keep as-is).
+        assert_eq!(normalize_app_id("anki.bin"), "anki.bin");
+        assert_eq!(normalize_app_id("anki"), "anki");
+        // Sanity: single-dot non-DNS identifiers stay whole. Two
+        // dots → strip everything before the rightmost dot only
+        // when the prefix itself contains a dot.
+        assert_eq!(normalize_app_id("firefox-nightly"), "firefox-nightly");
+        assert_eq!(normalize_app_id("foo.bar"), "foo.bar");
+        assert_eq!(normalize_app_id("a.b.c"), "c");
+    }
+
+    #[test]
+    fn fuzzy_app_match_recognises_kde_and_anki_pairings() {
+        // FR-008 happy paths against the three v1 reference apps:
+
+        // kate: niri-reported `org.kde.kate` → normalize → "kate".
+        // AT-SPI Name `"kate"` → normalize → "kate". Equal strings
+        // satisfy the substring predicate trivially.
+        assert!(fuzzy_app_match(
+            &normalize_app_id("org.kde.kate"),
+            &normalize_app_id("kate")
+        ));
+
+        // dolphin: same shape, capitalised AT-SPI Name.
+        assert!(fuzzy_app_match(
+            &normalize_app_id("org.kde.dolphin"),
+            &normalize_app_id("Dolphin")
+        ));
+
+        // Anki subprocess: niri reports `anki` (wrapper script's
+        // own app_id), AT-SPI registers `anki.bin` (the Qt
+        // subprocess). Short = "anki" (4 chars, ≥ 3), long =
+        // "anki.bin" (contains "anki") → match.
+        assert!(fuzzy_app_match(
+            &normalize_app_id("anki"),
+            &normalize_app_id("anki.bin")
+        ));
+        // Argument order must not matter.
+        assert!(fuzzy_app_match(
+            &normalize_app_id("anki.bin"),
+            &normalize_app_id("anki")
+        ));
+    }
+
+    #[test]
+    fn fuzzy_app_match_rejects_short_and_empty() {
+        // 2-char fragments are too generic. `qt` would otherwise
+        // collide with anything Qt-named (qBittorrent, KAlgebra,
+        // etc.) and misroute the menubar.
+        assert!(!fuzzy_app_match("qt", "qtcreator"));
+        assert!(!fuzzy_app_match("ok", "okular"));
+
+        // Empty sides never match — `normalize_app_id` can return
+        // empty on whitespace-only AT-SPI Names, and the caller
+        // depends on the helper saying "no" rather than panicking.
+        assert!(!fuzzy_app_match("", "okular"));
+        assert!(!fuzzy_app_match("kate", ""));
+        assert!(!fuzzy_app_match("", ""));
+
+        // Non-substring disjoint pairs.
+        assert!(!fuzzy_app_match("firefox", "chromium"));
+    }
+
+    #[test]
+    fn empty_menubar_triggers_synthetic_fallback() {
+        // FR-004: a MENU_BAR walked from a GTK4 `GtkPopoverMenuBar`
+        // (Nautilus 45+, etc.) surfaces with `children: []` because
+        // GTK4 defers child realisation until popup. The fallback
+        // predicate must say "yes, swap in synthetic" for that shape.
+        let empty_menubar = MenuItem {
+            id: 0,
+            label: "menubar".to_string(),
+            item_type: "submenu".to_string(),
+            enabled: true,
+            visible: true,
+            service: ":1.42".to_string(),
+            path: "/org/a11y/atspi/accessible/menubar".to_string(),
+            ..Default::default()
+        };
+        assert!(empty_menubar.children.is_empty());
+        assert!(
+            menubar_is_empty(&empty_menubar),
+            "empty-children menubar must route into synthetic fallback"
+        );
+
+        // Conversely, a walked menubar with at least one top-level
+        // entry stays on the AT-SPI path — no fallback.
+        let populated = MenuItem {
+            children: vec![MenuItem {
+                id: 0,
+                label: "File".to_string(),
+                item_type: "submenu".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!menubar_is_empty(&populated));
+    }
+
+    #[tokio::test]
+    async fn atspi_client_invalidate_is_idempotent() {
+        // FR-006: AtspiClient::invalidate must be safe to call on an
+        // empty cache (e.g. before the first connection() succeeded)
+        // — the watcher hits this path on every a11y bus restart.
+        let c = AtspiClient::new();
+        c.invalidate().await;
+        c.invalidate().await;
+    }
+
+    #[test]
+    fn atspi_client_clone_is_cheap() {
+        // The watcher + active loop share one AtspiClient — clone is
+        // just an Arc bump. Compile-time check; if Clone is removed
+        // from AtspiClient this test fails to build.
+        fn _assert_clone<T: Clone + Send + Sync + 'static>() {}
+        _assert_clone::<AtspiClient>();
     }
 }
