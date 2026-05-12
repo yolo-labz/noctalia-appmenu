@@ -218,6 +218,10 @@ impl FocusSink for NiriFocusSink {
 /// Single niri socket session: connect → request EventStream → read
 /// events until socket close or shutdown signal. Any non-graceful exit
 /// returns `Err` so the outer loop reconnects.
+///
+/// Resolves the niri socket path from the [`SOCKET_PATH_ENV`] env var.
+/// Tests should call [`run_once_at`] directly with an explicit path
+/// instead of mutating the env (race-free under parallel `cargo test`).
 async fn run_once(tx: &watch::Sender<Option<FocusEvent>>) -> Result<()> {
     let socket_path: OsString = std::env::var_os(SOCKET_PATH_ENV).ok_or_else(|| {
         anyhow!(
@@ -225,8 +229,20 @@ async fn run_once(tx: &watch::Sender<Option<FocusEvent>>) -> Result<()> {
              (or override via systemd Environment=)"
         )
     })?;
+    run_once_at(&socket_path, tx).await
+}
 
-    let stream = UnixStream::connect(&socket_path)
+/// Like [`run_once`] but the niri socket path is provided explicitly
+/// instead of read from the [`SOCKET_PATH_ENV`] env var. Exposed for
+/// integration tests (FR-002) that stand up a fake niri server on a
+/// temp `UnixListener` and want to exercise the connect / ack /
+/// reject paths without touching process-wide env state.
+pub async fn run_once_at(
+    socket_path: impl AsRef<std::path::Path>,
+    tx: &watch::Sender<Option<FocusEvent>>,
+) -> Result<()> {
+    let socket_path = socket_path.as_ref();
+    let stream = UnixStream::connect(socket_path)
         .await
         .with_context(|| format!("connecting to niri socket at {:?}", socket_path))?;
 
