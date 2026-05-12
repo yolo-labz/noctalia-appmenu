@@ -864,11 +864,7 @@ async fn fetch_menubar_for_pid_inner(
         None => return Ok(None),
     };
     let tree = fetch_menu_tree(&a11y, &menubar.0, &menubar.1.as_ref(), 0).await?;
-    // FR-004: GTK4 `GtkPopoverMenuBar` exposes MENU_BAR with zero
-    // children pre-popup. Returning the empty tree would render an
-    // empty bar; surfacing None lets active.rs substitute the
-    // synthetic pseudo-menu.
-    if tree.children.is_empty() {
+    if menubar_is_empty(&tree) {
         tracing::debug!(
             pid,
             "menubar walk returned zero children — caller should fall back to synthetic menu"
@@ -876,6 +872,17 @@ async fn fetch_menubar_for_pid_inner(
         return Ok(None);
     }
     Ok(Some(tree))
+}
+
+/// FR-004 predicate: a freshly-walked menubar accessible with zero
+/// children is the GTK4 `GtkPopoverMenuBar` quirk (Nautilus 45+ and
+/// other GTK4 apps that defer child realisation until popup). Other
+/// app classes also surface empty menubars (Qt apps mid-tear-down,
+/// half-initialised electron wrappers). Routing the empty case
+/// through `Ok(None)` lets the caller substitute the synthetic
+/// pseudo-menu instead of rendering a blank bar.
+fn menubar_is_empty(tree: &MenuItem) -> bool {
+    tree.children.is_empty()
 }
 
 /// Polls `org.a11y.Status.IsEnabled` on the session bus and re-flips
@@ -1265,6 +1272,42 @@ mod tests {
         let m = synthetic_menu("");
         assert_eq!(m.label, "App");
         assert_eq!(m.children.len(), 2);
+    }
+
+    #[test]
+    fn empty_menubar_triggers_synthetic_fallback() {
+        // FR-004: a MENU_BAR walked from a GTK4 `GtkPopoverMenuBar`
+        // (Nautilus 45+, etc.) surfaces with `children: []` because
+        // GTK4 defers child realisation until popup. The fallback
+        // predicate must say "yes, swap in synthetic" for that shape.
+        let empty_menubar = MenuItem {
+            id: 0,
+            label: "menubar".to_string(),
+            item_type: "submenu".to_string(),
+            enabled: true,
+            visible: true,
+            service: ":1.42".to_string(),
+            path: "/org/a11y/atspi/accessible/menubar".to_string(),
+            ..Default::default()
+        };
+        assert!(empty_menubar.children.is_empty());
+        assert!(
+            menubar_is_empty(&empty_menubar),
+            "empty-children menubar must route into synthetic fallback"
+        );
+
+        // Conversely, a walked menubar with at least one top-level
+        // entry stays on the AT-SPI path — no fallback.
+        let populated = MenuItem {
+            children: vec![MenuItem {
+                id: 0,
+                label: "File".to_string(),
+                item_type: "submenu".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(!menubar_is_empty(&populated));
     }
 
     #[tokio::test]

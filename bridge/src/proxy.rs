@@ -63,9 +63,42 @@ use zbus::{interface, Connection};
 /// - v0.3: `menu` carries the AT-SPI walked tree; `menu_service` and
 ///   `menu_path` retained for backward-compat but `menu` is the
 ///   authoritative source.
-/// - **v1 (this commit, post-spec-003)**: explicit `"v": 1` field
-///   for forward/backward compat. Field set unchanged from v0.3.
+/// - v1 (post-spec-003): explicit `"v": 1` field for forward/backward
+///   compat. Field set unchanged from v0.3.
+/// - **v=1.1 (this commit, spec 005 FR-004)**: additive
+///   `"source": "atspi" | "synthetic" | "empty"` top-level field —
+///   `v` stays `1` because the change is wire-compat (consumers
+///   ignoring the field continue to parse the rest of the payload).
+///   See `specs/004-project-completion/contracts/active-json-schema.md`.
 const ACTIVE_JSON_SCHEMA_VERSION: u32 = 1;
+
+/// Provenance of the `menu` field in the active.json payload (spec
+/// 005 FR-004). Serialises into the `source` top-level field; the
+/// QML widget can render different placeholder styles based on the
+/// source value (e.g. dim the bar when "synthetic", hide it when
+/// "empty").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MenuSource {
+    /// Menu walked from the focused app's AT-SPI accessible tree.
+    Atspi,
+    /// Menu synthesised from `app_id` because the focused app has no
+    /// usable AT-SPI menubar (GTK4 empty-children quirk, terminals,
+    /// electron-no-a11y, native Wayland with no a11y plugin).
+    Synthetic,
+    /// No focus on a window (or focus on a pidless surface). `menu`
+    /// is `null` in this case.
+    Empty,
+}
+
+impl MenuSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Atspi => "atspi",
+            Self::Synthetic => "synthetic",
+            Self::Empty => "empty",
+        }
+    }
+}
 
 /// Build + write the active-snapshot JSON, with **producer-side
 /// dedup** — when the serialised payload is byte-identical to the
@@ -85,6 +118,7 @@ fn write_active_json(
     path: &Path,
     snap: &ActiveSnapshot,
     menu: Option<&atspi::MenuItem>,
+    source: MenuSource,
     last_body: &mut Option<String>,
 ) {
     let payload = serde_json::json!({
@@ -92,6 +126,7 @@ fn write_active_json(
         "focus_pid": snap.focus_pid,
         "app_id": snap.app_id,
         "title": snap.title,
+        "source": source.as_str(),
         "menu_service": snap.menu_service,
         "menu_path": snap.menu_path.as_ref().map_or("", |p| p.as_str()),
         "menu": menu,
@@ -266,6 +301,7 @@ pub async fn run(
         &active_json_path,
         &ActiveSnapshot::empty(),
         None,
+        MenuSource::Empty,
         &mut last_body,
     );
 
@@ -281,7 +317,22 @@ pub async fn run(
         // the QML widget waits up to ~3.6s (timeout + retries)
         // before showing the new app's title — a regression vs the
         // pre-retry v0.3.0-alpha.6 behaviour (codex review of #40).
-        write_active_json(&active_json_path, &snapshot, None, &mut last_body);
+        // The eager-publish `source` is `empty` when there is no
+        // focus, `atspi` when we expect the upcoming walk to succeed;
+        // the trailing write at the bottom of the loop overrides
+        // with the real provenance.
+        let eager_source = if snapshot.focus_pid == 0 {
+            MenuSource::Empty
+        } else {
+            MenuSource::Atspi
+        };
+        write_active_json(
+            &active_json_path,
+            &snapshot,
+            None,
+            eager_source,
+            &mut last_body,
+        );
         publish_props(&conn, &cfg, &proxy, &snapshot).await?;
 
         // v0.3 substrate: walk the focused app's AT-SPI menubar
@@ -299,7 +350,12 @@ pub async fn run(
             let mut found: Option<atspi::MenuItem> = None;
             let mut attempt: u32 = 0;
             loop {
-                match atspi::fetch_menubar_for_pid(&client, snapshot.focus_pid, Some(&snapshot.app_id)).await
+                match atspi::fetch_menubar_for_pid(
+                    &client,
+                    snapshot.focus_pid,
+                    Some(&snapshot.app_id),
+                )
+                .await
                 {
                     Ok(Some(m)) => {
                         debug!(
@@ -322,7 +378,18 @@ pub async fn run(
                                     break;
                                 }
                                 snapshot = active_rx.borrow_and_update().clone();
-                                write_active_json(&active_json_path, &snapshot, None, &mut last_body);
+                                let mid_source = if snapshot.focus_pid == 0 {
+                                    MenuSource::Empty
+                                } else {
+                                    MenuSource::Atspi
+                                };
+                                write_active_json(
+                                    &active_json_path,
+                                    &snapshot,
+                                    None,
+                                    mid_source,
+                                    &mut last_body,
+                                );
                                 publish_props(&conn, &cfg, &proxy, &snapshot).await?;
                                 if snapshot.focus_pid == 0 {
                                     break;
@@ -350,20 +417,34 @@ pub async fn run(
             None
         };
 
-        // Split-the-loss (PR #47, 2026-05-10 swarm synthesis): if the
-        // focused app exposes a real menu via AT-SPI, render it.
-        // Otherwise emit `menu: null` so the QML widget collapses to
-        // zero-width. No more wtype-faked Edit, no synthetic Window
-        // submenu impersonating compositor actions as if they were
-        // app menus. Honest beats lying.
-        //
-        // Apps without AT-SPI exposure (terminals, electron-no-a11y,
-        // native Wayland no-a11y) get nothing — the bar widget hides
-        // entirely. Power users who want compositor-action menus on
-        // those apps can either (a) get the same actions via niri
-        // keybinds directly or (b) opt into an `appOverrides` static
-        // menu in plugin settings (future work).
-        write_active_json(&active_json_path, &snapshot, menu.as_ref(), &mut last_body);
+        // FR-004 (spec 005): when the focused app has no usable
+        // AT-SPI menubar — `fetch_menubar_for_pid` returned `None`
+        // for GTK4 empty-children, terminals, electron-no-a11y, or
+        // native Wayland clients with no a11y plugin — substitute
+        // the synthetic pseudo-menu so the bar always renders
+        // something useful. Provenance is reflected in the
+        // active.json `source` field so the QML widget can style
+        // synthetic vs real menus differently.
+        let (final_menu, final_source): (Option<atspi::MenuItem>, MenuSource) =
+            if snapshot.focus_pid == 0 {
+                (None, MenuSource::Empty)
+            } else {
+                match menu {
+                    Some(m) => (Some(m), MenuSource::Atspi),
+                    None => (
+                        Some(atspi::synthetic_menu(&snapshot.app_id)),
+                        MenuSource::Synthetic,
+                    ),
+                }
+            };
+
+        write_active_json(
+            &active_json_path,
+            &snapshot,
+            final_menu.as_ref(),
+            final_source,
+            &mut last_body,
+        );
     }
 
     Ok(())

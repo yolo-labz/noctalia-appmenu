@@ -167,7 +167,10 @@ pub async fn run(tx: watch::Sender<Option<FocusEvent>>, _cfg: Config) -> Result<
 /// Extracted as a free fn so the FR-001 regression test can drive it
 /// without sleeping 30 s of wall clock per cycle.
 #[must_use]
-pub fn next_backoff(current: std::time::Duration, session: std::time::Duration) -> std::time::Duration {
+pub fn next_backoff(
+    current: std::time::Duration,
+    session: std::time::Duration,
+) -> std::time::Duration {
     if session >= CONNECTED_RESET_THRESHOLD {
         BACKOFF_FLOOR
     } else {

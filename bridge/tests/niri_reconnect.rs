@@ -28,9 +28,7 @@ use tokio::sync::watch;
 /// The closure runs *inside* the accept loop with the accepted
 /// (read-half, write-half) stream — the test scripts the bytes to
 /// send back.
-async fn fake_niri<F, Fut>(
-    handler: F,
-) -> (TempDir, std::path::PathBuf, tokio::task::JoinHandle<()>)
+async fn fake_niri<F, Fut>(handler: F) -> (TempDir, std::path::PathBuf, tokio::task::JoinHandle<()>)
 where
     F: FnOnce(
             tokio::io::BufReader<tokio::net::unix::OwnedReadHalf>,
@@ -58,9 +56,7 @@ where
 
 /// Read one newline-delimited line from the client's request half
 /// (it will be the EventStream request) and discard it.
-async fn drain_request(
-    rd: &mut tokio::io::BufReader<tokio::net::unix::OwnedReadHalf>,
-) -> String {
+async fn drain_request(rd: &mut tokio::io::BufReader<tokio::net::unix::OwnedReadHalf>) -> String {
     let mut req = String::new();
     rd.read_line(&mut req).await.expect("read request");
     req
@@ -88,7 +84,9 @@ async fn ack_path_happy_then_eof_returns_session_ended_err() {
     .await;
 
     let (tx, _rx) = watch::channel(None);
-    let err = run_once_at(&path, &tx).await.expect_err("session must err on EOF");
+    let err = run_once_at(&path, &tx)
+        .await
+        .expect_err("session must err on EOF");
     let s = format!("{err:#}");
     assert!(
         s.contains("niri event-stream closed"),
