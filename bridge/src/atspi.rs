@@ -945,6 +945,32 @@ async fn is_a11y_enabled() -> Result<bool> {
     bool::try_from(v).context("a11y status probe: bool conversion")
 }
 
+/// Typed error variants surfaced by AT-SPI operations. Generic
+/// failures still funnel through [`anyhow::Error`]; only the
+/// variants callers need to discriminate on are typed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MenuError {
+    /// `do_action` could not resolve the addressed accessible — the
+    /// focused app rebuilt its widget tree between when the bridge
+    /// walked it and when the click arrived. Carries the originating
+    /// (service, path) so the caller can log + signal a snapshot
+    /// refresh. Spec 005 FR-007.
+    Stale { service: String, path: String },
+}
+
+impl std::fmt::Display for MenuError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stale { service, path } => write!(
+                f,
+                "MenuError::Stale {{ service: {service:?}, path: {path:?} }}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MenuError {}
+
 /// Click subcommand backend: invoke `Action.DoAction(0)` on the
 /// AT-SPI accessible at the given (service, path). Action index
 /// 0 is "click" by qtatspi convention.
@@ -955,6 +981,14 @@ async fn is_a11y_enabled() -> Result<bool> {
 /// items carry `service = "::synthetic"` and `path = "niri:<action>"`
 /// (e.g. `niri:close-window`). On click we route through niri-IPC
 /// instead of AT-SPI's `DoAction`.
+///
+/// **Stale-path detection (FR-007):** before issuing `DoAction(0)`
+/// the function re-fetches the accessible via a `GetRole` probe.
+/// If the app rebuilt its widget tree between snapshot and click,
+/// the probe errors and we surface [`MenuError::Stale`] instead of
+/// letting the raw `UnknownObject` / `UnknownMethod` D-Bus error
+/// bubble up untyped. Callers `downcast_ref::<MenuError>()` to
+/// recognise this and trigger an immediate snapshot refresh.
 pub async fn do_action(service: &str, path: &str) -> Result<()> {
     if service == SYNTHETIC_SERVICE {
         return dispatch_synthetic(path).await;
@@ -963,6 +997,33 @@ pub async fn do_action(service: &str, path: &str) -> Result<()> {
     let proxy_path: ObjectPath<'_> = path
         .try_into()
         .with_context(|| format!("parsing AT-SPI path {path}"))?;
+
+    // FR-007: re-fetch the addressed accessible. A successful
+    // `GetRole` round-trip is sufficient evidence that the path
+    // still resolves on the focused app's side. The cheap probe
+    // (one method call, no children walked) keeps the click hot
+    // path under a millisecond.
+    let accessible = AccessibleProxy::builder(&a11y)
+        .destination(service.to_owned())?
+        .path(proxy_path.clone())?
+        .cache_properties(zbus::CacheProperties::No)
+        .build()
+        .await
+        .context("re-fetching accessible before DoAction")?;
+    if let Err(probe_err) = accessible.get_role().await {
+        tracing::debug!(
+            service,
+            path,
+            error = ?probe_err,
+            "AT-SPI path stale (re-fetch probe failed); surfacing MenuError::Stale"
+        );
+        return Err(MenuError::Stale {
+            service: service.to_string(),
+            path: path.to_string(),
+        }
+        .into());
+    }
+
     let action = ActionProxy::builder(&a11y)
         .destination(service.to_owned())?
         .path(proxy_path)?
@@ -1272,6 +1333,39 @@ mod tests {
         let m = synthetic_menu("");
         assert_eq!(m.label, "App");
         assert_eq!(m.children.len(), 2);
+    }
+
+    #[test]
+    fn menu_error_stale_round_trips_through_anyhow() {
+        // FR-007 contract: `do_action` returns `Result<(), anyhow::Error>`,
+        // but callers (the `atspi-click` CLI) need to discriminate
+        // `MenuError::Stale` from generic failures so they can trigger
+        // a snapshot refresh + exit 2. The contract is "embed via
+        // `.into()`, recover via `downcast_ref::<MenuError>()`".
+        let err: anyhow::Error = MenuError::Stale {
+            service: ":1.42".to_string(),
+            path: "/org/a11y/atspi/accessible/12".to_string(),
+        }
+        .into();
+        let down = err
+            .downcast_ref::<MenuError>()
+            .expect("MenuError must downcast back out of anyhow::Error");
+        assert_eq!(
+            down,
+            &MenuError::Stale {
+                service: ":1.42".to_string(),
+                path: "/org/a11y/atspi/accessible/12".to_string(),
+            }
+        );
+        // Display includes both fields so log scrapers + the CLI's
+        // stderr line stay greppable.
+        let s = format!("{down}");
+        assert!(s.contains(":1.42"), "Display omits service: {s}");
+        assert!(
+            s.contains("/org/a11y/atspi/accessible/12"),
+            "Display omits path: {s}"
+        );
+        assert!(s.starts_with("MenuError::Stale"), "Display prefix: {s}");
     }
 
     #[test]

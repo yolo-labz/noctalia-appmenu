@@ -9,7 +9,7 @@
 //! - `proxy`: own org.noctalia.AppMenu, expose a fixed-path active-app
 //!   proxy with the focused window's metadata as D-Bus properties.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use noctalia_appmenu_bridge::focus::FocusSink;
 use noctalia_appmenu_bridge::{active, atspi, config, niri, proxy};
@@ -158,8 +158,52 @@ async fn main() -> Result<()> {
 
 /// CLI `atspi-click` subcommand: forward the click to the AT-SPI
 /// accessible at `(service, path)`. Delegates to [`atspi::do_action`].
+///
+/// FR-007 stale handling: when `do_action` surfaces
+/// [`atspi::MenuError::Stale`] we signal the long-running bridge to
+/// re-walk the focused app (`org.noctalia.AppMenu.Active.RefreshActive`)
+/// and exit with status 2 + a `MenuError::Stale {...}` line on stderr.
+/// The QML widget interprets exit-2 as "click missed, snapshot will
+/// repaint shortly" and re-renders against the refreshed `active.json`.
 async fn run_atspi_click(service: &str, path: &str) -> Result<()> {
-    atspi::do_action(service, path).await
+    match atspi::do_action(service, path).await {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            if let Some(stale) = err.downcast_ref::<atspi::MenuError>() {
+                if let Err(e) = signal_refresh_active().await {
+                    // Best-effort: even if the daemon is unreachable
+                    // the exit-2 still tells the widget to give up
+                    // on this click; the next focus event will
+                    // naturally refresh the menu tree.
+                    eprintln!(
+                        "warning: RefreshActive signal failed: {e:#}; bridge will refresh on next focus event"
+                    );
+                }
+                eprintln!("{stale}");
+                std::process::exit(2);
+            }
+            Err(err)
+        }
+    }
+}
+
+/// Send a `RefreshActive` D-Bus method call to the running bridge so
+/// it re-walks the focused app's AT-SPI tree immediately. Used by the
+/// short-lived `atspi-click` subprocess when it detects a stale path.
+async fn signal_refresh_active() -> Result<()> {
+    let conn = zbus::Connection::session()
+        .await
+        .context("connecting to session bus for RefreshActive")?;
+    conn.call_method(
+        Some("org.noctalia.AppMenu"),
+        "/org/noctalia/AppMenu/Active",
+        Some("org.noctalia.AppMenu.Active"),
+        "RefreshActive",
+        &(),
+    )
+    .await
+    .context("calling org.noctalia.AppMenu.Active.RefreshActive")?;
+    Ok(())
 }
 
 fn init_tracing(foreground: bool) {

@@ -17,7 +17,7 @@
 use crate::{active::ActiveSnapshot, atspi, config::Config};
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{watch, Mutex, Notify};
 use tracing::{debug, info, warn};
 use zbus::{interface, Connection};
 
@@ -214,10 +214,14 @@ pub struct ActiveProxyState {
 
 /// `org.noctalia.AppMenu.Active` D-Bus object. Wraps the state behind a
 /// `Mutex` so async property accessors can read consistently while the
-/// `run()` writer task pushes updates.
+/// `run()` writer task pushes updates. The `refresh_kick` notifier is
+/// the FR-007 wiring: the `atspi-click` CLI calls `RefreshActive` when
+/// it detects a stale path, which wakes the run-loop and triggers an
+/// immediate AT-SPI re-walk against the current snapshot.
 #[derive(Clone, Default)]
 pub struct ActiveProxy {
     inner: Arc<Mutex<ActiveProxyState>>,
+    refresh_kick: Arc<Notify>,
 }
 
 impl ActiveProxy {
@@ -225,6 +229,15 @@ impl ActiveProxy {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Return a shared handle to the refresh-kick notifier. The
+    /// `run()` task awaits on this alongside `active_rx.changed()`
+    /// so a `RefreshActive` D-Bus call short-circuits the next focus
+    /// event and re-walks immediately. Spec 005 FR-007.
+    #[must_use]
+    pub fn refresh_kick(&self) -> Arc<Notify> {
+        self.refresh_kick.clone()
     }
 }
 
@@ -249,6 +262,17 @@ impl ActiveProxy {
     async fn title(&self) -> String {
         self.inner.lock().await.title.clone()
     }
+
+    /// FR-007 refresh trigger. The `atspi-click` CLI invokes this
+    /// after `do_action` returns `MenuError::Stale` so the bridge
+    /// re-walks the focused app's AT-SPI tree before the QML widget
+    /// re-renders. Idempotent and best-effort: a notification is
+    /// coalesced with any concurrent one (`tokio::Notify::notify_one`
+    /// semantics), so a click storm cannot pile up walks.
+    async fn refresh_active(&self) {
+        tracing::debug!("RefreshActive D-Bus method received; kicking active loop");
+        self.refresh_kick.notify_one();
+    }
 }
 
 /// Long-running task: own `org.noctalia.AppMenu`, expose the active
@@ -264,6 +288,7 @@ pub async fn run(
     cfg: Config,
 ) -> anyhow::Result<()> {
     let proxy = ActiveProxy::new();
+    let refresh_kick = proxy.refresh_kick();
 
     conn.object_server()
         .at(cfg.publish_path.as_str(), proxy.clone())
@@ -306,8 +331,28 @@ pub async fn run(
     );
 
     loop {
-        if active_rx.changed().await.is_err() {
-            break;
+        // FR-007 wake-up: in addition to focus-driven changes from
+        // `active_rx`, the loop wakes on a `RefreshActive` D-Bus
+        // call so a stale-path click triggers an immediate re-walk
+        // against the current snapshot. On the notify branch we
+        // intentionally skip `borrow_and_update` of a fresh value —
+        // we want to re-walk the same focused app, not consume a
+        // pending focus event the run-loop hasn't seen yet.
+        tokio::select! {
+            r = active_rx.changed() => {
+                if r.is_err() {
+                    break;
+                }
+            }
+            () = refresh_kick.notified() => {
+                debug!("RefreshActive kick observed; re-walking current snapshot");
+                // Suppress producer-side dedup so the re-walk
+                // always emits, even if the eventual menu tree
+                // happens to serialise byte-identical to the
+                // pre-stale tree — the click handler is waiting
+                // on a real update, not a coalesced no-op.
+                last_body = None;
+            }
         }
         let mut snapshot = active_rx.borrow_and_update().clone();
 
