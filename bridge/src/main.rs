@@ -11,6 +11,7 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use noctalia_appmenu_bridge::focus::FocusSink;
 use noctalia_appmenu_bridge::{active, atspi, config, niri, proxy};
 use tracing::{info, warn};
 
@@ -99,7 +100,11 @@ async fn main() -> Result<()> {
     let (focus_tx, focus_rx) = tokio::sync::watch::channel(None);
     let (active_tx, active_rx) = tokio::sync::watch::channel(active::ActiveSnapshot::empty());
 
-    let niri_task = tokio::spawn(niri::run(focus_tx, cfg.clone()));
+    // The `FocusSink` trait is the abstraction door — at v1.0.0 the
+    // only implementor is `NiriFocusSink` (constitution principle I).
+    // Hyprland / Sway / KWin implementors will slot in here in v2
+    // without churning the rest of main.rs.
+    let niri_task = tokio::spawn(niri::NiriFocusSink::new().run(focus_tx, cfg.clone()));
     let active_task = tokio::spawn(active::run(focus_rx, active_tx, cfg.clone()));
     let proxy_task = tokio::spawn(proxy::run(conn.clone(), active_rx, cfg.clone()));
 

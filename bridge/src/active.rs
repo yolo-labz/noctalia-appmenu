@@ -7,7 +7,7 @@
 //! as backward-compatible empty fields so the proxy's D-Bus property
 //! contract stays stable for any consumer that has not yet migrated.
 
-use crate::{config::Config, niri::FocusEvent};
+use crate::{config::Config, focus::FocusEvent};
 use std::time::Duration;
 use tokio::sync::watch;
 use tracing::debug;
