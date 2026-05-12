@@ -87,7 +87,10 @@ jobs:
             exit 0
           fi
           : > .qmllint/raw.json
-          nix develop --command qmllint --version
+          # `nix develop --command` re-prints the devShell banner on
+          # every invocation; route stdout through a tmpfile so banner
+          # text never lands in the JSON pipeline.
+          nix develop --command qmllint --version >/dev/null 2>&1 || true
           # Run once per file so a parse failure in one doesn't lose
           # findings from the others. Preserve qmllint's exit code so
           # a hard parse failure still fails the job — SARIF upload
@@ -98,8 +101,14 @@ jobs:
             # qmllint 6.x: --json <output-file> writes the report to a
             # path, not stdout. Two positional args: --json OUT IN.
             tmp_json=$(mktemp --suffix=.qmllint.json)
-            if ! nix develop --command qmllint --json "$tmp_json" "$f"; then
+            if ! nix develop --command qmllint --json "$tmp_json" "$f" >/dev/null 2>&1; then
               rc=1
+            fi
+            # Some qmllint versions emit nothing on a perfectly clean
+            # file. Provide an empty JSON object so jq -s sees a valid
+            # sequence.
+            if [ ! -s "$tmp_json" ]; then
+              printf '{}' > "$tmp_json"
             fi
             cat "$tmp_json" >> .qmllint/raw.json
             rm -f "$tmp_json"
@@ -141,8 +150,11 @@ jobs:
             }]
           }
           JQ
-          nix develop --command jq -s -f .qmllint/sarif.jq .qmllint/raw.json > qmllint.sarif
-          echo "qmllint diagnostics: $(nix develop --command jq '.runs[0].results | length' qmllint.sarif)"
+          # jq lives in the system profile; calling it via `nix develop
+          # --command jq` would prepend the devShell banner to stdout,
+          # corrupting the SARIF document on its way to the file.
+          jq -s -f .qmllint/sarif.jq .qmllint/raw.json > qmllint.sarif
+          echo "qmllint diagnostics: $(jq '.runs[0].results | length' qmllint.sarif)"
           exit $rc
 
       - name: Upload qmllint SARIF to code-scanning
