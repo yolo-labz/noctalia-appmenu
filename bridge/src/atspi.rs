@@ -439,15 +439,7 @@ pub async fn find_app_for_pid(
                     Err(_) => continue,
                 };
                 let normalized_name = normalize_app_id(&name);
-                if normalized_name.is_empty() {
-                    continue;
-                }
-                let (short, long) = if normalized_name.len() < normalized_hint.len() {
-                    (&normalized_name, &normalized_hint)
-                } else {
-                    (&normalized_hint, &normalized_name)
-                };
-                if short.len() >= 3 && long.contains(short.as_str()) {
+                if fuzzy_app_match(&normalized_hint, &normalized_name) {
                     tracing::debug!(
                         pid,
                         %hint,
@@ -518,15 +510,7 @@ async fn find_active_app_via_state(
             continue;
         };
         let n = normalize_app_id(&name);
-        if n.is_empty() {
-            continue;
-        }
-        let (short, long) = if n.len() < normalized_hint.len() {
-            (&n, &normalized_hint)
-        } else {
-            (&normalized_hint, &n)
-        };
-        if short.len() >= 3 && long.contains(short.as_str()) {
+        if fuzzy_app_match(&normalized_hint, &n) {
             return Some((service.clone(), frame_path));
         }
     }
@@ -614,6 +598,35 @@ fn normalize_app_id(s: &str) -> String {
         }
     }
     trimmed
+}
+
+/// FR-008 pass-2 fuzzy match. Two normalized identifiers are
+/// considered the same app when the shorter is a substring of the
+/// longer AND the shorter is at least 3 characters long. Used by
+/// both `find_app_for_pid`'s name-fallback branch and
+/// `find_active_app_via_state`'s corroboration step.
+///
+/// The 3-char floor avoids accidental matches on common 2-letter
+/// fragments (`qt`, `ui`, `vm`) that would otherwise mis-pair
+/// unrelated apps. Real-world coverage:
+///
+/// - `kate` vs `kate` (KDE double-prefix → `normalize_app_id`
+///   strips `org.kde.` on both sides, fuzzy returns true even on
+///   exact equality).
+/// - `anki` (niri-reported wrapper `app_id`) vs `anki.bin` (AT-SPI
+///   `Name` from the actual Qt subprocess) → `anki` is a substring
+///   of `anki.bin`, match succeeds.
+/// - `ok` vs `okular` → short side is 2 chars, no match (safety).
+fn fuzzy_app_match(normalized_hint: &str, normalized_name: &str) -> bool {
+    if normalized_hint.is_empty() || normalized_name.is_empty() {
+        return false;
+    }
+    let (short, long) = if normalized_name.len() < normalized_hint.len() {
+        (normalized_name, normalized_hint)
+    } else {
+        (normalized_hint, normalized_name)
+    };
+    short.len() >= 3 && long.contains(short)
 }
 
 /// Depth-first search for the first descendant with role
@@ -1366,6 +1379,95 @@ mod tests {
             "Display omits path: {s}"
         );
         assert!(s.starts_with("MenuError::Stale"), "Display prefix: {s}");
+    }
+
+    #[test]
+    fn normalize_app_id_strips_kde_double_prefix() {
+        // FR-008: KDE apps publish `app_id = "org.kde.<app>"` on
+        // Wayland but expose AT-SPI Name = "<app>" (e.g. "kate",
+        // "Dolphin"). `normalize_app_id` must strip the reverse-DNS
+        // prefix on both sides so the fuzzy match has matching
+        // shapes to compare.
+        assert_eq!(normalize_app_id("org.kde.kate"), "kate");
+        assert_eq!(normalize_app_id("org.kde.dolphin"), "dolphin");
+        assert_eq!(normalize_app_id("org.kde.okular"), "okular");
+        // Case + whitespace fold to the same canonical form so the
+        // accessible-Name capitalisation (`Dolphin`, `Kate`) and
+        // the wayland-app_id casing (`org.kde.dolphin`) collapse.
+        assert_eq!(normalize_app_id("Dolphin"), "dolphin");
+        assert_eq!(normalize_app_id("  Kate  "), "kate");
+    }
+
+    #[test]
+    fn normalize_app_id_preserves_single_dot_suffix() {
+        // Anki ships as a Python wrapper that launches a Qt
+        // subprocess called `anki.bin`. The bridge sees the
+        // wrapper's PID via niri, but the AT-SPI accessible
+        // registers under the subprocess. The fuzzy-match floor
+        // is "3+ char short side, substring of long side", so we
+        // need `normalize_app_id` to NOT strip `.bin` off as if it
+        // were a reverse-DNS suffix (one dot, prefix has zero
+        // dots → keep as-is).
+        assert_eq!(normalize_app_id("anki.bin"), "anki.bin");
+        assert_eq!(normalize_app_id("anki"), "anki");
+        // Sanity: single-dot non-DNS identifiers stay whole. Two
+        // dots → strip everything before the rightmost dot only
+        // when the prefix itself contains a dot.
+        assert_eq!(normalize_app_id("firefox-nightly"), "firefox-nightly");
+        assert_eq!(normalize_app_id("foo.bar"), "foo.bar");
+        assert_eq!(normalize_app_id("a.b.c"), "c");
+    }
+
+    #[test]
+    fn fuzzy_app_match_recognises_kde_and_anki_pairings() {
+        // FR-008 happy paths against the three v1 reference apps:
+
+        // kate: niri-reported `org.kde.kate` → normalize → "kate".
+        // AT-SPI Name `"kate"` → normalize → "kate". Equal strings
+        // satisfy the substring predicate trivially.
+        assert!(fuzzy_app_match(
+            &normalize_app_id("org.kde.kate"),
+            &normalize_app_id("kate")
+        ));
+
+        // dolphin: same shape, capitalised AT-SPI Name.
+        assert!(fuzzy_app_match(
+            &normalize_app_id("org.kde.dolphin"),
+            &normalize_app_id("Dolphin")
+        ));
+
+        // Anki subprocess: niri reports `anki` (wrapper script's
+        // own app_id), AT-SPI registers `anki.bin` (the Qt
+        // subprocess). Short = "anki" (4 chars, ≥ 3), long =
+        // "anki.bin" (contains "anki") → match.
+        assert!(fuzzy_app_match(
+            &normalize_app_id("anki"),
+            &normalize_app_id("anki.bin")
+        ));
+        // Argument order must not matter.
+        assert!(fuzzy_app_match(
+            &normalize_app_id("anki.bin"),
+            &normalize_app_id("anki")
+        ));
+    }
+
+    #[test]
+    fn fuzzy_app_match_rejects_short_and_empty() {
+        // 2-char fragments are too generic. `qt` would otherwise
+        // collide with anything Qt-named (qBittorrent, KAlgebra,
+        // etc.) and mis-route the menubar.
+        assert!(!fuzzy_app_match("qt", "qtcreator"));
+        assert!(!fuzzy_app_match("ok", "okular"));
+
+        // Empty sides never match — `normalize_app_id` can return
+        // empty on whitespace-only AT-SPI Names, and the caller
+        // depends on the helper saying "no" rather than panicking.
+        assert!(!fuzzy_app_match("", "okular"));
+        assert!(!fuzzy_app_match("kate", ""));
+        assert!(!fuzzy_app_match("", ""));
+
+        // Non-substring disjoint pairs.
+        assert!(!fuzzy_app_match("firefox", "chromium"));
     }
 
     #[test]
