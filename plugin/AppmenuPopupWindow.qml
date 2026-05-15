@@ -217,9 +217,20 @@ PanelWindow {
             return p.y + root.anchorItem.height;
         }
 
-        color: Color.mSurface
-        border.color: Color.mOutline
-        border.width: 1
+        // v1.0.2 visual contrast bump (spec 011): menuBox uses
+        // mSurfaceVariant + 2px border so the popup is clearly
+        // distinct from app backgrounds (Pedro's screenshot showed
+        // menu items rendering against shadPS4QtLauncher's near-
+        // identical dark bg with no visible boundary). Surface
+        // constraint (FR-002 of spec 009) is the proper fix and ships
+        // in v1.0.3 once outside-click dismissal is designed.
+        color: Color.mSurfaceVariant !== undefined
+               ? Color.mSurfaceVariant
+               : Color.mSurface
+        border.color: Color.mPrimary !== undefined
+                      ? Color.mPrimary
+                      : Color.mOutline
+        border.width: 2
         radius: Style.marginS
 
         // Block click-through into the outside-click dismisser. Without
