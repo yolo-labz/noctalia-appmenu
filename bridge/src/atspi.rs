@@ -1602,10 +1602,7 @@ mod tests {
         // {label: "X", children: [{empty MENU with kids}, {real "Other"}]}
         // is NOT a wrapper case — the real "Other" sibling means the
         // empty MENU is intentional. MUST NOT flatten.
-        let mut item = submenu(
-            "X",
-            vec![qt_wrap(vec![leaf("Hidden")]), leaf("Other")],
-        );
+        let mut item = submenu("X", vec![qt_wrap(vec![leaf("Hidden")]), leaf("Other")]);
         flatten_qt_wrapper(&mut item);
         assert_eq!(item.children.len(), 2);
         assert_eq!(item.children[0].label, ""); // wrapper preserved
