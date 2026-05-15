@@ -861,7 +861,19 @@ pub async fn fetch_menubar_for_pid(
     pid: u32,
     app_id_hint: Option<&str>,
 ) -> Result<Option<MenuItem>> {
-    const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(3000);
+    // v1.0.2 — lowered from 3000 ms to 500 ms.
+    //
+    // Pedro field report 15/05/2026: every focus to an X11 app
+    // (hosted by xwayland-satellite, PID 4293) drained the full
+    // 3 s budget because xwayland has no AT-SPI registration but
+    // `find_app_for_pid` still iterates registered apps before
+    // giving up. The 3 s wait blocked the bar update for every
+    // focus event involving an X11 app.
+    //
+    // 500 ms is plenty of headroom — Qt6 / GTK4 apps typically
+    // respond in <50 ms; anything slower is genuinely hung and we
+    // prefer a fast placeholder fall-back over a frozen bar.
+    const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
     match tokio::time::timeout(
         FETCH_BUDGET,
         fetch_menubar_for_pid_inner(client, pid, app_id_hint),
