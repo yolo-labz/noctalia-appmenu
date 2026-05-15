@@ -55,6 +55,15 @@ PanelWindow {
     /// through `AppmenuPopupWindow`.
     property string focusedScreenName: ""
 
+    /// Spec 009 FR-007 — recursive submenu namespace uniqueness.
+    /// Depth 1 is the first SubmenuPopup directly declared inside
+    /// `AppmenuPopupWindow`; recursive instances loaded via
+    /// `nestedComponent` increment this. The depth suffix lets niri
+    /// (and any future window-rule) discriminate sibling layer-shell
+    /// surfaces that would otherwise collide on the same namespace
+    /// string.
+    property int depth: 1
+
     /// Spec 003 FR-009 — failed-state flag. Set when an envelope catches
     /// a throw; cleared on the next successful `open`.
     property bool _failedState: false
@@ -81,7 +90,8 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
-    WlrLayershell.namespace: "noctalia-appmenu-submenu-"
+    WlrLayershell.namespace: "noctalia-appmenu-submenu-d"
+                              + depth + "-"
                               + (screen ? screen.name : "unknown")
 
     /// Open this submenu, populated by `menuItem.children`, anchored to
@@ -128,6 +138,43 @@ PanelWindow {
         }
     }
 
+    // ── Spec 009 FR-003 — JS-computed menu width ──────────────────────
+    // Hidden Text element as metrics oracle (see AppmenuPopupWindow for
+    // rationale). Avoids FontMetrics, which qmllint 6.11 in CI doesn't
+    // always resolve under our import chain.
+    property real _calcWidth: 180
+    Text {
+        id: _measureText
+        visible: false
+        font.family: Settings.data.ui.fontDefault || "Inter"
+        font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
+    }
+    function _recalcWidth() {
+        if (!root.parentMenuItem || !root.parentMenuItem.children) {
+            root._calcWidth = 180;
+            return;
+        }
+        const fontSize = _measureText.font.pixelSize;
+        const sm = Style.marginS !== undefined ? Style.marginS : 6;
+        let maxW = 180;
+        for (let i = 0; i < root.parentMenuItem.children.length; i++) {
+            const c = root.parentMenuItem.children[i];
+            if (!c || !c.label) continue;
+            if (c.type === "separator" || c.item_type === "separator") continue;
+            const label = String(c.label).replace(/_/g, "");
+            _measureText.text = label;
+            const labelW = _measureText.implicitWidth;
+            let extra = 4 * sm;
+            if (c.icon_name) extra += fontSize + sm;
+            if (c.toggle_type) extra += fontSize + sm;
+            if (c.children && c.children.length > 0) extra += fontSize + sm;
+            const total = labelW + extra;
+            if (total > maxW) maxW = total;
+        }
+        root._calcWidth = maxW + 2 * Style.marginM;
+    }
+    onParentMenuItemChanged: _recalcWidth()
+
     // ── Outside-click dismisser ─────────────────────────────────────
     // Full-screen MouseArea swallows clicks anywhere on this surface
     // (the menuBox below covers its own clicks first).
@@ -146,7 +193,11 @@ PanelWindow {
         id: menuBox
         visible: root.visible && !!root.parentMenuItem
 
-        width: Math.max(180, submenuCol.implicitWidth + Style.marginM * 2)
+        // Spec 009 FR-003 — JS-driven width (see AppmenuPopupWindow
+        // for rationale). submenuCol is anchored left+right to menuBox
+        // → submenuCol.implicitWidth = 0 → menuBox previously stuck
+        // at 180px regardless of label length.
+        width: Math.max(180, root._calcWidth)
         height: submenuCol.implicitHeight + Style.marginM * 2
 
         x: {
@@ -201,19 +252,25 @@ PanelWindow {
                         root.close();
                     }
                     onSubmenuRequested: function (item, anchor) {
-                        // Open a deeper submenu via the recursive
-                        // factory. Tear down any prior nested popup
-                        // first so only one branch is open at a time.
+                        // Spec 009 FR-004 — async-safe nested open.
+                        // Loader is asynchronous by default; reading
+                        // `nestedLoader.item` immediately after setting
+                        // `sourceComponent` returns null in many engine
+                        // versions, so the previous immediate
+                        // `.open()` call was silently dropped (depth-3+
+                        // submenus never appeared).
+                        //
+                        // Belt-and-braces: store the pending open
+                        // request; `_tryOpenNested` fires it when
+                        // status reaches Ready. If status is already
+                        // Ready synchronously (some engines), we fire
+                        // immediately.
                         if (nestedLoader.item) {
                             nestedLoader.item.close();
                         }
+                        root._pendingNested = {item: item, anchor: anchor};
                         nestedLoader.sourceComponent = nestedComponent;
-                        if (nestedLoader.item) {
-                            nestedLoader.item.screen = root.screen;
-                            nestedLoader.item.focusedScreenName =
-                                root.focusedScreenName;
-                            nestedLoader.item.open(item, anchor);
-                        }
+                        root._tryOpenNested();
                     }
                 }
             }
@@ -230,10 +287,42 @@ PanelWindow {
         SubmenuPopup { }
     }
 
+    // Spec 009 FR-004 — pending-open record consumed by
+    // `_tryOpenNested` when the Loader transitions to Ready.
+    property var _pendingNested: null
+    function _tryOpenNested() {
+        if (!nestedLoader.item || nestedLoader.status !== Loader.Ready) {
+            return;
+        }
+        const pend = root._pendingNested;
+        if (!pend) return;
+        root._pendingNested = null;
+        try {
+            nestedLoader.item.depth = root.depth + 1;
+            nestedLoader.item.screen = root.screen;
+            nestedLoader.item.focusedScreenName = root.focusedScreenName;
+            nestedLoader.item.open(pend.item, pend.anchor);
+        } catch (e) {
+            console.error("[appmenu/submenu] nested open failed:", e,
+                          "stack:", (e && e.stack) || "(no stack)");
+        }
+    }
+
     Loader {
         id: nestedLoader
         active: true
         sourceComponent: null
+
+        // Spec 009 FR-004 — fire pending open as soon as the Loader
+        // finishes async instantiation.
+        onStatusChanged: {
+            if (status === Loader.Ready) {
+                root._tryOpenNested();
+            } else if (status === Loader.Error) {
+                console.error("[appmenu/submenu] nestedLoader Error status");
+                root._pendingNested = null;
+            }
+        }
 
         Connections {
             target: nestedLoader.item

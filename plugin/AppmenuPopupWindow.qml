@@ -125,6 +125,50 @@ PanelWindow {
         // overwrite. The popup is invisible regardless.
     }
 
+    // ── Spec 009 FR-003 — JS-computed menu width ──────────────────────
+    // Re-computed when menuItem changes. Avoids the popupCol-anchored
+    // implicitWidth=0 circular-binding trap (Column anchored left+right
+    // to menuBox has implicitWidth = 0; menuBox.width clamped at 180px).
+    //
+    // Uses a hidden Text element as a metrics oracle — Text.implicitWidth
+    // is the painted width of the assigned text in the bound font. Avoids
+    // pulling in `FontMetrics` (qmllint 6.11 in CI doesn't always resolve
+    // it under our import chain).
+    property real _calcWidth: 180
+    Text {
+        id: _measureText
+        visible: false
+        font.family: Settings.data.ui.fontDefault || "Inter"
+        font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
+    }
+    function _recalcWidth() {
+        if (!root.menuItem || !root.menuItem.children) {
+            root._calcWidth = 180;
+            return;
+        }
+        const fontSize = _measureText.font.pixelSize;
+        const sm = Style.marginS !== undefined ? Style.marginS : 6;
+        let maxW = 180;
+        for (let i = 0; i < root.menuItem.children.length; i++) {
+            const c = root.menuItem.children[i];
+            if (!c || !c.label) continue;
+            if (c.type === "separator" || c.item_type === "separator") continue;
+            const label = String(c.label).replace(/_/g, "");
+            _measureText.text = label;
+            const labelW = _measureText.implicitWidth;
+            // Slot extras: icon + toggle + chevron + spacing (4 × marginS).
+            let extra = 4 * sm;
+            if (c.icon_name) extra += fontSize + sm;
+            if (c.toggle_type) extra += fontSize + sm;
+            if (c.children && c.children.length > 0) extra += fontSize + sm;
+            const total = labelW + extra;
+            if (total > maxW) maxW = total;
+        }
+        // Add menuBox horizontal margins (Style.marginM × 2).
+        root._calcWidth = maxW + 2 * Style.marginM;
+    }
+    onMenuItemChanged: _recalcWidth()
+
     // ── Outside-click dismisser ─────────────────────────────────────
     // Full-screen MouseArea swallows clicks anywhere on this layer-shell
     // surface and closes the popup. The menu rectangle below has its
@@ -147,8 +191,14 @@ PanelWindow {
         id: menuBox
         visible: root.visible && !!root.menuItem
 
-        // Width = max(180, content). Height tracks popupCol.
-        width: Math.max(180, popupCol.implicitWidth + Style.marginM * 2)
+        // Spec 009 FR-003 — width derives from a JS calculation over
+        // the menu's labels, NOT from popupCol.implicitWidth (which is
+        // 0 because popupCol is anchored left+right to menuBox — an
+        // anchored Column has implicitWidth = 0). Without this, the
+        // width clamps at 180px and long labels like "Show Labels
+        // Under Icons" are clipped. Recomputed via root._recalcWidth()
+        // each time menuItem changes.
+        width: Math.max(180, root._calcWidth)
         height: popupCol.implicitHeight + Style.marginM * 2
 
         // Anchor below the clicked button. mapToItem with null target
