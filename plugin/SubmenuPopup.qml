@@ -217,9 +217,14 @@ PanelWindow {
             return Math.max(0, Math.min(maxY, root.anchorRect.y));
         }
 
-        color: Color.mSurface
-        border.color: Color.mOutline
-        border.width: 1
+        // v1.0.2 visual contrast bump — match AppmenuPopupWindow.
+        color: Color.mSurfaceVariant !== undefined
+               ? Color.mSurfaceVariant
+               : Color.mSurface
+        border.color: Color.mPrimary !== undefined
+                      ? Color.mPrimary
+                      : Color.mOutline
+        border.width: 2
         radius: Style.marginS
 
         // Swallow clicks on the menu background so the outside-click

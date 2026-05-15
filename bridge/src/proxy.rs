@@ -82,15 +82,21 @@ enum MenuSource {
     /// Menu walked from the focused app's AT-SPI accessible tree.
     Atspi,
     /// Menu synthesised from `app_id` because the focused app has no
-    /// usable AT-SPI menubar (GTK4 empty-children quirk, terminals,
-    /// electron-no-a11y, native Wayland with no a11y plugin).
+    /// usable AT-SPI menubar. **Deprecated since v1.0.2** — the
+    /// production proxy emits `Empty` instead per the honest-or-
+    /// hidden UX (PR #47 / Pedro re-confirm 15/05/2026). Variant kept
+    /// for API/serde stability and for future opt-in via per-widget
+    /// setting; no live producer constructs it.
+    #[allow(dead_code)]
     Synthetic,
-    /// No focus on a window (or focus on a pidless surface). `menu`
-    /// is `null` in this case.
+    /// No focus on a window, OR focused app has no usable AT-SPI
+    /// menubar (terminals, electron-no-a11y, native Wayland with no
+    /// a11y plugin). `menu` is `null` in this case.
     Empty,
 }
 
 impl MenuSource {
+    #[allow(dead_code)]
     fn as_str(self) -> &'static str {
         match self {
             Self::Atspi => "atspi",
@@ -462,24 +468,24 @@ pub async fn run(
             None
         };
 
-        // FR-004 (spec 005): when the focused app has no usable
-        // AT-SPI menubar — `fetch_menubar_for_pid` returned `None`
-        // for GTK4 empty-children, terminals, electron-no-a11y, or
-        // native Wayland clients with no a11y plugin — substitute
-        // the synthetic pseudo-menu so the bar always renders
-        // something useful. Provenance is reflected in the
-        // active.json `source` field so the QML widget can style
-        // synthetic vs real menus differently.
+        // Spec 011 — honest-or-hidden UX (Pedro's PR #47, 15/05/2026
+        // re-confirm): when the focused app has no usable AT-SPI
+        // menubar (terminals, electron-no-a11y, native Wayland with
+        // no a11y plugin), DROP the synthetic pseudo-menu and emit
+        // `menu: null` so the bar widget collapses to its zero-paint
+        // stable slot. macOS has 100% coverage because Apple owns
+        // Cocoa; Wayland-niri can't, so we don't pretend.
+        //
+        // The synthetic_menu function is preserved in atspi.rs for
+        // the test surface and for any future opt-in via per-widget
+        // setting; the production proxy emits None.
         let (final_menu, final_source): (Option<atspi::MenuItem>, MenuSource) =
             if snapshot.focus_pid == 0 {
                 (None, MenuSource::Empty)
             } else {
                 match menu {
                     Some(m) => (Some(m), MenuSource::Atspi),
-                    None => (
-                        Some(atspi::synthetic_menu(&snapshot.app_id)),
-                        MenuSource::Synthetic,
-                    ),
+                    None => (None, MenuSource::Empty),
                 }
             };
 
