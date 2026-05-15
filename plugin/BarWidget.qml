@@ -239,11 +239,24 @@ Item {
         }
     }
 
-    /// Cheap structural-equality check for top-level menu arrays. Compares
-    /// the three fields that drive the bar strip (id, label, enabled);
-    /// children are intentionally NOT compared — submenu changes do not
-    /// affect the strip render and would force a delegate rebuild we don't
-    /// need. Returns true when both arrays describe an identical strip.
+    /// Cheap structural-equality check for top-level menu arrays.
+    ///
+    /// Compares id/label/enabled at the top level (drives the bar
+    /// strip), AND first-level children's count + labels (drives the
+    /// dropdown body). Spec 009 FR-005: the prior implementation
+    /// skipped children entirely, so a `MenuError::Stale` re-walk
+    /// that produced an updated subtree under unchanged top-level
+    /// labels was silently dropped — `topLevel = newTopLevel` was
+    /// short-circuited and the Repeater never refreshed, leaving the
+    /// popup with stale `modelData.children` references on the next
+    /// open.
+    ///
+    /// First-level children only — Qt re-emits the full tree on
+    /// `accessible-children-changed`, so a deep child change almost
+    /// always rolls up to a first-level structural difference. A
+    /// shallow comparison keeps the dedup cheap (PR #51 anti-flicker
+    /// invariant: avoid wholesale model reassignment unless the shape
+    /// actually changed).
     function _sameTopLevel(a, b) {
         if (a === b) return true;
         if (!a || !b) return false;
@@ -252,6 +265,14 @@ Item {
             if (a[i].id !== b[i].id) return false;
             if (a[i].label !== b[i].label) return false;
             if (a[i].enabled !== b[i].enabled) return false;
+            const ac = (a[i].children || []);
+            const bc = (b[i].children || []);
+            if (ac.length !== bc.length) return false;
+            for (let j = 0; j < ac.length; j++) {
+                if ((ac[j] && ac[j].label) !== (bc[j] && bc[j].label)) {
+                    return false;
+                }
+            }
         }
         return true;
     }
