@@ -788,29 +788,47 @@ pub async fn fetch_menu_tree(
         }
     }
 
-    // Qt wraps every MENU_ITEM's popup in an unnamed MENU child:
-    //   File (MENU_ITEM, label "File", 1 child)
-    //     └── "" (MENU, label "", N children) ← popup wrapper
-    //           ├── Open (MENU_ITEM)
-    //           └── Save (MENU_ITEM)
-    //
-    // The QML widget renders `item.children` directly under each
-    // top-level button — without flattening, the popup would show a
-    // single empty-label entry with the real items hidden one level
-    // deeper. Detect the wrapper shape and pull the grandchildren up.
+    // Spec 009 FR-001 — recursive Qt wrapper-flatten.
+    flatten_qt_wrapper(&mut item);
+
+    Ok(item)
+}
+
+/// Strip Qt's unnamed-MENU popup wrapper from a single `MenuItem`.
+///
+/// Qt wraps every `MENU_ITEM`'s popup in an unnamed `MENU` child:
+///
+/// ```text
+///   File (MENU_ITEM, label "File", 1 child)
+///     └── "" (MENU, label "", N children) ← popup wrapper
+///           ├── Open (MENU_ITEM)
+///           └── Save (MENU_ITEM)
+/// ```
+///
+/// QML renders `item.children` directly under each menu button —
+/// without flattening, the popup would show a single empty-label
+/// entry and the real items would be hidden one level deeper.
+///
+/// **Recursive correctness (spec 009 FR-001).** `fetch_menu_tree`
+/// invokes this helper at the END of every recursive call, so by
+/// induction on depth every returned tree is wrapper-stripped at
+/// every level. Extracting the in-line check into a named helper
+/// makes the invariant explicit and unit-testable without an
+/// AT-SPI bus (see `bridge/tests/atspi_flatten.rs`).
+///
+/// **Idempotent.** Safe to invoke multiple times on the same item;
+/// once flattened, the predicate no longer matches.
+pub(crate) fn flatten_qt_wrapper(item: &mut MenuItem) {
     if item.children.len() == 1
         && item.children[0].label.is_empty()
         && !item.children[0].children.is_empty()
     {
-        let grandchildren = std::mem::take(&mut item.children[0].children);
-        item.children = grandchildren;
-        // Re-id the new top-level so QML's stable-id logic still works.
-        for (i, c) in item.children.iter_mut().enumerate() {
+        let mut grandchildren = std::mem::take(&mut item.children[0].children);
+        for (i, c) in grandchildren.iter_mut().enumerate() {
             c.id = i as i32;
         }
+        item.children = grandchildren;
     }
-
-    Ok(item)
 }
 
 /// One-shot helper: from a focused PID, return the parsed menu
@@ -1523,5 +1541,154 @@ mod tests {
         // from AtspiClient this test fails to build.
         fn _assert_clone<T: Clone + Send + Sync + 'static>() {}
         _assert_clone::<AtspiClient>();
+    }
+
+    // ── Spec 009 FR-001 — recursive Qt wrapper-flatten tests ─────────
+
+    fn leaf(label: &str) -> MenuItem {
+        MenuItem {
+            label: label.to_string(),
+            item_type: "standard".to_string(),
+            enabled: true,
+            visible: true,
+            ..Default::default()
+        }
+    }
+
+    fn submenu(label: &str, children: Vec<MenuItem>) -> MenuItem {
+        MenuItem {
+            label: label.to_string(),
+            item_type: "submenu".to_string(),
+            enabled: true,
+            visible: true,
+            children,
+            ..Default::default()
+        }
+    }
+
+    /// Wrapper = empty-label submenu wrapping real children. The
+    /// shape Qt6 emits at every level of its accessibility tree.
+    fn qt_wrap(real_children: Vec<MenuItem>) -> MenuItem {
+        submenu("", real_children)
+    }
+
+    #[test]
+    fn flatten_strips_single_empty_wrapper() {
+        // File (MENU_ITEM, 1 child)
+        //   └── "" (MENU, [Open, Save])
+        let mut item = submenu("File", vec![qt_wrap(vec![leaf("Open"), leaf("Save")])]);
+        flatten_qt_wrapper(&mut item);
+        assert_eq!(item.children.len(), 2);
+        assert_eq!(item.children[0].label, "Open");
+        assert_eq!(item.children[1].label, "Save");
+        // Re-id contract: post-flatten ids are sequential.
+        assert_eq!(item.children[0].id, 0);
+        assert_eq!(item.children[1].id, 1);
+    }
+
+    #[test]
+    fn flatten_is_idempotent_on_already_flat_tree() {
+        let mut item = submenu("File", vec![leaf("Open"), leaf("Save")]);
+        let before = item.clone();
+        flatten_qt_wrapper(&mut item);
+        // No structural change.
+        assert_eq!(item.children.len(), before.children.len());
+        assert_eq!(item.children[0].label, "Open");
+        assert_eq!(item.children[1].label, "Save");
+    }
+
+    #[test]
+    fn flatten_rejects_multi_child_root() {
+        // {label: "X", children: [{empty MENU with kids}, {real "Other"}]}
+        // is NOT a wrapper case — the real "Other" sibling means the
+        // empty MENU is intentional. MUST NOT flatten.
+        let mut item = submenu(
+            "X",
+            vec![qt_wrap(vec![leaf("Hidden")]), leaf("Other")],
+        );
+        flatten_qt_wrapper(&mut item);
+        assert_eq!(item.children.len(), 2);
+        assert_eq!(item.children[0].label, ""); // wrapper preserved
+        assert_eq!(item.children[1].label, "Other");
+    }
+
+    #[test]
+    fn flatten_skips_empty_leaf() {
+        // {label: "", children: []} is a leaf separator-like item;
+        // there's nothing to flatten away.
+        let mut item = leaf("");
+        flatten_qt_wrapper(&mut item);
+        assert!(item.children.is_empty());
+    }
+
+    #[test]
+    fn flatten_skips_named_wrapper() {
+        // The flatten predicate requires children[0].label.is_empty().
+        // A label-bearing child is a real submenu, never a wrapper.
+        let mut item = submenu("File", vec![submenu("Submenu", vec![leaf("Item")])]);
+        flatten_qt_wrapper(&mut item);
+        assert_eq!(item.children.len(), 1);
+        assert_eq!(item.children[0].label, "Submenu"); // preserved
+    }
+
+    #[test]
+    fn flatten_preserves_toggle_state() {
+        // Toggle/radio leaves carry toggle_type + toggle_state. The
+        // flatten ONLY moves children up; it does NOT mutate leaves.
+        let mut toggle = leaf("Bold");
+        toggle.toggle_type = "checkmark".to_string();
+        toggle.toggle_state = 1;
+        let mut item = submenu("Format", vec![qt_wrap(vec![toggle.clone()])]);
+        flatten_qt_wrapper(&mut item);
+        assert_eq!(item.children.len(), 1);
+        assert_eq!(item.children[0].label, "Bold");
+        assert_eq!(item.children[0].toggle_type, "checkmark");
+        assert_eq!(item.children[0].toggle_state, 1);
+    }
+
+    #[test]
+    fn fetch_menu_tree_recursion_invariant_three_levels() {
+        // Recursive composition of flatten matches the contract in
+        // contracts/recursive-flatten.md: every level is wrapper-
+        // stripped by the time it is returned upwards.
+        //
+        // Synthetic shape mirrors shadPS4QtLauncher's
+        //   View > Game List Mode > [List, Grid, Flat]
+        // before flatten:
+        //   Game List Mode
+        //     └── ""  (wrapper)
+        //           ├── List
+        //           ├── Grid
+        //           └── Flat
+        // After: Game List Mode → [List, Grid, Flat] (wrapper gone).
+        let mut game_list_mode = submenu(
+            "Game List Mode",
+            vec![qt_wrap(vec![leaf("List"), leaf("Grid"), leaf("Flat")])],
+        );
+        flatten_qt_wrapper(&mut game_list_mode);
+        assert_eq!(game_list_mode.children.len(), 3);
+        assert_eq!(game_list_mode.children[0].label, "List");
+        assert_eq!(game_list_mode.children[1].label, "Grid");
+        assert_eq!(game_list_mode.children[2].label, "Flat");
+
+        // Compose into View; pre-flatten View has one wrapper child
+        // whose grandchildren are three sibling submenus, one of
+        // which (Game List Mode, above) is already flat.
+        let mut view = submenu(
+            "View",
+            vec![qt_wrap(vec![
+                leaf("Show Game List"),
+                game_list_mode.clone(),
+                leaf("Themes"),
+            ])],
+        );
+        flatten_qt_wrapper(&mut view);
+        assert_eq!(view.children.len(), 3);
+        assert_eq!(view.children[0].label, "Show Game List");
+        assert_eq!(view.children[1].label, "Game List Mode");
+        // Grandchild access — Game List Mode keeps its already-flat
+        // children after the parent's flatten lifts the wrapper.
+        assert_eq!(view.children[1].children.len(), 3);
+        assert_eq!(view.children[1].children[0].label, "List");
     }
 }
