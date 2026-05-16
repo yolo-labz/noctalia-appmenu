@@ -793,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "noctalia-appmenu-bridge"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "anyhow",
  "clap",
