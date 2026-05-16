@@ -98,7 +98,12 @@ PanelWindow {
     margins.top: _isOpen ? _surfaceY : _parkOffset
     margins.left: _isOpen ? _surfaceX : _parkOffset
 
-    WlrLayershell.layer: WlrLayer.Top
+    // v1.0.10 — promoted to `WlrLayer.Overlay` to match the parent
+    // popup (see AppmenuPopupWindow.qml comment). Submenus must stay
+    // strictly above the shield AND above their parent popup so a
+    // pointer chase across nested submenus never goes through the
+    // shield.
+    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "noctalia-appmenu-submenu-d"
