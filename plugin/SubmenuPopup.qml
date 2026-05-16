@@ -141,7 +141,7 @@ PanelWindow {
             if (nestedLoader.item) {
                 nestedLoader.item.close();
             }
-            nestedLoader.sourceComponent = null;
+            nestedLoader.active = false;  // v1.0.5: tear down via active toggle
             root._isOpen = false;
             root.closed();
         } catch (e) {
@@ -258,7 +258,20 @@ PanelWindow {
                             nestedLoader.item.close();
                         }
                         root._pendingNested = {item: item, anchor: anchor};
-                        nestedLoader.sourceComponent = nestedComponent;
+                        // v1.0.5 — load via URL string. Inline
+                        // `Component { SubmenuPopup {} }` triggers
+                        // QML engine "instantiated recursively" error
+                        // at parse time (the file references itself
+                        // inline). URL-source defers resolution to
+                        // load time, breaking the parse-time cycle.
+                        if (nestedLoader.source.toString().length === 0) {
+                            nestedLoader.source = Qt.resolvedUrl("SubmenuPopup.qml");
+                        } else {
+                            // Already loaded once — re-trigger by
+                            // toggling active.
+                            nestedLoader.active = false;
+                            nestedLoader.active = true;
+                        }
                         root._tryOpenNested();
                     }
                 }
@@ -267,14 +280,18 @@ PanelWindow {
     }
 
     // ── Recursive nested submenu (depth ≥ 3) ─────────────────────────
-    // Deferred via Loader so the QML graph doesn't infinite-recurse at
-    // build time. The inner SubmenuPopup is instantiated only when
-    // `nestedLoader.sourceComponent = nestedComponent` fires from a
-    // row's `submenuRequested` handler.
-    Component {
-        id: nestedComponent
-        SubmenuPopup { }
-    }
+    // v1.0.5 — recursion via URL-source Loader (not inline Component).
+    //
+    // The inline `Component { SubmenuPopup {} }` pattern that v1.0.0
+    // shipped triggered the QML engine error "SubmenuPopup is
+    // instantiated recursively" at parse time of THIS file (a file
+    // cannot reference itself inline). The plugin failed to load
+    // entirely from v1.0.0 onwards — Pedro's screenshots that DID
+    // show menus rendered the pre-v1.0.0 plugin (whatever the shell
+    // last successfully loaded).
+    //
+    // Loader.source as a URL string defers QML type resolution to
+    // load time, breaking the parse-time recursion.
 
     // Spec 009 FR-004 — pending-open record consumed by
     // `_tryOpenNested` when the Loader transitions to Ready.
@@ -300,7 +317,10 @@ PanelWindow {
     Loader {
         id: nestedLoader
         active: true
-        sourceComponent: null
+        // v1.0.5 — URL source instead of sourceComponent. Empty
+        // string defers actual file load until we set a real URL
+        // in the submenuRequested handler.
+        source: ""
 
         // Spec 009 FR-004 — fire pending open as soon as the Loader
         // finishes async instantiation.
@@ -323,7 +343,7 @@ PanelWindow {
             function onClosed() {
                 // Deeper level closed by outside-click — clear the
                 // loader so the next `submenuRequested` can re-trigger.
-                nestedLoader.sourceComponent = null;
+                nestedLoader.active = false;  // v1.0.5: tear down via active toggle
             }
         }
     }
