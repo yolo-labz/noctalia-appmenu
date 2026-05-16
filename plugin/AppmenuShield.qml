@@ -65,43 +65,44 @@ PanelWindow {
     /// clickable). Default matches the upstream noctalia-shell bar.
     property int barHeight: 32
 
-    /// Whether the shield should logically intercept outside clicks
-    /// (popup is open). The wl_surface stays MAPPED — only the input
-    /// region's geometry changes — to avoid the configure/commit race
-    /// every visibility toggle would trigger under Quickshell's
-    /// `deleteOnInvisible: true` default (see AppmenuPopupWindow.qml
-    /// L108-127 for the v1.0.4 keep-mapped pattern this mirrors).
+    /// Whether the shield should logically intercept outside clicks.
     readonly property bool _shouldShow: (popup && popup.isOpen) || (submenu && submenu.isOpen)
-
-    /// Off-screen parking position used when `_shouldShow` is false —
-    /// the 1×1 surface stays mapped beyond the screen edge so it
-    /// neither paints nor catches input but never has to reconfigure
-    /// on subsequent shows. Same trick AppmenuPopupWindow uses.
-    readonly property int _parkOffset: -10000
 
     visible: true              // ALWAYS — defeats `deleteOnInvisible`
     color: "transparent"
 
-    // Anchors: full-screen below the bar when open, 1×1 off-screen
-    // when closed. The surface configures with its final geometry in
-    // one round-trip so we never pay the wl_surface recreation cost
-    // mid-interaction (which is what made v1.0.9's `visible: _shouldShow`
-    // race with the user's first outside-click).
+    // v1.0.11 — surface is permanently anchored to all four edges
+    // below the bar strip. Geometry NEVER changes (no anchor toggle,
+    // no implicit-size toggle). The previous "park off-screen" trick
+    // (v1.0.10) flipped two anchors on every open/close which still
+    // triggered wlr-layer-shell reconfigure cycles — niri lost the
+    // mapped surface in the transition and the user's first outside
+    // click landed on the underlying XDG_TOPLEVEL (Firefox).
+    //
+    // What toggles instead: the surface's INPUT REGION via `mask`.
+    // `mask: Region {}` (empty) = surface accepts no clicks
+    // (pattern borrowed from noctalia-shell's `BarExclusionZone.qml`).
+    // When `_shouldShow` is true we expand the Region to the full
+    // surface; when false we collapse to 0×0. The wl_surface stays
+    // committed at the same geometry the whole time — Wayland just
+    // updates the input region attribute in place.
     anchors.top: true
     anchors.left: true
-    anchors.right: _shouldShow
-    anchors.bottom: _shouldShow
-    margins.top: _shouldShow ? barHeight : _parkOffset
-    margins.left: _shouldShow ? 0 : _parkOffset
-    implicitWidth: _shouldShow ? 0 : 1
-    implicitHeight: _shouldShow ? 0 : 1
+    anchors.right: true
+    anchors.bottom: true
+    margins.top: barHeight
 
-    // v1.0.10 — popup now sits on `WlrLayer.Overlay`; the shield stays
-    // on `WlrLayer.Top` so the popup is unambiguously above it in the
-    // wlr layer stack. We pay the price of stacking the popup above
-    // notifications/control-center while a menu is open — small UX
-    // hit, large correctness win (same-layer ordering is
-    // implementation-defined on niri).
+    // v1.0.11 — input region toggles via mask; surface always mapped
+    // at the same geometry so clicks don't race surface reconfigure.
+    mask: Region {
+        width: shield._shouldShow ? shield.width : 0
+        height: shield._shouldShow ? shield.height : 0
+    }
+
+    // v1.0.10 — popup sits on `WlrLayer.Overlay`; shield stays on
+    // `WlrLayer.Top`. Popup is unambiguously above shield (Overlay >
+    // Top in wlr) so clicks on the popup always reach the popup;
+    // clicks anywhere else in the shield region hit the shield.
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
