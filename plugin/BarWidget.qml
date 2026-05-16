@@ -72,6 +72,17 @@ Item {
     property string title: ""
     property string menuService: ""
     property string menuPath: ""
+
+    // v1.0.9 — close any open popup the moment the focused app
+    // changes. Catches alt-tab away (and the noctalia-shell focus
+    // change that lands on a different `app_id`) without needing the
+    // outside-click shield to react. The shield handles same-app
+    // clicks (Firefox's own UI) where `appId` stays the same.
+    onAppIdChanged: {
+        if (popup && popup.isOpen) {
+            popup.close();
+        }
+    }
     /// Top-level menu items: array of {id, label, type, enabled,
     /// visible, icon_name, children: [...]}. Empty when no app
     /// registered or no menu data yet.
@@ -518,10 +529,24 @@ Item {
                                     (btn.modelData.children
                                         ? btn.modelData.children.length
                                         : 0));
-                        if (btn.modelData.children && btn.modelData.children.length > 0) {
+                        // v1.0.9 — clicking the SAME button while its
+                        // popup is open toggles it closed (standard
+                        // menubar UX). Clicking a DIFFERENT button while
+                        // a popup is open re-aims the popup to the new
+                        // anchor; `openAt` handles the reposition.
+                        if (popup.isOpen && popup.anchorItem === btn) {
+                            popup.close();
+                        } else if (btn.modelData.children && btn.modelData.children.length > 0) {
                             popup.openAt(btn, btn.modelData);
                         } else {
-                            // Leaf at top level — fire click directly.
+                            // Leaf at top level OR submenu the bridge
+                            // could not walk (Firefox lazy AT-SPI realises
+                            // some menus only on user interaction — see
+                            // bridge `KNOWN_NO_MENUBAR_APPS` / v1.0.8
+                            // notes). Fire the AT-SPI click so the app
+                            // owns the popup. Always close any leftover
+                            // popup so the bar matches the new state.
+                            if (popup.isOpen) popup.close();
                             root.fireClick(btn.modelData);
                         }
                     }
@@ -554,6 +579,24 @@ Item {
     // Wayland routes input surface-by-surface based on cursor position,
     // so the bar stays clickable while the menu is up. Outside-click is
     // caught by a full-screen MouseArea inside the popup window itself.
+    // v1.0.9 — outside-click shield. Declared BEFORE the popup so
+    // the popup's wl_surface stacks above it within `WlrLayer.Top`
+    // (wlr orders same-layer surfaces by creation time). Result:
+    //   • click on popup → popup surface, popup handles it
+    //   • click anywhere else below the bar strip → shield's
+    //     MouseArea → `popup.close()`
+    //   • click on the bar itself → bar surface (shield is anchored
+    //     beneath the bar strip via `barHeight`), normal bar UX
+    AppmenuShield {
+        id: shield
+        screen: root.screen
+        popup: popup
+        // Bar height matches the noctalia-shell topbar; if a future
+        // shell version reshuffles the strip we can derive this from
+        // `root.window.height` at runtime.
+        barHeight: 32
+    }
+
     AppmenuPopupWindow {
         id: popup
         screen: root.screen
