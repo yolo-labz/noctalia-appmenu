@@ -1,6 +1,6 @@
 [package]
 name = "noctalia-appmenu-bridge"
-version = "1.0.7"
+version = "1.0.8"
 edition = "2021"
 rust-version = "1.81"
 authors = ["Pedro H S Balbino <phsb5321@gmail.com>"]
@@ -32,6 +32,11 @@ clap = { version = "4.5", features = ["derive"] }
 toml = "1.1"
 anyhow = "1.0"
 niri-ipc = "26.4"
+# v1.0.8: parallel children-fetch in atspi::fetch_menu_tree.
+# `futures::stream::FuturesOrdered` + `StreamExt::collect` joins
+# bounded-concurrency futures in tree-index order without needing
+# 'static futures (recursive AT-SPI walks borrow the &Connection).
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 
 [dev-dependencies]
 mockall = "0.14"

@@ -76,6 +76,7 @@
 //! 3. Match against niri's focused PID. First hit wins.
 
 use anyhow::{Context, Result};
+use futures::stream::{self, StreamExt};
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -870,26 +871,49 @@ pub async fn fetch_menu_tree(
         return Ok(item);
     }
 
+    // v1.0.8 — bounded-parallel children walk.
+    //
+    // Pedro field report 16/05/2026 post-v1.0.7: Firefox menu clicks
+    // on Bookmarks/Profiles/Tools/Help opened blank popups because the
+    // (then) 500ms `FETCH_BUDGET` cut the sequential walk before the
+    // back half of the top-level items were descended into. With this
+    // crate's strict per-PID cache the partial tree then served the
+    // next 30s of clicks. Two changes broke the deadlock:
+    //   1. `FETCH_BUDGET` raised to 2500ms (defence in depth — covers
+    //      pathological cases). See `fetch_menubar_for_pid`.
+    //   2. Children walked with `buffered(8)` — up to 8 in-flight
+    //      D-Bus round-trips per tree level, joined in tree-index
+    //      order. Concurrency is bounded so a malformed AT-SPI app
+    //      can't fan out to thousands of connections.
+    //
+    // Stage 1: resolve the (service, path) tuple for every child up
+    // front. `proxy.get_child_at_index` is a cheap registry lookup
+    // (~5 ms × N children) and we'd otherwise need to hand each
+    // closure a clone of the parent proxy — easier to materialise
+    // the refs here.
+    let mut child_refs: Vec<(i32, String, OwnedObjectPath)> = Vec::with_capacity(count as usize);
     for i in 0..count {
-        let (child_service, child_path) = match proxy.get_child_at_index(i).await {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        match Box::pin(fetch_menu_tree(
-            a11y,
-            &child_service,
-            &child_path.as_ref(),
-            cur_depth + 1,
-        ))
-        .await
-        {
-            Ok(mut child) => {
-                child.id = i;
-                item.children.push(child);
-            }
-            Err(_) => continue,
+        if let Ok((cs, cp)) = proxy.get_child_at_index(i).await {
+            child_refs.push((i, cs, cp));
         }
     }
+
+    // Stage 2: parallel-walk each subtree. `buffered(8)` caps in-flight
+    // work (matches AT-SPI's per-connection throughput) and preserves
+    // index order so `child.id = i` stays correct.
+    let children: Vec<MenuItem> = stream::iter(child_refs)
+        .map(|(i, cs, cp)| async move {
+            let mut child = Box::pin(fetch_menu_tree(a11y, &cs, &cp.as_ref(), cur_depth + 1))
+                .await
+                .ok()?;
+            child.id = i;
+            Some(child)
+        })
+        .buffered(8)
+        .filter_map(|opt| async move { opt })
+        .collect()
+        .await;
+    item.children = children;
 
     // Spec 009 FR-001 — recursive Qt wrapper-flatten.
     flatten_qt_wrapper(&mut item);
@@ -964,19 +988,24 @@ pub async fn fetch_menubar_for_pid(
     pid: u32,
     app_id_hint: Option<&str>,
 ) -> Result<Option<MenuItem>> {
-    // v1.0.2 — lowered from 3000 ms to 500 ms.
+    // v1.0.8 — raised 500 ms → 2500 ms now that the children walk
+    // is parallel and the X11 case is fully covered by the skip-list.
     //
-    // Pedro field report 15/05/2026: every focus to an X11 app
-    // (hosted by xwayland-satellite, PID 4293) drained the full
-    // 3 s budget because xwayland has no AT-SPI registration but
-    // `find_app_for_pid` still iterates registered apps before
-    // giving up. The 3 s wait blocked the bar update for every
-    // focus event involving an X11 app.
+    // History:
+    //   - pre-v1.0.2: 3000 ms (Qt+GTK headroom; X11 apps via
+    //     xwayland-satellite blew the whole window on every focus).
+    //   - v1.0.2: 500 ms (defended against the X11 case at the cost
+    //     of cutting Firefox walks mid-tree).
+    //   - v1.0.6: skip-list added — xwayland-satellite + terminals
+    //     no longer reach this code path at all.
+    //   - v1.0.8: 2500 ms (covers Pedro's 500ms-2.1s Firefox walks
+    //     end-to-end; parallel walk usually finishes in <500 ms
+    //     anyway so this is defence in depth).
     //
-    // 500 ms is plenty of headroom — Qt6 / GTK4 apps typically
-    // respond in <50 ms; anything slower is genuinely hung and we
-    // prefer a fast placeholder fall-back over a frozen bar.
-    const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+    // Real AT-SPI-capable apps (Qt6/GTK4) typically respond in <50 ms;
+    // hitting the 2500 ms timeout means the app is genuinely hung and
+    // we want the placeholder fall-back, not a frozen bar.
+    const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(2500);
     match tokio::time::timeout(
         FETCH_BUDGET,
         fetch_menubar_for_pid_inner(client, pid, app_id_hint),
