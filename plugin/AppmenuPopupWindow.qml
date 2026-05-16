@@ -106,22 +106,47 @@ PanelWindow {
     // dismissal is now BarWidget's responsibility (closes the popup
     // when any bar press lands), plus leaf-click and bar-button-
     // re-click as today.
+    // v1.0.4 — keep wl_surface MAPPED across open/close cycles.
+    //
+    // Quickshell `wlr_layershell.cpp::deleteOnInvisible() == true` —
+    // every `visible: true` allocates a fresh wl_surface and waits
+    // for compositor configure+commit; every `visible: false`
+    // destroys it. This is the heavy operation that froze Pedro's
+    // compositor on every menu open.
+    //
+    // Strategy:
+    //   1. `visible: true` PERMANENTLY at construction (defeats
+    //      the destroy/recreate cycle).
+    //   2. Off-screen "parking" via `margins.top: -10000` when
+    //      the menu is logically closed → user sees nothing, the
+    //      surface is mapped but invisible, no compositor work
+    //      beyond a tiny 1×1 transparent buffer.
+    //   3. `_isOpen` boolean drives positioning + size; when
+    //      true, surface jumps to its computed position with the
+    //      computed size.
+    //   4. `_recalcWidth` runs SYNCHRONOUSLY before `_isOpen`
+    //      transitions to true so the surface configures with its
+    //      final size in one round-trip — avoids the resize re-
+    //      commit codex flagged.
     anchors.top: true
     anchors.left: true
-    visible: false
+    visible: true              // ALWAYS — defeats deleteOnInvisible
     color: "transparent"
 
-    implicitWidth: menuBox.visible ? menuBox.width : 1
-    implicitHeight: menuBox.visible ? menuBox.height : 1
-    margins.top: _surfaceY
-    margins.left: _surfaceX
-
-    /// Surface position in screen coords — derived from the anchor
-    /// button via `mapToGlobal(0, 0)` at openAt time. Stored as a
-    /// property so layer-shell `margins` are stable bindings (a
-    /// mid-render mapToGlobal would re-trigger surface commit).
+    /// Logical open/close — controls geometry; surface stays mapped.
+    property bool _isOpen: false
+    /// Surface position in screen coords (when _isOpen).
     property real _surfaceX: 0
     property real _surfaceY: 0
+    /// Off-screen parking position (when !_isOpen). Negative
+    /// margins place the 1×1 surface beyond the screen edge so it
+    /// neither paints nor catches input.
+    readonly property int _parkOffset: -10000
+
+    implicitWidth: _isOpen ? menuBox.width : 1
+    implicitHeight: _isOpen ? menuBox.height : 1
+    margins.top: _isOpen ? _surfaceY : _parkOffset
+    margins.left: _isOpen ? _surfaceX : _parkOffset
 
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
@@ -142,8 +167,9 @@ PanelWindow {
         }
         anchorItem = item;
         menuItem = menuTree;
-        // Compute screen-absolute position from the bar button.
-        // mapToGlobal returns coords in screen space (Qt 5.7+).
+        // SYNC width recalc BEFORE opening — the surface configures
+        // with its final size in one round-trip (codex review fix).
+        root._recalcWidth();
         try {
             const p = item.mapToGlobal(0, 0);
             root._surfaceX = Math.max(0, p.x);
@@ -152,18 +178,23 @@ PanelWindow {
             root._surfaceX = 0;
             root._surfaceY = 0;
         }
-        visible = true;
+        root._isOpen = true;
     }
 
     function close() {
-        // Tear down any open submenu chain first so we close
-        // leaf-to-root and don't leave orphan surfaces.
-        if (submenu.visible) submenu.close();
-        visible = false;
-        // Don't null anchorItem/menuItem — bindings can briefly read
-        // them during the visible transition; let the next openAt
-        // overwrite. The popup is invisible regardless.
+        if (submenu.isOpen) submenu.close();
+        root._isOpen = false;
+        // Surface stays mapped — geometry parks off-screen.
     }
+
+    /// External "is the menu currently open" query — used by
+    /// `BarWidget`'s close-on-press hook to dismiss before
+    /// processing a new bar click.
+    readonly property alias isOpen: root._isOpen
+    /// Compatibility — BarWidget previously checked `popup.visible`.
+    /// Now visible is always true; expose a derived alias so
+    /// existing callers keep working without breaking the API.
+    function visibleForLogic() { return root._isOpen; }
 
     // ── Spec 009 FR-003 — JS-computed menu width ──────────────────────
     // Re-computed when menuItem changes. Avoids the popupCol-anchored
@@ -207,10 +238,13 @@ PanelWindow {
         // Add menuBox horizontal margins (Style.marginM × 2).
         root._calcWidth = maxW + 2 * Style.marginM;
     }
-    // Defer to next tick so visible=true commits the layer-shell
-    // surface immediately; the 13× layout pass for label measurement
-    // happens off the click hot-path.
-    onMenuItemChanged: Qt.callLater(_recalcWidth)
+    // SYNCHRONOUS recalc — width must be final BEFORE _isOpen flips
+    // true so the layer-shell surface configures with its final
+    // dimensions in one round-trip (codex review v1.0.4 fix). The
+    // 13× layout pass is on the click hot-path but bounded ≤ 50ms
+    // for a typical menu, well under the deleteOnInvisible+configure
+    // round-trip cost it replaces.
+    onMenuItemChanged: _recalcWidth()
 
     // ── Menu rectangle ──────────────────────────────────────────────
     // The PanelWindow itself is now sized to menuBox, so menuBox
@@ -219,7 +253,7 @@ PanelWindow {
     // own press).
     Rectangle {
         id: menuBox
-        visible: root.visible && !!root.menuItem
+        visible: root._isOpen && !!root.menuItem
         x: 0
         y: 0
         width: Math.max(180, root._calcWidth)
@@ -268,7 +302,7 @@ PanelWindow {
                         // FR-010 — open the nested SubmenuPopup as a
                         // sibling top-level surface. anchorRect carries
                         // the row's geometry in window-local coords.
-                        if (submenu.visible) submenu.close();
+                        if (submenu.isOpen) submenu.close();
                         submenu.open(item, anchor);
                     }
                 }
