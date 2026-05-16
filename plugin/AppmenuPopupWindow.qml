@@ -148,7 +148,15 @@ PanelWindow {
     margins.top: _isOpen ? _surfaceY : _parkOffset
     margins.left: _isOpen ? _surfaceX : _parkOffset
 
-    WlrLayershell.layer: WlrLayer.Top
+    // v1.0.10 — `WlrLayer.Overlay` (was Top in v1.0.9). The shield
+    // (AppmenuShield.qml) sits on Top; promoting the popup to Overlay
+    // gives a HARD z-order guarantee — wlr same-layer ordering is
+    // implementation-defined on niri, so we can't rely on it. The
+    // popup stacks above notifications/control-center while a menu
+    // is open; that's a small UX cost for correctness (clicks on the
+    // popup always reach the popup, clicks elsewhere always reach
+    // the shield → `popup.close()`).
+    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "noctalia-appmenu-popup-" + (screen ? screen.name : "unknown")

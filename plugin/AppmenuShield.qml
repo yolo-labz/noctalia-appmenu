@@ -65,26 +65,43 @@ PanelWindow {
     /// clickable). Default matches the upstream noctalia-shell bar.
     property int barHeight: 32
 
-    /// Whether the shield should be mapped right now. Recomputed
-    /// whenever the popup or submenu open/close state changes.
+    /// Whether the shield should logically intercept outside clicks
+    /// (popup is open). The wl_surface stays MAPPED — only the input
+    /// region's geometry changes — to avoid the configure/commit race
+    /// every visibility toggle would trigger under Quickshell's
+    /// `deleteOnInvisible: true` default (see AppmenuPopupWindow.qml
+    /// L108-127 for the v1.0.4 keep-mapped pattern this mirrors).
     readonly property bool _shouldShow: (popup && popup.isOpen) || (submenu && submenu.isOpen)
 
-    /// Mapped only while a popup is logically open. When `_shouldShow`
-    /// is false the surface is unmapped (cheap) — we accept the
-    /// `deleteOnInvisible` recreation cost here because the shield
-    /// has no rendering load and rebuilds in <1 ms.
-    visible: _shouldShow
+    /// Off-screen parking position used when `_shouldShow` is false —
+    /// the 1×1 surface stays mapped beyond the screen edge so it
+    /// neither paints nor catches input but never has to reconfigure
+    /// on subsequent shows. Same trick AppmenuPopupWindow uses.
+    readonly property int _parkOffset: -10000
+
+    visible: true              // ALWAYS — defeats `deleteOnInvisible`
     color: "transparent"
 
-    // Anchors: full-screen below the bar. Using top+bottom+left+right
-    // forces the surface to screen size minus the bar strip, which is
-    // exactly the "outside-popup" region we want to listen on.
+    // Anchors: full-screen below the bar when open, 1×1 off-screen
+    // when closed. The surface configures with its final geometry in
+    // one round-trip so we never pay the wl_surface recreation cost
+    // mid-interaction (which is what made v1.0.9's `visible: _shouldShow`
+    // race with the user's first outside-click).
     anchors.top: true
-    anchors.bottom: true
     anchors.left: true
-    anchors.right: true
-    margins.top: barHeight
+    anchors.right: _shouldShow
+    anchors.bottom: _shouldShow
+    margins.top: _shouldShow ? barHeight : _parkOffset
+    margins.left: _shouldShow ? 0 : _parkOffset
+    implicitWidth: _shouldShow ? 0 : 1
+    implicitHeight: _shouldShow ? 0 : 1
 
+    // v1.0.10 — popup now sits on `WlrLayer.Overlay`; the shield stays
+    // on `WlrLayer.Top` so the popup is unambiguously above it in the
+    // wlr layer stack. We pay the price of stacking the popup above
+    // notifications/control-center while a menu is open — small UX
+    // hit, large correctness win (same-layer ordering is
+    // implementation-defined on niri).
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
@@ -94,7 +111,12 @@ PanelWindow {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
         hoverEnabled: false
-        onPressed: {
+        enabled: shield._shouldShow
+        onPressed: function (mouse) {
+            console.log("[appmenu] shield press at",
+                        Math.round(mouse.x), Math.round(mouse.y),
+                        "submenu_open=", shield.submenu ? shield.submenu.isOpen : false,
+                        "popup_open=", shield.popup ? shield.popup.isOpen : false);
             if (shield.submenu && shield.submenu.isOpen) {
                 shield.submenu.close();
             }
