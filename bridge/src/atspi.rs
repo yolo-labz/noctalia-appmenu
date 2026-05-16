@@ -114,15 +114,21 @@ mod role {
 /// prevent runaway walks on malformed trees.
 const MAX_FIND_DEPTH: u32 = 8;
 
-/// v1.0.6 — apps known not to expose a usable AT-SPI menubar.
+/// v1.0.7 — apps known not to expose a usable AT-SPI menubar.
 /// Matched against `app_id` (Wayland-side identifier from niri).
 /// Listed apps short-circuit the AT-SPI walk — bridge emits
 /// `menu: null` immediately, no D-Bus round-trip, no 500ms timeout.
 ///
 /// Pedro field report 16/05/2026: focusing xwayland-satellite-hosted
-/// X11 apps and Firefox drained the full FETCH_BUDGET on every focus
-/// event, making the bar feel frozen. This list is the cheapest
-/// possible fast-reject.
+/// X11 apps drained the full FETCH_BUDGET on every focus event,
+/// making the bar feel frozen. This list is the cheapest possible
+/// fast-reject.
+///
+/// v1.0.7: removed Firefox + Chromium. The 30s `MENU_CACHE_TTL`
+/// amortises their first-focus 500ms-2.1s walk cost; subsequent
+/// focuses within the TTL are cache-instant. Pedro wants Firefox
+/// menu visible. Terminals + xwayland-satellite stay (no AT-SPI
+/// registration possible at all — cache cannot help).
 const KNOWN_NO_MENUBAR_APPS: &[&str] = &[
     // Terminals
     "com.mitchellh.ghostty",
@@ -136,14 +142,6 @@ const KNOWN_NO_MENUBAR_APPS: &[&str] = &[
     // X11 host (all X11 apps appear under this PID/app_id on niri)
     "xwayland-satellite",
     ".xwayland-satel",
-    // Browsers without working AT-SPI menubar
-    "firefox",
-    "firefox-nightly",
-    "Firefox",
-    "FirefoxNightly",
-    "google-chrome",
-    "Chromium",
-    "chromium",
 ];
 
 /// Returns true when the focused app's `app_id` matches a known
