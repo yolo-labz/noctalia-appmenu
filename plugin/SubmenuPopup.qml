@@ -78,23 +78,25 @@ PanelWindow {
     /// chain.
     signal closed()
 
-    // v1.0.3 FR-002 — constrained surface (see AppmenuPopupWindow
-    // for rationale; same fix). Anchor only top + left, size to
-    // menuBox, position via margins.
+    // v1.0.4 — same keep-mapped strategy as AppmenuPopupWindow.
+    // visible:true permanently; geometry parks off-screen when
+    // !_isOpen so the wl_surface stays mapped across cascade
+    // open/close cycles (defeats Quickshell deleteOnInvisible).
     anchors.top: true
     anchors.left: true
-    visible: false
+    visible: true
     color: "transparent"
 
-    implicitWidth: menuBox.visible ? menuBox.width : 1
-    implicitHeight: menuBox.visible ? menuBox.height : 1
-    margins.top: _surfaceY
-    margins.left: _surfaceX
-
-    /// Surface position in screen coords — derived from the parent
-    /// row's screen-absolute position at open time.
+    /// Logical open/close state — controls geometry; surface stays mapped.
+    property bool _isOpen: false
     property real _surfaceX: 0
     property real _surfaceY: 0
+    readonly property int _parkOffset: -10000
+
+    implicitWidth: _isOpen ? menuBox.width : 1
+    implicitHeight: _isOpen ? menuBox.height : 1
+    margins.top: _isOpen ? _surfaceY : _parkOffset
+    margins.left: _isOpen ? _surfaceX : _parkOffset
 
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
@@ -103,13 +105,9 @@ PanelWindow {
                               + depth + "-"
                               + (screen ? screen.name : "unknown")
 
-    /// Open this submenu, populated by `menuItem.children`, anchored to
-    /// the right edge of `anchor` (falling back to the left edge when
-    /// the right would clip off-screen).
-    ///
-    /// `anchor` is now a screen-absolute rect (parent row's mapToGlobal
-    /// + width/height) so the surface positions correctly without
-    /// referencing the parent popup's coordinate space.
+    /// External "is the submenu currently open" query.
+    readonly property alias isOpen: root._isOpen
+
     function open(menuItem, anchor) {
         try {
             if (!menuItem) return;
@@ -123,40 +121,34 @@ PanelWindow {
             }
             root.parentMenuItem = menuItem;
             root.anchorRect = anchor || Qt.rect(0, 0, 0, 0);
-            // Position surface at right edge of parent row (screen
-            // coords). Width is unknown until _recalcWidth runs; use
-            // 180 as worst-case clamp for the off-screen check.
+            // SYNC width recalc BEFORE _isOpen flips (codex v1.0.4 fix).
+            root._recalcWidth();
             const preferRight = root.anchorRect.x + root.anchorRect.width;
-            // Screen.width is reachable via Quickshell.screen, but we
-            // accept a small overflow risk — niri clamps surface to
-            // output bounds.
             root._surfaceX = Math.max(0, preferRight);
             root._surfaceY = Math.max(0, root.anchorRect.y);
             root._failedState = false;
-            root.visible = true;
+            root._isOpen = true;
         } catch (e) {
             console.error("[appmenu/submenu] envelope caught in open:", e,
                           "stack:", (e && e.stack) || "(no stack)");
             root._failedState = true;
-            root.visible = false;
+            root._isOpen = false;
         }
     }
 
     function close() {
         try {
-            // Tear down any deeper nested submenu first so the cascade
-            // closes from leaf to root.
             if (nestedLoader.item) {
                 nestedLoader.item.close();
             }
             nestedLoader.sourceComponent = null;
-            root.visible = false;
+            root._isOpen = false;
             root.closed();
         } catch (e) {
             console.error("[appmenu/submenu] envelope caught in close:", e,
                           "stack:", (e && e.stack) || "(no stack)");
             root._failedState = true;
-            root.visible = false;
+            root._isOpen = false;
         }
     }
 
@@ -195,14 +187,14 @@ PanelWindow {
         }
         root._calcWidth = maxW + 2 * Style.marginM;
     }
-    onParentMenuItemChanged: Qt.callLater(_recalcWidth)
+    onParentMenuItemChanged: _recalcWidth()
 
     // ── Menu rectangle ──────────────────────────────────────────────
     // PanelWindow itself is sized to menuBox (FR-002), so menuBox
     // simply fills the surface starting at (0,0).
     Rectangle {
         id: menuBox
-        visible: root.visible && !!root.parentMenuItem
+        visible: root._isOpen && !!root.parentMenuItem
         x: 0
         y: 0
         width: Math.max(180, root._calcWidth)
