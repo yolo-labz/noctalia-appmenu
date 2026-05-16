@@ -114,10 +114,115 @@ mod role {
 /// prevent runaway walks on malformed trees.
 const MAX_FIND_DEPTH: u32 = 8;
 
+/// v1.0.6 — apps known not to expose a usable AT-SPI menubar.
+/// Matched against `app_id` (Wayland-side identifier from niri).
+/// Listed apps short-circuit the AT-SPI walk — bridge emits
+/// `menu: null` immediately, no D-Bus round-trip, no 500ms timeout.
+///
+/// Pedro field report 16/05/2026: focusing xwayland-satellite-hosted
+/// X11 apps and Firefox drained the full FETCH_BUDGET on every focus
+/// event, making the bar feel frozen. This list is the cheapest
+/// possible fast-reject.
+const KNOWN_NO_MENUBAR_APPS: &[&str] = &[
+    // Terminals
+    "com.mitchellh.ghostty",
+    "kitty",
+    "foot",
+    "org.alacritty.Alacritty",
+    "Alacritty",
+    "alacritty",
+    "org.wezfurlong.wezterm",
+    "wezterm",
+    // X11 host (all X11 apps appear under this PID/app_id on niri)
+    "xwayland-satellite",
+    ".xwayland-satel",
+    // Browsers without working AT-SPI menubar
+    "firefox",
+    "firefox-nightly",
+    "Firefox",
+    "FirefoxNightly",
+    "google-chrome",
+    "Chromium",
+    "chromium",
+];
+
+/// Returns true when the focused app's `app_id` matches a known
+/// no-menubar entry; the proxy can skip the AT-SPI walk entirely.
+#[must_use]
+pub fn is_known_no_menubar(app_id: &str) -> bool {
+    KNOWN_NO_MENUBAR_APPS
+        .iter()
+        .any(|&id| id.eq_ignore_ascii_case(app_id))
+}
+
+/// v1.0.6 — TTL-bounded cache of AT-SPI menu walks, keyed by
+/// `(app_id, pid)`. Re-focusing the same app within `MENU_CACHE_TTL`
+/// returns the cached menu instantly (no D-Bus traffic at all).
+///
+/// Cache stores BOTH `Some(menu)` (positive) and `None` (negative —
+/// app exposes nothing) so we don't re-walk apps we've already
+/// confirmed to have no menubar.
+mod menu_cache {
+    use super::MenuItem;
+    use std::collections::HashMap;
+    use std::sync::{LazyLock, Mutex};
+    use std::time::{Duration, Instant};
+
+    pub const MENU_CACHE_TTL: Duration = Duration::from_secs(30);
+
+    struct Entry {
+        menu: Option<MenuItem>,
+        fetched_at: Instant,
+    }
+
+    type Key = (String, u32);
+    static CACHE: LazyLock<Mutex<HashMap<Key, Entry>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    /// Returns `Some(cached_value)` (where the inner `Option<MenuItem>`
+    /// is the actual cached result) on hit; `None` on miss or stale.
+    pub fn get(app_id: &str, pid: u32) -> Option<Option<MenuItem>> {
+        let cache = CACHE.lock().ok()?;
+        let entry = cache.get(&(app_id.to_string(), pid))?;
+        if entry.fetched_at.elapsed() > MENU_CACHE_TTL {
+            return None;
+        }
+        Some(entry.menu.clone())
+    }
+
+    pub fn put(app_id: &str, pid: u32, menu: Option<MenuItem>) {
+        if let Ok(mut cache) = CACHE.lock() {
+            cache.insert(
+                (app_id.to_string(), pid),
+                Entry {
+                    menu,
+                    fetched_at: Instant::now(),
+                },
+            );
+        }
+    }
+
+    /// Drop a specific entry (e.g. after a `MenuError::Stale` re-walk).
+    pub fn invalidate(app_id: &str, pid: u32) {
+        if let Ok(mut cache) = CACHE.lock() {
+            cache.remove(&(app_id.to_string(), pid));
+        }
+    }
+}
+
+pub use menu_cache::{
+    get as cached_menu_for_pid, invalidate as invalidate_menu_cache, put as cache_menu_for_pid,
+};
+
 /// Maximum recursion depth for fetching menu items once we've
-/// found a `MenuBar`. Real menubars rarely nest more than 3-4 levels;
-/// 6 gives slack for pathological apps without runaway cost.
-const MAX_FETCH_DEPTH: u32 = 6;
+/// found a `MenuBar`. v1.0.6 lowered from 6 to 3.
+///
+/// Real-world menus cap at depth 3 (e.g. Firefox History > Recently
+/// Closed Windows > <window-title>; shadPS4 View > Game List Mode >
+/// [List, Grid, Flat]). Walking past 3 wastes D-Bus round-trips and
+/// inflates active.json — Pedro reports 500ms+ Firefox walks at
+/// depth=6.
+const MAX_FETCH_DEPTH: u32 = 3;
 
 /// Minimum subset of `org.a11y.atspi.Accessible` we use. Methods
 /// that return `(busName, path)` pairs are the AT-SPI way of
