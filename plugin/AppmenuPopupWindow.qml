@@ -83,12 +83,45 @@ PanelWindow {
     /// delegates to fireClick.
     signal itemActivated(var item)
 
+    // v1.0.3 FR-002 — constrained surface (spec 010).
+    //
+    // CRITICAL fix for the whole-compositor freeze Pedro reported on
+    // 15/05/2026 against shadPS4QtLauncher + Firefox: the previous
+    // implementation anchored the PanelWindow to all four screen
+    // edges, producing a 1920×1080 wlr-layer-shell surface on
+    // `WlrLayer.Top`. On AMD GPUs under niri this triggers
+    // whole-output damage every frame the popup is up (cited:
+    // noctalia-shell #2216). Combined with a full-screen MouseArea
+    // outside-click catcher, Qt's Wayland QPA also held implicit
+    // pointer capture on the surface — every event went to the
+    // popup, the bar froze, the screen "froze."
+    //
+    // Fix: anchor only `top + left` (Quickshell PanelWindow contract:
+    // two adjacent anchors = positionable surface; two opposite
+    // anchors = forced screen-size). Set `implicitWidth/Height` to
+    // the menuBox extent. Position via `margins.top/left` from the
+    // anchor item's screen-absolute coords.
+    //
+    // The full-screen outside-click MouseArea is dropped — outside
+    // dismissal is now BarWidget's responsibility (closes the popup
+    // when any bar press lands), plus leaf-click and bar-button-
+    // re-click as today.
     anchors.top: true
     anchors.left: true
-    anchors.right: true
-    anchors.bottom: true
     visible: false
     color: "transparent"
+
+    implicitWidth: menuBox.visible ? menuBox.width : 1
+    implicitHeight: menuBox.visible ? menuBox.height : 1
+    margins.top: _surfaceY
+    margins.left: _surfaceX
+
+    /// Surface position in screen coords — derived from the anchor
+    /// button via `mapToGlobal(0, 0)` at openAt time. Stored as a
+    /// property so layer-shell `margins` are stable bindings (a
+    /// mid-render mapToGlobal would re-trigger surface commit).
+    property real _surfaceX: 0
+    property real _surfaceY: 0
 
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
@@ -102,9 +135,6 @@ PanelWindow {
         if (root.focusedScreenName.length > 0
             && root.screen
             && root.focusedScreenName !== root.screen.name) {
-            // FR-013 — refuse to open on the wrong screen. Visible only
-            // in `journalctl --user -u noctalia-shell`; no user-facing
-            // failure.
             console.log("[appmenu] cross-screen open refused:",
                         "popup-screen=", root.screen.name,
                         "focused-screen=", root.focusedScreenName);
@@ -112,6 +142,16 @@ PanelWindow {
         }
         anchorItem = item;
         menuItem = menuTree;
+        // Compute screen-absolute position from the bar button.
+        // mapToGlobal returns coords in screen space (Qt 5.7+).
+        try {
+            const p = item.mapToGlobal(0, 0);
+            root._surfaceX = Math.max(0, p.x);
+            root._surfaceY = Math.max(0, p.y + item.height);
+        } catch (e) {
+            root._surfaceX = 0;
+            root._surfaceY = 0;
+        }
         visible = true;
     }
 
@@ -167,63 +207,25 @@ PanelWindow {
         // Add menuBox horizontal margins (Style.marginM × 2).
         root._calcWidth = maxW + 2 * Style.marginM;
     }
-    onMenuItemChanged: _recalcWidth()
-
-    // ── Outside-click dismisser ─────────────────────────────────────
-    // Full-screen MouseArea swallows clicks anywhere on this layer-shell
-    // surface and closes the popup. The menu rectangle below has its
-    // own MouseArea that swallows its events first, so this only fires
-    // for clicks OUTSIDE the menu — the desired UX.
-    MouseArea {
-        anchors.fill: parent
-        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-        hoverEnabled: false
-        onClicked: root.close()
-    }
+    // Defer to next tick so visible=true commits the layer-shell
+    // surface immediately; the 13× layout pass for label measurement
+    // happens off the click hot-path.
+    onMenuItemChanged: Qt.callLater(_recalcWidth)
 
     // ── Menu rectangle ──────────────────────────────────────────────
-    // Positioned below `anchorItem`, sized to its content. Uses
-    // `mapToItem(null, ...)` to translate the button's position from
-    // its (BarWidget) parent coordinates into the popup window's
-    // coordinate space. The bar lives on the same screen as this
-    // popup window, so window-local coords match.
+    // The PanelWindow itself is now sized to menuBox, so menuBox
+    // simply fills the surface starting at (0,0). Outside-click is
+    // BarWidget's job (it closes the popup before processing its
+    // own press).
     Rectangle {
         id: menuBox
         visible: root.visible && !!root.menuItem
-
-        // Spec 009 FR-003 — width derives from a JS calculation over
-        // the menu's labels, NOT from popupCol.implicitWidth (which is
-        // 0 because popupCol is anchored left+right to menuBox — an
-        // anchored Column has implicitWidth = 0). Without this, the
-        // width clamps at 180px and long labels like "Show Labels
-        // Under Icons" are clipped. Recomputed via root._recalcWidth()
-        // each time menuItem changes.
+        x: 0
+        y: 0
         width: Math.max(180, root._calcWidth)
         height: popupCol.implicitHeight + Style.marginM * 2
 
-        // Anchor below the clicked button. mapToItem with null target
-        // returns scene-graph (window) coordinates of the anchorItem's
-        // (0,0). y = bottom of anchor; clamp x to keep the box on
-        // screen.
-        x: {
-            if (!root.anchorItem) return 0;
-            const p = root.anchorItem.mapToItem(null, 0, 0);
-            const maxX = root.width - menuBox.width;
-            return Math.max(0, Math.min(maxX, p.x));
-        }
-        y: {
-            if (!root.anchorItem) return 0;
-            const p = root.anchorItem.mapToItem(null, 0, 0);
-            return p.y + root.anchorItem.height;
-        }
-
-        // v1.0.2 visual contrast bump (spec 011): menuBox uses
-        // mSurfaceVariant + 2px border so the popup is clearly
-        // distinct from app backgrounds (Pedro's screenshot showed
-        // menu items rendering against shadPS4QtLauncher's near-
-        // identical dark bg with no visible boundary). Surface
-        // constraint (FR-002 of spec 009) is the proper fix and ships
-        // in v1.0.3 once outside-click dismissal is designed.
+        // v1.0.2 visual contrast bump preserved.
         color: Color.mSurfaceVariant !== undefined
                ? Color.mSurfaceVariant
                : Color.mSurface
@@ -233,16 +235,15 @@ PanelWindow {
         border.width: 2
         radius: Style.marginS
 
-        // Block click-through into the outside-click dismisser. Without
-        // this, clicks on the menu's own background between rows would
-        // close the popup. The Repeater rows have their own MouseAreas.
+        // Swallow clicks on the menu background so the bar's
+        // close-on-press hook (BarWidget) doesn't fire when the user
+        // clicks an empty pixel between rows of the open popup.
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton
             hoverEnabled: false
             onClicked: {
-                // Swallow — close-on-outside is handled by the parent
-                // MouseArea covering the rest of the surface.
+                // Swallow — outside-click handled by BarWidget hook.
             }
         }
 

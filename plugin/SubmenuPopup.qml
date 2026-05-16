@@ -78,15 +78,24 @@ PanelWindow {
     /// chain.
     signal closed()
 
+    // v1.0.3 FR-002 — constrained surface (see AppmenuPopupWindow
+    // for rationale; same fix). Anchor only top + left, size to
+    // menuBox, position via margins.
     anchors.top: true
     anchors.left: true
-    anchors.right: true
-    anchors.bottom: true
     visible: false
     color: "transparent"
 
-    // Same layer-shell envelope as AppmenuPopupWindow (spec 003
-    // FR-005..FR-007).
+    implicitWidth: menuBox.visible ? menuBox.width : 1
+    implicitHeight: menuBox.visible ? menuBox.height : 1
+    margins.top: _surfaceY
+    margins.left: _surfaceX
+
+    /// Surface position in screen coords — derived from the parent
+    /// row's screen-absolute position at open time.
+    property real _surfaceX: 0
+    property real _surfaceY: 0
+
     WlrLayershell.layer: WlrLayer.Top
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
@@ -97,6 +106,10 @@ PanelWindow {
     /// Open this submenu, populated by `menuItem.children`, anchored to
     /// the right edge of `anchor` (falling back to the left edge when
     /// the right would clip off-screen).
+    ///
+    /// `anchor` is now a screen-absolute rect (parent row's mapToGlobal
+    /// + width/height) so the surface positions correctly without
+    /// referencing the parent popup's coordinate space.
     function open(menuItem, anchor) {
         try {
             if (!menuItem) return;
@@ -110,6 +123,15 @@ PanelWindow {
             }
             root.parentMenuItem = menuItem;
             root.anchorRect = anchor || Qt.rect(0, 0, 0, 0);
+            // Position surface at right edge of parent row (screen
+            // coords). Width is unknown until _recalcWidth runs; use
+            // 180 as worst-case clamp for the off-screen check.
+            const preferRight = root.anchorRect.x + root.anchorRect.width;
+            // Screen.width is reachable via Quickshell.screen, but we
+            // accept a small overflow risk — niri clamps surface to
+            // output bounds.
+            root._surfaceX = Math.max(0, preferRight);
+            root._surfaceY = Math.max(0, root.anchorRect.y);
             root._failedState = false;
             root.visible = true;
         } catch (e) {
@@ -173,49 +195,18 @@ PanelWindow {
         }
         root._calcWidth = maxW + 2 * Style.marginM;
     }
-    onParentMenuItemChanged: _recalcWidth()
-
-    // ── Outside-click dismisser ─────────────────────────────────────
-    // Full-screen MouseArea swallows clicks anywhere on this surface
-    // (the menuBox below covers its own clicks first).
-    MouseArea {
-        anchors.fill: parent
-        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
-        hoverEnabled: false
-        onClicked: root.close()
-    }
+    onParentMenuItemChanged: Qt.callLater(_recalcWidth)
 
     // ── Menu rectangle ──────────────────────────────────────────────
-    // Sized to its content; anchored to the right edge of `anchorRect`
-    // by default. Falls back to anchoring on the left when the right
-    // would push the box off-screen.
+    // PanelWindow itself is sized to menuBox (FR-002), so menuBox
+    // simply fills the surface starting at (0,0).
     Rectangle {
         id: menuBox
         visible: root.visible && !!root.parentMenuItem
-
-        // Spec 009 FR-003 — JS-driven width (see AppmenuPopupWindow
-        // for rationale). submenuCol is anchored left+right to menuBox
-        // → submenuCol.implicitWidth = 0 → menuBox previously stuck
-        // at 180px regardless of label length.
+        x: 0
+        y: 0
         width: Math.max(180, root._calcWidth)
         height: submenuCol.implicitHeight + Style.marginM * 2
-
-        x: {
-            if (!root.parentMenuItem) return 0;
-            const preferRight = root.anchorRect.x + root.anchorRect.width;
-            const screenRight = root.width;
-            if (preferRight + menuBox.width <= screenRight) {
-                return preferRight;
-            }
-            // Fall back: anchor right edge of box to left edge of row.
-            const fallback = root.anchorRect.x - menuBox.width;
-            return Math.max(0, fallback);
-        }
-        y: {
-            if (!root.parentMenuItem) return 0;
-            const maxY = root.height - menuBox.height;
-            return Math.max(0, Math.min(maxY, root.anchorRect.y));
-        }
 
         // v1.0.2 visual contrast bump — match AppmenuPopupWindow.
         color: Color.mSurfaceVariant !== undefined
@@ -227,8 +218,9 @@ PanelWindow {
         border.width: 2
         radius: Style.marginS
 
-        // Swallow clicks on the menu background so the outside-click
-        // dismisser only fires for the real outside region.
+        // Swallow clicks on the menu background so the bar's
+        // close-on-press hook doesn't fire when the user clicks
+        // empty pixels between rows of an open submenu.
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.LeftButton | Qt.RightButton

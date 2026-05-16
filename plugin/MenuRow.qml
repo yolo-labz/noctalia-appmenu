@@ -178,7 +178,11 @@ Item {
                 try {
                     if (!row.modelData) return;
                     if (row.hasChildren) {
-                        const anchorPoint = row.mapToItem(null, 0, 0);
+                        // v1.0.3 — submenu PanelWindow expects
+                        // screen-absolute coords (FR-002 constrained
+                        // surface). mapToGlobal returns scene
+                        // coords in screen space across windows.
+                        const anchorPoint = row.mapToGlobal(0, 0);
                         row.submenuRequested(
                             row.modelData,
                             Qt.rect(anchorPoint.x, anchorPoint.y,
