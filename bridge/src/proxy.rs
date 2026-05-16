@@ -360,7 +360,7 @@ pub async fn run(
                 last_body = None;
             }
         }
-        let mut snapshot = active_rx.borrow_and_update().clone();
+        let snapshot = active_rx.borrow_and_update().clone();
 
         // Eager publish: write app_id + title to active.json with
         // menu:null so the bar updates instantly, then refine the
@@ -397,75 +397,64 @@ pub async fn run(
         // Apps without an AT-SPI menu (terminals, electron-no-a11y)
         // pay 200+400=600ms extra per focus before settling on
         // null — accepted as the cost of universal correctness.
-        let menu: Option<atspi::MenuItem> = if snapshot.focus_pid != 0 {
-            let mut found: Option<atspi::MenuItem> = None;
-            let mut attempt: u32 = 0;
-            loop {
-                match atspi::fetch_menubar_for_pid(
-                    &client,
-                    snapshot.focus_pid,
-                    Some(&snapshot.app_id),
-                )
+        // v1.0.6 — fast paths BEFORE the AT-SPI walk:
+        //
+        // 1. Skip-list: known no-menubar apps (terminals, X11 hosts,
+        //    Firefox/Chromium per Pedro field report) return None
+        //    immediately — no D-Bus traffic at all. ~0ms.
+        //
+        // 2. Cache hit: same (app_id, pid) walked in the last
+        //    MENU_CACHE_TTL (30s) returns the cached value (positive
+        //    or negative) instantly — also ~0ms. Re-focusing an app
+        //    Pedro just had focused is the common case.
+        //
+        // 3. Cache miss + not in skip-list: walk AT-SPI ONCE (no
+        //    retry loop), populate cache, move on. The retry-on-None
+        //    loop the v0.3 code shipped paid 200+400=600ms backoff
+        //    on every cache miss for an app without a menubar — the
+        //    cache eliminates that for steady-state.
+        let menu: Option<atspi::MenuItem> = if snapshot.focus_pid == 0 {
+            None
+        } else if atspi::is_known_no_menubar(&snapshot.app_id) {
+            debug!(
+                app_id = %snapshot.app_id,
+                pid = snapshot.focus_pid,
+                "skip-list: known no-menubar app, no AT-SPI walk"
+            );
+            None
+        } else if let Some(cached) =
+            atspi::cached_menu_for_pid(&snapshot.app_id, snapshot.focus_pid)
+        {
+            debug!(
+                app_id = %snapshot.app_id,
+                pid = snapshot.focus_pid,
+                cached_some = cached.is_some(),
+                "cache hit; skipping AT-SPI walk"
+            );
+            cached
+        } else {
+            match atspi::fetch_menubar_for_pid(&client, snapshot.focus_pid, Some(&snapshot.app_id))
                 .await
-                {
-                    Ok(Some(m)) => {
-                        debug!(
-                            pid = snapshot.focus_pid,
-                            top_level = m.children.len(),
-                            attempt,
-                            "walked atspi menubar"
-                        );
-                        found = Some(m);
-                        break;
-                    }
-                    Ok(None) if attempt < 2 => {
-                        let backoff = std::time::Duration::from_millis(200 * (1u64 << attempt));
-                        tokio::select! {
-                            () = tokio::time::sleep(backoff) => {
-                                attempt += 1;
-                            }
-                            r = active_rx.changed() => {
-                                if r.is_err() {
-                                    break;
-                                }
-                                snapshot = active_rx.borrow_and_update().clone();
-                                let mid_source = if snapshot.focus_pid == 0 {
-                                    MenuSource::Empty
-                                } else {
-                                    MenuSource::Atspi
-                                };
-                                write_active_json(
-                                    &active_json_path,
-                                    &snapshot,
-                                    None,
-                                    mid_source,
-                                    &mut last_body,
-                                );
-                                publish_props(&conn, &cfg, &proxy, &snapshot).await?;
-                                if snapshot.focus_pid == 0 {
-                                    break;
-                                }
-                                attempt = 0;
-                            }
-                        }
-                    }
-                    Ok(None) => {
-                        debug!(pid = snapshot.focus_pid, "no atspi menubar for focused app");
-                        break;
-                    }
-                    Err(e) => {
-                        warn!(
-                            error = ?e,
-                            pid = snapshot.focus_pid,
-                            "atspi walk failed; widget falls back to placeholder"
-                        );
-                        break;
-                    }
+            {
+                Ok(opt) => {
+                    debug!(
+                        pid = snapshot.focus_pid,
+                        top_level = opt.as_ref().map(|m| m.children.len()).unwrap_or(0),
+                        cached_negative = opt.is_none(),
+                        "walked atspi menubar; caching"
+                    );
+                    atspi::cache_menu_for_pid(&snapshot.app_id, snapshot.focus_pid, opt.clone());
+                    opt
+                }
+                Err(e) => {
+                    warn!(
+                        error = ?e,
+                        pid = snapshot.focus_pid,
+                        "atspi walk failed; widget falls back to placeholder"
+                    );
+                    None
                 }
             }
-            found
-        } else {
-            None
         };
 
         // Spec 011 — honest-or-hidden UX (Pedro's PR #47, 15/05/2026
