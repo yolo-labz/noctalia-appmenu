@@ -135,6 +135,79 @@ niri msg --json windows | jq '.[] | {id, app_id, pid, is_focused}'
 
 Read-mostly operations (running tests, querying state, reading code, scanning logs): **do them, don't ask**. Account-committing operations (creating GH repos, registering runners, generating Sonar tokens, force-pushing): one confirmation pass with the human, then go.
 
+## Drift detection — MANDATORY pre-action checks
+
+**Full doctrine + case study: [`specs/013-sota-overhaul/agent-governance.md`](specs/013-sota-overhaul/agent-governance.md).** Read it before iterating on any non-trivial bug in this repo.
+
+### Observable drift triggers
+
+Check these before every commit. If ANY fires, the decision tree below is mandatory — `git commit` is BLOCKED until the trigger's branch resolves. The case study (v1.0.5..v1.0.12 = 8 plugin releases on ONE outside-click bug) is the worked failure mode.
+
+| ID | Trigger | Mechanical detection |
+|---|---|---|
+| **A** | Commit cites a prior version by tag/SHA as the failure mode | `git log -1 --format=%B \| grep -qE "v[0-9]+\.[0-9]+\.[0-9]+'s? (failure\|bug\|race\|regression)"` |
+| **B** | More than 3 releases in 24h on one symptom | `git tag --sort=-creatordate \| head -4 \| xargs -I{} git log -1 --format=%ci {}` — span < 24h |
+| **C** | Two consecutive ship attempts failed the same smoke | Pedro reports the *same* symptom in successive iterations |
+| **D** | Pedro repeats the bug report verbatim | Transcript contains two `<user>` turns with the same noun phrase |
+| **E** | Iteration reverts to an earlier architecture with no ADR | `git log --oneline plugin/` grep for "(was: <pattern>)" or "revert" |
+| **F** | Static check (qmllint / clippy) green, runtime red | Last release shipped with `qmllint` clean but `journalctl --user -u noctalia-shell` shows QML errors on load |
+| **G** | Deploy claimed, running binary unchanged | `noctalia-appmenu-bridge --version` ≠ the tag you just pushed |
+| **H** | Commit body says "should" / "expected to" without "verified by" | `git commit -m` containing "should fix" / "expected to" / "will probably" |
+
+### Decision tree (trigger → action → entry command)
+
+| Trigger | Required action | Entry command |
+|---|---|---|
+| A | Rename failure mode to the ADR/spec-FR ID before next commit | `grep -rn "<symptom phrase>" docs/adr/ specs/*/spec.md` |
+| B | STOP tagging. Open a redesign spec instead | `git worktree add ../noctalia-appmenu-NNN-redesign-<bug> -b NNN-redesign origin/main && cp .specify/templates/spec-template.md specs/NNN-<bug>/spec.md` |
+| C | Codex adversarial review reading framework source — NOT another agent iteration | Invoke `codex:codex-rescue` agent with prompt: *"be brutal: read /nix/store/\*-quickshell-source/src/ — what still fails in <patch>?"* |
+| D | Stop coding. Re-read the original report and ADR chain cold | `git log --grep "<phrase>"`; re-read `docs/adr/` 0001..latest before next edit |
+| E | Force-redesign spec. Document why the detour failed before the next forward step | Same as B; the new spec MUST cite every iteration it discards |
+| F | Add runtime smoke to CI BEFORE next release | `qml --offscreen -I plugin/ plugin/BarWidget.qml` in `.github/workflows/ci.yml` |
+| G | Verify binary state at runtime before iterating | `systemctl --user restart noctalia-shell.service && noctalia-appmenu-bridge --version` |
+| H | Block commit; require explicit "verified by ..." smoke evidence in body | Pre-commit hook regex `\b(should\|expected to\|will probably)\b` → fail |
+
+### Alignment guardrails (always-on rules)
+
+1. **Cite failure modes by ADR / spec-FR ID, not by symptom or prior version.** A bug is named "ADR-0024 / FR-002 regression", not "the v1.0.10 problem".
+2. **Read upstream framework source before reverting a fix.** Quickshell/niri/zbus sources live under `/nix/store/*-{quickshell,niri,zbus}-*/src/`. Codex caught `deleteOnInvisible()==true` here in the v1.0.4 cycle — that pattern is required, not optional.
+3. **Run runtime smoke (not just lint) before claiming a fix.** `qmllint` is NOT a load test; clippy is NOT an integration test. Spec a `[ ]` checkbox item only flips to `[x]` when a passing test reference (journalctl line / CI run URL) is in the same commit.
+4. **Verify the running binary loaded the new build before iterating.** `nh os switch` does NOT restart `noctalia-shell.service`. Always `systemctl --user restart noctalia-shell.service && noctalia-appmenu-bridge --version` after deploy.
+5. **Isolate one axis per commit/PR.** Aesthetic + engineering changes do not mix — they cannot be partially reverted.
+6. **Swarm for *gathering*, collapse to one parent for *deciding*.** Spawn ≥ 3 parallel research agents to gather context; never spawn N parallel agents to "vote" on a decision — judgement does not parallelise.
+7. **Two failed iterations on the same bug = the architecture is wrong, not the patch.** Treat C as a hard stop. Iteration 3 of the same architecture is forbidden.
+
+### Anti-patterns (hard forbidden)
+
+- ❌ **Tagging a release with the bug still observable to the user.** Block via pre-tag smoke against the user-reported reproduction.
+- ❌ **Writing "this should fix it" without smoke evidence in the same commit.** Pre-commit regex blocks the verb.
+- ❌ **Iterating after 2 failures without codex review OR a framework-reading subagent.** Trigger C is non-negotiable.
+- ❌ **Reverting to an earlier architecture with NO ADR documenting why the detour failed.** The detour's failure modes are the next agent's only protection against repeating them. v1.0.12 reverted to v1.0.3 — the new ADR (TBD) is owed.
+- ❌ **Trusting `nh os switch` exit code as proof a user-space service loaded new code.** Always verify via `--version` or journal.
+- ❌ **Mixing aesthetic + engineering changes in one commit/PR.** Per `align-methodology` §6.
+- ❌ **Treating vision-agent or lint-agent severity grades as authoritative without Pedro-verification.** P0 calls from AI graders can be wrong.
+
+### Case study — what NOT to do (v1.0.5..v1.0.12)
+
+8 plugin releases in 28 h for ONE bug (outside-click dismiss):
+
+```
+v1.0.5  drop recursive Component               (F, G — 4 prior tags never loaded)
+v1.0.6  skip-list + 30s cache                  (scope-shift, masks dismiss bug from B)
+v1.0.7  restore Firefox + Chromium menus       (A — cites prior)
+v1.0.8  parallel walk                          (A)
+v1.0.9  outside-click dismisses popup          (D — Pedro re-reported)
+v1.0.10 popup→Overlay + permanent shield       (A, C — should have triggered codex)
+v1.0.11 shield input via mask Region           (A, C — should have triggered redesign)
+v1.0.12 xdg_popup grab                         (A, C, E — reverts to v1.0.3 with no ADR)
+```
+
+Where the tree would have stopped the loop:
+- After **v1.0.10** (trigger C: 2 failed dismiss iterations), table demands a codex review reading Quickshell's `PanelWindow::popupGrab` source. Not done. Cost: 2 redundant tags (~5h iteration).
+- After **v1.0.12** (trigger E: architectural backtrack), table demands a redesign spec documenting why v1.0.9..v1.0.11 failed. **THIS spec (`specs/013-sota-overhaul/`) is that owed document.**
+
+Lesson: the defence against drift is not smarter agents, it is **mechanical triggers** on observable git/transcript signals. Wire A–H into pre-commit hooks and release checklists; agent judgement fails under iteration pressure, a regex does not.
+
 ## What is *not* in this file
 
 Cross-project rules (date format, Brazilian DD/MM/YYYY, commit-style, hardware saturation) live in `~/.claude/CLAUDE.md` — read it. Yolo-labz release-engineering rules (SBOM formats, action pin policy) live in `~/NixOS/meta/yolo-labz-release-engineering-research.md` — read it before any workflow changes.
