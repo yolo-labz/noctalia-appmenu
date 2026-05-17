@@ -579,24 +579,12 @@ Item {
     // Wayland routes input surface-by-surface based on cursor position,
     // so the bar stays clickable while the menu is up. Outside-click is
     // caught by a full-screen MouseArea inside the popup window itself.
-    // v1.0.9 — outside-click shield. Declared BEFORE the popup so
-    // the popup's wl_surface stacks above it within `WlrLayer.Top`
-    // (wlr orders same-layer surfaces by creation time). Result:
-    //   • click on popup → popup surface, popup handles it
-    //   • click anywhere else below the bar strip → shield's
-    //     MouseArea → `popup.close()`
-    //   • click on the bar itself → bar surface (shield is anchored
-    //     beneath the bar strip via `barHeight`), normal bar UX
-    AppmenuShield {
-        id: shield
-        screen: root.screen
-        popup: popup
-        // Bar height matches the noctalia-shell topbar; if a future
-        // shell version reshuffles the strip we can derive this from
-        // `root.window.height` at runtime.
-        barHeight: 32
-    }
-
+    // v1.0.12 — outside-click dismissal is now compositor-enforced
+    // via xdg_popup grab (`Quickshell.PopupWindow` inside
+    // AppmenuPopupWindow). The `AppmenuShield` PanelWindow used in
+    // v1.0.9..v1.0.11 is gone — the wlr-layer-shell input region
+    // toggles we needed for that approach never worked reliably on
+    // niri. See AppmenuPopupWindow.qml for the architecture history.
     AppmenuPopupWindow {
         id: popup
         screen: root.screen
