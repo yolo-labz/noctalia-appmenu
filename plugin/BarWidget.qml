@@ -579,12 +579,26 @@ Item {
     // Wayland routes input surface-by-surface based on cursor position,
     // so the bar stays clickable while the menu is up. Outside-click is
     // caught by a full-screen MouseArea inside the popup window itself.
-    // v1.0.12 — outside-click dismissal is now compositor-enforced
-    // via xdg_popup grab (`Quickshell.PopupWindow` inside
-    // AppmenuPopupWindow). The `AppmenuShield` PanelWindow used in
-    // v1.0.9..v1.0.11 is gone — the wlr-layer-shell input region
-    // toggles we needed for that approach never worked reliably on
-    // niri. See AppmenuPopupWindow.qml for the architecture history.
+    // v1.0.14 — outside-click belt-and-braces. v1.0.12 relied solely
+    // on `xdg_popup.grab` (compositor-enforced dismissal). v1.0.13
+    // set the explicit `grabFocus: true` Quickshell defaults to false.
+    // Per Pedro field report 17/05/2026, dismiss still broken —
+    // strong evidence Qt's `setFlag(Qt::Popup)` does NOT issue
+    // `xdg_popup.grab(wl_seat)` when the transient parent is a wlr-
+    // layer-shell surface (our bar is layer-shell).
+    //
+    // v1.0.14 keeps `grabFocus: true` on the PopupWindow (works on
+    // compositors where Qt does issue the grab) AND restores a
+    // separate AppmenuShield full-screen layer-shell panel on Top
+    // beneath the popup (popup is on Overlay > Top). The shield's
+    // MouseArea catches every click outside the popup and calls
+    // `popup.close()` programmatically. Either path dismisses.
+    AppmenuShield {
+        id: shield
+        screen: root.screen
+        popup: popup
+    }
+
     AppmenuPopupWindow {
         id: popup
         screen: root.screen
