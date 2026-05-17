@@ -68,6 +68,19 @@ PopupWindow {
     anchor.rect.x: 0
     anchor.rect.y: anchorItem ? anchorItem.height : 0
 
+    // v1.0.13 — CRITICAL FIX. Quickshell `PopupWindow.grabFocus` defaults
+    // to FALSE; without it, ProxyPopupWindow sets the window flag to
+    // `Qt::ToolTip` rather than `Qt::Popup` (see Quickshell source
+    // `src/window/popupwindow.cpp:63`). Qt::ToolTip means NO
+    // `xdg_popup.grab(wl_seat)` request is made, which means the
+    // compositor never auto-dismisses the popup on outside click. v1.0.12
+    // looked correct in code but silently fell back to no-grab — that's
+    // why image #6 showed the menu staying open even after the architecture
+    // pivot. Setting this true makes Qt issue the grab, niri honours it
+    // (niri#1810 already fixed in v26.04), compositor fires `popup_done`
+    // on any outside press → Quickshell flips `visible: false`.
+    grabFocus: true
+
     implicitWidth: Math.max(220, _calcWidth)
     implicitHeight: menuBox.implicitHeight
     visible: false

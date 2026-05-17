@@ -48,7 +48,11 @@ PopupWindow {
     property bool _failedState: false
 
     signal itemActivated(var item)
-    signal closed()
+    // v1.0.13 — renamed from `closed` to silence
+    //   qt.qml.invalidOverride: Duplicate signal name: invalid override
+    //   of property change signal or superclass signal
+    // PopupWindow inherits Window which already defines `closed`.
+    signal closeChain()
 
     // xdg_popup anchor — to the right of the triggering row, top-edge
     // aligned. Quickshell + the compositor handle screen-edge clipping
@@ -56,6 +60,11 @@ PopupWindow {
     anchor.item: anchorItem
     anchor.rect.x: anchorItem ? anchorItem.width : 0
     anchor.rect.y: 0
+
+    // v1.0.13 — explicit grab so the compositor extends the xdg_popup
+    // grab chain across the cascade; clicking outside ANY submenu in
+    // the chain dismisses the whole tree.
+    grabFocus: true
 
     implicitWidth: Math.max(220, _calcWidth)
     implicitHeight: menuBox.implicitHeight
@@ -98,7 +107,7 @@ PopupWindow {
             }
             nestedLoader.active = false;
             root.visible = false;
-            root.closed();
+            root.closeChain();
         } catch (e) {
             console.error("[appmenu/submenu] envelope caught in close:", e,
                           "stack:", (e && e.stack) || "(no stack)");
@@ -227,7 +236,7 @@ PopupWindow {
                 root.itemActivated(item);
                 root.close();
             }
-            function onClosed() {
+            function onCloseChain() {
                 nestedLoader.active = false;
             }
         }
