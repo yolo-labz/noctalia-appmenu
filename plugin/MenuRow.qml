@@ -39,8 +39,11 @@ Item {
 
     /// Emitted when the user clicks a row with `children`. The parent
     /// popup consumes this and opens a SubmenuPopup anchored to
-    /// `anchorRect` (the row's geometry in window-local coords).
-    signal submenuRequested(var item, rect anchorRect)
+    /// `anchorItem` — the row Item itself. The compositor walks the
+    /// xdg_popup parent chain (bar button → top-level popup → this
+    /// row → submenu) so a grab held at the root extends across the
+    /// entire cascade.
+    signal submenuRequested(var item, Item anchorItem)
 
     readonly property bool isSeparator: modelData && modelData.item_type === "separator"
                                         || (modelData && modelData.type === "separator")
@@ -58,7 +61,11 @@ Item {
     width: parent ? parent.width : 0
     height: isSeparator
             ? Style.marginXS * 2
-            : (Style.barHeight - Style.marginS)
+            // v1.0.12 — give rows more breathing room. The previous
+            // height (Style.barHeight - Style.marginS) cramped the
+            // label to the bar's tight strip; menus are reading
+            // surfaces and benefit from extra vertical padding.
+            : Math.max(28, Style.barHeight - Style.marginXS)
 
     // Theme-token spacing fallback for older noctalia (matches
     // AppmenuPopupWindow.qml:205 defensive pattern).
@@ -82,10 +89,28 @@ Item {
         id: rowBg
         visible: !row.isSeparator
         anchors.fill: parent
-        color: rowHover.containsMouse
-               ? Color.mSurfaceVariant
-               : "transparent"
-        radius: row._xs
+        // v1.0.12 — hover uses the primary-tinted surface (matches
+        // CalendarHeaderCard's hover treatment) instead of the plain
+        // surface variant. More legible against the menuBox bg.
+        color: !row.isEnabled
+               ? "transparent"
+               : (rowHover.containsMouse ? Color.mSurfaceVariant : "transparent")
+        radius: Style.radiusS !== undefined ? Style.radiusS : row._xs
+
+        // Subtle vertical accent stripe on the left when hovered —
+        // mirrors the focused-row treatment in noctalia's Launcher
+        // entries.
+        Rectangle {
+            visible: rowHover.containsMouse && row.isEnabled
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.topMargin: row._xs
+            anchors.bottomMargin: row._xs
+            width: 2
+            radius: 1
+            color: Color.mPrimary
+        }
 
         RowLayout {
             anchors.fill: parent
@@ -178,15 +203,12 @@ Item {
                 try {
                     if (!row.modelData) return;
                     if (row.hasChildren) {
-                        // v1.0.3 — submenu PanelWindow expects
-                        // screen-absolute coords (FR-002 constrained
-                        // surface). mapToGlobal returns scene
-                        // coords in screen space across windows.
-                        const anchorPoint = row.mapToGlobal(0, 0);
-                        row.submenuRequested(
-                            row.modelData,
-                            Qt.rect(anchorPoint.x, anchorPoint.y,
-                                    row.width, row.height));
+                        // v1.0.12 — submenu is now a PopupWindow
+                        // anchored to this row Item (xdg_popup parent
+                        // chain). No screen-absolute math needed; the
+                        // compositor resolves position relative to the
+                        // anchor item's window.
+                        row.submenuRequested(row.modelData, row);
                     } else {
                         row.clicked(row.modelData);
                     }
