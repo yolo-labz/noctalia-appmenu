@@ -39,11 +39,12 @@ Item {
 
     /// Emitted when the user clicks a row with `children`. The parent
     /// popup consumes this and opens a SubmenuPopup anchored to
-    /// `anchorItem` — the row Item itself. The compositor walks the
-    /// xdg_popup parent chain (bar button → top-level popup → this
-    /// row → submenu) so a grab held at the root extends across the
-    /// entire cascade.
-    signal submenuRequested(var item, Item anchorItem)
+    /// `anchorRect` — the row's geometry in SCREEN-absolute coords
+    /// (computed via mapToGlobal). v1.0.16 Option G needs absolute
+    /// coords because the SubmenuPopup is a full-screen PanelWindow
+    /// and positions its menu Rectangle by `x`/`y` inside that
+    /// surface (which maps 1:1 to screen coords).
+    signal submenuRequested(var item, rect anchorRect)
 
     readonly property bool isSeparator: modelData && modelData.item_type === "separator"
                                         || (modelData && modelData.type === "separator")
@@ -203,12 +204,15 @@ Item {
                 try {
                     if (!row.modelData) return;
                     if (row.hasChildren) {
-                        // v1.0.12 — submenu is now a PopupWindow
-                        // anchored to this row Item (xdg_popup parent
-                        // chain). No screen-absolute math needed; the
-                        // compositor resolves position relative to the
-                        // anchor item's window.
-                        row.submenuRequested(row.modelData, row);
+                        // v1.0.16 Option G — submenu is a full-screen
+                        // PanelWindow positioning its menu Rectangle
+                        // by absolute screen coords. Compute the row's
+                        // screen-absolute rect via mapToGlobal.
+                        const anchorPoint = row.mapToGlobal(0, 0);
+                        row.submenuRequested(
+                            row.modelData,
+                            Qt.rect(anchorPoint.x, anchorPoint.y,
+                                    row.width, row.height));
                     } else {
                         row.clicked(row.modelData);
                     }
