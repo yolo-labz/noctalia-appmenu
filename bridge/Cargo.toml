@@ -46,7 +46,7 @@ divan = "0.1"
 # iai-callgrind requires `valgrind` at runtime (devShell ships it).
 # Always compiled in dev to keep the configuration simple — Cargo
 # does not allow `optional = true` on dev-deps.
-iai-callgrind = "0.14"
+iai-callgrind = "0.16"
 
 [[bench]]
 name = "hotpath"
