@@ -157,16 +157,25 @@ PanelWindow {
     // ── Menu Rectangle (visible content) ───────────────────────────
     Rectangle {
         id: menuBox
+        // v1.0.17 — same visual polish as AppmenuPopupWindow.
         visible: root.visible && !!root.parentMenuItem
         x: root._menuX
         y: root._menuY
         width: Math.max(220, root._calcWidth)
         height: submenuCol.implicitHeight + 2 * (Style.marginS !== undefined ? Style.marginS : 6)
         color: Color.mSurface
-        radius: Style.radiusL !== undefined ? Style.radiusL : 12
+        radius: Style.radiusM !== undefined ? Style.radiusM : 16
         border.color: Color.mOutline !== undefined ? Color.mOutline : Color.mPrimary
-        border.width: 1
+        border.width: Style.borderS !== undefined ? Style.borderS : 1
         clip: true
+
+        opacity: root.visible ? 1.0 : 0.0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Style.animationNormal !== undefined ? Style.animationNormal : 300
+                easing.type: Easing.OutQuad
+            }
+        }
 
         // Swallow inside-menu clicks.
         MouseArea {

@@ -180,16 +180,30 @@ PanelWindow {
     // ── Menu surface (visible content, only this rect paints) ──────
     Rectangle {
         id: menuBox
+        // v1.0.17 — visual polish per specs/013-sota-overhaul/visual-spec.md.
+        // Canonical noctalia card vocabulary (matches NPopupContextMenu):
+        //   surface=mSurface, border=mOutline at Style.borderS,
+        //   radius=Style.radiusM (16 px at default ratio), open/close
+        //   opacity fade Style.animationNormal/OutQuad.
         visible: root.visible && !!root.menuItem
         x: root._menuX
         y: root._menuY
         width: Math.max(220, root._calcWidth)
         height: popupCol.implicitHeight + 2 * (Style.marginS !== undefined ? Style.marginS : 6)
         color: Color.mSurface
-        radius: Style.radiusL !== undefined ? Style.radiusL : 12
+        radius: Style.radiusM !== undefined ? Style.radiusM : 16
         border.color: Color.mOutline !== undefined ? Color.mOutline : Color.mPrimary
-        border.width: 1
+        border.width: Style.borderS !== undefined ? Style.borderS : 1
         clip: true
+
+        // Open/close fade — shell idiom from NPopupContextMenu.qml:214-222.
+        opacity: root.visible ? 1.0 : 0.0
+        Behavior on opacity {
+            NumberAnimation {
+                duration: Style.animationNormal !== undefined ? Style.animationNormal : 300
+                easing.type: Easing.OutQuad
+            }
+        }
 
         // SWALLOW clicks on the menu background so they do NOT bubble
         // to the outer outside-click catcher.

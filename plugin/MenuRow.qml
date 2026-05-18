@@ -26,6 +26,7 @@ import QtQuick
 import QtQuick.Layouts
 import Quickshell
 import qs.Commons
+import qs.Widgets
 
 Item {
     id: row
@@ -60,74 +61,64 @@ Item {
 
     visible: isVisible
     width: parent ? parent.width : 0
+    // v1.0.17 — visual polish per visual-spec.md. Fixed 28 px row
+    // matches NPopupContextMenu.qml:262, predictable across scaling.
     height: isSeparator
-            ? Style.marginXS * 2
-            // v1.0.12 — give rows more breathing room. The previous
-            // height (Style.barHeight - Style.marginS) cramped the
-            // label to the bar's tight strip; menus are reading
-            // surfaces and benefit from extra vertical padding.
-            : Math.max(28, Style.barHeight - Style.marginXS)
+            ? Style.marginM
+            : 28
 
     // Theme-token spacing fallback for older noctalia (matches
     // AppmenuPopupWindow.qml:205 defensive pattern).
     readonly property int _xs: Style.marginXS !== undefined ? Style.marginXS : 4
 
     // ── Separator ─────────────────────────────────────────────────────
-    Rectangle {
+    // v1.0.17 — NDivider component (shell idiom — gradient-faded
+    // Color.mOutline line at Style.borderS height). Replaces bare
+    // Rectangle.
+    NDivider {
         visible: row.isSeparator
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        anchors.leftMargin: Style.marginS
-        anchors.rightMargin: Style.marginS
-        height: 1
-        color: Color.mOutline
-        opacity: 0.4
+        anchors.leftMargin: Style.marginM
+        anchors.rightMargin: Style.marginM
     }
 
     // ── Action / submenu row ─────────────────────────────────────────
+    // v1.0.17 — visual polish per visual-spec.md §2. Uses Color.mHover
+    // (shell-standard hovered-surface token, not Color.mSurfaceVariant)
+    // and Style.iRadiusXS (8 px), with a ColorAnimation Behavior on
+    // hover so the surface tween matches NPopupContextMenu.qml:264.
+    // Disabled rows are 0.5 opacity — shell idiom for inactive
+    // interactive surfaces.
     Rectangle {
         id: rowBg
         visible: !row.isSeparator
         anchors.fill: parent
-        // v1.0.12 — hover uses the primary-tinted surface (matches
-        // CalendarHeaderCard's hover treatment) instead of the plain
-        // surface variant. More legible against the menuBox bg.
-        color: !row.isEnabled
-               ? "transparent"
-               : (rowHover.containsMouse ? Color.mSurfaceVariant : "transparent")
-        radius: Style.radiusS !== undefined ? Style.radiusS : row._xs
+        anchors.margins: 1
+        color: rowHover.containsMouse && row.isEnabled
+               ? (Color.mHover !== undefined ? Color.mHover : Color.mSurfaceVariant)
+               : "transparent"
+        radius: Style.iRadiusXS !== undefined ? Style.iRadiusXS : 8
+        opacity: row.isEnabled ? 1.0 : 0.5
 
-        // Subtle vertical accent stripe on the left when hovered —
-        // mirrors the focused-row treatment in noctalia's Launcher
-        // entries.
-        Rectangle {
-            visible: rowHover.containsMouse && row.isEnabled
-            anchors.left: parent.left
-            anchors.top: parent.top
-            anchors.bottom: parent.bottom
-            anchors.topMargin: row._xs
-            anchors.bottomMargin: row._xs
-            width: 2
-            radius: 1
-            color: Color.mPrimary
+        Behavior on color {
+            ColorAnimation {
+                duration: Style.animationFast !== undefined ? Style.animationFast : 150
+            }
         }
 
         RowLayout {
             anchors.fill: parent
-            anchors.leftMargin: Style.marginS
-            anchors.rightMargin: Style.marginS
+            anchors.leftMargin: Style.marginM
+            anchors.rightMargin: Style.marginM
             spacing: Style.marginS
 
-            // FR-011 — toggle_state indicator slot. Reserved when
-            // toggle_type is non-empty; blank when state is false.
-            Text {
+            // FR-011 — toggle_state indicator. v1.0.17: NText component.
+            NText {
                 id: toggleIndicator
                 visible: row.toggleType.length > 0
-                Layout.preferredWidth: visible
-                                       ? Math.max(1, Style._barBaseFontSize
-                                                  * (Settings.data.bar.fontScale || 1.0))
-                                       : 0
+                Layout.preferredWidth: visible ? Style.fontSizeS * Style.uiScaleRatio : 0
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 text: row.toggleType === "checkmark"
@@ -136,9 +127,7 @@ Item {
                          ? (row.toggleOn ? "\u2022" : "")
                          : "")
                 color: row.isEnabled ? Color.mOnSurface : Color.mOnSurfaceVariant
-                font.family: Settings.data.ui.fontDefault || "Inter"
-                font.pixelSize: Math.max(1, Style._barBaseFontSize
-                                         * (Settings.data.bar.fontScale || 1.0))
+                pointSize: Style.fontSizeS
             }
 
             // FR-012 — icon_name. Quickshell.iconPath returns either a
@@ -169,25 +158,30 @@ Item {
                 }
             }
 
-            Text {
+            // v1.0.17 — NText for label (inherits font-family, weight,
+            // disabled opacity automatically). pointSize: Style.fontSizeS.
+            NText {
                 Layout.fillWidth: true
                 text: (row.modelData ? row.modelData.label : "").replace(/_/g, "")
-                color: row.isEnabled ? Color.mOnSurface : Color.mOnSurfaceVariant
-                font.family: Settings.data.ui.fontDefault || "Inter"
-                font.pixelSize: Math.max(1, Style._barBaseFontSize
-                                         * (Settings.data.bar.fontScale || 1.0))
+                color: rowHover.containsMouse && row.isEnabled
+                       ? (Color.mOnHover !== undefined ? Color.mOnHover : Color.mOnSurface)
+                       : (row.isEnabled ? Color.mOnSurface : Color.mOnSurfaceVariant)
+                pointSize: Style.fontSizeS
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
+                Behavior on color {
+                    ColorAnimation {
+                        duration: Style.animationFast !== undefined ? Style.animationFast : 150
+                    }
+                }
             }
 
-            // Submenu chevron
-            Text {
+            // Submenu chevron — v1.0.17 NText, static.
+            NText {
                 visible: row.hasChildren
                 text: "\u203A"
                 color: Color.mOnSurfaceVariant
-                font.family: Settings.data.ui.fontDefault || "Inter"
-                font.pixelSize: Math.max(1, Style._barBaseFontSize
-                                         * (Settings.data.bar.fontScale || 1.0))
+                pointSize: Style.fontSizeS
             }
         }
 
