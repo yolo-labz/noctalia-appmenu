@@ -41,7 +41,7 @@ futures = { version = "0.3", default-features = false, features = ["std", "async
 [dev-dependencies]
 mockall = "0.14"
 tokio-test = "0.4"
-tempfile = "3.13"
+tempfile = "3.27"
 divan = "0.1"
 # iai-callgrind requires `valgrind` at runtime (devShell ships it).
 # Always compiled in dev to keep the configuration simple — Cargo
