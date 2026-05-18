@@ -1,75 +1,63 @@
-// noctalia-appmenu — nested submenu popup (v1.0.12)
+// noctalia-appmenu — nested submenu popup (v1.0.16 — Option G)
 //
-// v1.0.12 rewrite: was a `PanelWindow` (wlr-layer-shell sibling) for
-// six minor releases trying to make outside-click dismissal work via
-// a separate "shield" panel; it never worked reliably on niri. This
-// version is a `Quickshell.PopupWindow` (xdg_popup) anchored to its
-// triggering row Item — the compositor enforces grab semantics across
-// the entire popup chain (bar button → top-level popup → row in
-// top-level → submenu → row in submenu → deeper submenu …). Same
-// pattern as noctalia-shell `TrayMenu.qml` / `NPopupContextMenu.qml`.
+// Same architecture as AppmenuPopupWindow.qml v1.0.16:
+//   full-screen transparent PanelWindow on Overlay
+//   + outside-click MouseArea
+//   + inner menu Rectangle positioned at computed coords
 //
-// FR-013 (multi-screen guard) preserved: `open` refuses to fire when
-// the focused output ≠ this popup's screen.
+// The submenu's menu Rectangle is positioned to the right of the
+// triggering row (anchorRect.x + anchorRect.width, anchorRect.y).
+// `anchorRect` is the parent MenuRow's screen-absolute rect computed
+// via mapToGlobal in MenuRow.qml.
 //
-// Recursive nesting still loads via URL-source Loader (`v1.0.5` fix:
-// inline `Component { SubmenuPopup {} }` triggered QML "instantiated
-// recursively" at parse time).
+// Recursive nesting via URL-source Loader stays as before — that
+// pattern works.
 
 import QtQuick
 import Quickshell
+import Quickshell.Wayland
 import qs.Commons
 import qs.Services.UI
 
-PopupWindow {
+PanelWindow {
     id: root
 
-    /// Output the surface lives on. Set by the caller; matches the
-    /// screen the parent popup is anchored to.
+    /// Output the surface lives on. Set by the caller.
     required property ShellScreen screen
 
     /// The menu-tree node whose `children` populate this submenu.
     property var parentMenuItem: null
 
-    /// The row Item that triggered this open. The submenu's
-    /// `anchor.item` follows the parent xdg_popup chain.
-    property Item anchorItem: null
+    /// Screen-absolute rect of the parent row that triggered open.
+    /// Submenu Rectangle is positioned to the right of this rect.
+    property rect anchorRect: Qt.rect(0, 0, 0, 0)
 
-    /// FR-013 multi-screen guard — when non-empty and ≠ `screen.name`,
-    /// `open` refuses.
+    /// FR-013 multi-screen guard.
     property string focusedScreenName: ""
 
-    /// Spec 009 FR-007 — depth tag (1 = first submenu under the
-    /// top-level popup). Increments on recursive open via the nested
-    /// Loader.
+    /// Spec 009 FR-007 — depth tag for namespace uniqueness.
     property int depth: 1
 
     /// Failed-state flag (FR-009).
     property bool _failedState: false
 
     signal itemActivated(var item)
-    // v1.0.13 — renamed from `closed` to silence
-    //   qt.qml.invalidOverride: Duplicate signal name: invalid override
-    //   of property change signal or superclass signal
-    // PopupWindow inherits Window which already defines `closed`.
     signal closeChain()
 
-    // xdg_popup anchor — to the right of the triggering row, top-edge
-    // aligned. Quickshell + the compositor handle screen-edge clipping
-    // (flips to left side when there's no room on the right).
-    anchor.item: anchorItem
-    anchor.rect.x: anchorItem ? anchorItem.width : 0
-    anchor.rect.y: 0
-
-    // v1.0.13 — explicit grab so the compositor extends the xdg_popup
-    // grab chain across the cascade; clicking outside ANY submenu in
-    // the chain dismisses the whole tree.
-    grabFocus: true
-
-    implicitWidth: Math.max(220, _calcWidth)
-    implicitHeight: menuBox.implicitHeight
+    // ── Full-screen transparent surface ─────────────────────────────
     visible: false
     color: "transparent"
+    anchors.top: true
+    anchors.bottom: true
+    anchors.left: true
+    anchors.right: true
+
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    WlrLayershell.exclusionMode: ExclusionMode.Ignore
+    WlrLayershell.namespace: "noctalia-appmenu-submenu-d"
+                              + depth + "-"
+                              + (screen ? screen.name : "unknown")
 
     readonly property alias isOpen: root.visible
 
@@ -85,11 +73,11 @@ PopupWindow {
                 return;
             }
             root.parentMenuItem = menuItem;
-            // `anchor` is now an Item (the parent row). Same parameter
-            // name as v1.0.11 for backwards compat with the MenuRow
-            // signal contract.
-            root.anchorItem = anchor;
+            root.anchorRect = anchor || Qt.rect(0, 0, 0, 0);
             root._recalcWidth();
+            const preferRight = root.anchorRect.x + root.anchorRect.width;
+            root._menuX = Math.max(0, preferRight);
+            root._menuY = Math.max(0, root.anchorRect.y);
             root._failedState = false;
             root.visible = true;
         } catch (e) {
@@ -116,7 +104,10 @@ PopupWindow {
         }
     }
 
-    // ── Width measurement (same as before, simpler API) ─────────────
+    property real _menuX: 0
+    property real _menuY: 0
+
+    // ── Width measurement ───────────────────────────────────────────
     property real _calcWidth: 220
     Text {
         id: _measureText
@@ -150,17 +141,42 @@ PopupWindow {
     }
     onParentMenuItemChanged: _recalcWidth()
 
-    // ── Menu surface — same visual vocabulary as AppmenuPopupWindow ─
+    // ── OUTSIDE-CLICK CATCHER ───────────────────────────────────────
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+        hoverEnabled: false
+        onPressed: function (mouse) {
+            console.log("[appmenu/submenu d" + root.depth
+                        + "] outside-click dismiss at",
+                        Math.round(mouse.x), Math.round(mouse.y));
+            root.close();
+        }
+    }
+
+    // ── Menu Rectangle (visible content) ───────────────────────────
     Rectangle {
         id: menuBox
-        anchors.fill: parent
+        visible: root.visible && !!root.parentMenuItem
+        x: root._menuX
+        y: root._menuY
+        width: Math.max(220, root._calcWidth)
+        height: submenuCol.implicitHeight + 2 * (Style.marginS !== undefined ? Style.marginS : 6)
         color: Color.mSurface
         radius: Style.radiusL !== undefined ? Style.radiusL : 12
         border.color: Color.mOutline !== undefined ? Color.mOutline : Color.mPrimary
         border.width: 1
         clip: true
 
-        implicitHeight: submenuCol.implicitHeight + 2 * (Style.marginS !== undefined ? Style.marginS : 6)
+        // Swallow inside-menu clicks.
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            hoverEnabled: false
+            onPressed: function (mouse) {
+                mouse.accepted = true;
+            }
+        }
 
         Column {
             id: submenuCol
@@ -195,7 +211,7 @@ PopupWindow {
         }
     }
 
-    // ── Recursive nested submenu (depth ≥ 3) — v1.0.5 URL-source pattern
+    // ── Recursive nested submenu (depth ≥ 3) — v1.0.5 URL pattern ──
     property var _pendingNested: null
     function _tryOpenNested() {
         if (!nestedLoader.item || nestedLoader.status !== Loader.Ready) {
