@@ -71,7 +71,23 @@ PanelWindow {
     anchors.left: true
     anchors.right: true
 
-    WlrLayershell.layer: WlrLayer.Top
+    // v1.0.15 — promoted to `WlrLayer.Overlay` (was Top). v1.0.14 put
+    // the shield on Top, but noctalia-shell's `MainScreen.qml` is
+    // ALREADY a full-screen `WlrLayer.Top` PanelWindow with an input
+    // mask covering "everywhere except the bar" (it's the shell's
+    // own click-through host for Calendar / Control Center etc).
+    // Within the Top layer niri orders by creation time AND MainScreen
+    // was created at shell startup — long before our plugin loaded —
+    // so MainScreen sat above our shield and consumed every outside
+    // click before our MouseArea could see it. Promoting the shield
+    // to Overlay puts it above MainScreen unambiguously.
+    //
+    // The popup is ALSO on Overlay. Within Overlay, niri orders by
+    // creation time again — we declare AppmenuShield in BarWidget.qml
+    // BEFORE the AppmenuPopupWindow so the popup stacks above the
+    // shield. Clicks on the popup reach the popup; clicks anywhere
+    // else hit the shield → `popup.close()`.
+    WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "noctalia-appmenu-shield-" + (screen ? screen.name : "unknown")
