@@ -562,6 +562,25 @@ Item {
                             // a sibling window before clicking a leaf.
                             root._capturedWinid = root.focusWinid;
                             popup.openAt(btn, btn.modelData);
+                        } else if (root._isLikelyTopLevelGroup(btn.modelData)) {
+                            // v1.0.21 self-heal — a top-level entry that
+                            // claims zero children almost always means the
+                            // bridge raced an AT-SPI lazy-realisation window
+                            // (typically right after a cold-start focus or a
+                            // Firefox profile that just realised its
+                            // menubar). Pedro's image #5 — bar shows the
+                            // strip, popup never opens.
+                            //
+                            // Trigger a bridge RefreshActive + retry-open
+                            // after a short settle window. If the re-walk
+                            // also returns zero children, the second click
+                            // will hit the leaf-fallback branch below and
+                            // fire DoAction(0) on the bar item.
+                            console.log("[appmenu] empty top-level — triggering RefreshActive retry:",
+                                        btn.modelData.label);
+                            root._pendingRetryButton = btn;
+                            refreshActiveProcess.running = true;
+                            retryTimer.restart();
                         } else {
                             // Leaf at top level OR submenu the bridge
                             // could not walk (Firefox lazy AT-SPI realises
@@ -659,5 +678,75 @@ Item {
     Process {
         id: clickProcess
         // command set per-call in fireClick(). running: false default.
+    }
+
+    // ── v1.0.21 empty-popup self-heal ─────────────────────────────────
+    // Pedro image #5: bar shows top-level strip but clicking opens
+    // nothing because the bridge's first AT-SPI walk lost the lazy
+    // realisation race and serialised top-level entries with empty
+    // children. Self-heal: trigger RefreshActive, settle, retry-open
+    // the same button once. Heuristic — only nudge entries whose label
+    // matches the standard top-level menu vocabulary (File / Edit / …)
+    // so we never re-walk for a real leaf the bridge intentionally
+    // serialised without children.
+
+    /// Buttons captured for the retry-open path. Cleared after one
+    /// retry — refusing to loop indefinitely if the re-walk also
+    /// returns zero children.
+    property var _pendingRetryButton: null
+
+    /// Returns true when `item.label` looks like a top-level group
+    /// (File, Edit, View, History, Bookmarks, Profiles, Tools, Help,
+    /// Window, Go, Settings, Help) — heuristic, intentionally
+    /// permissive. False for empty / leaf-only labels.
+    function _isLikelyTopLevelGroup(item) {
+        if (!item || !item.label) return false;
+        const label = String(item.label).replace(/_/g, "").trim();
+        const known = ["File", "Edit", "View", "History", "Bookmarks",
+                       "Profiles", "Tools", "Help", "Window", "Go",
+                       "Settings", "Format", "Insert", "Run", "Build",
+                       "Project", "Debug", "Terminal", "Tabs", "Tab"];
+        return known.indexOf(label) !== -1;
+    }
+
+    /// Send `org.noctalia.AppMenu.Active.RefreshActive` to the bridge
+    /// over D-Bus via `gdbus`. Bridge already exposes the method (see
+    /// bridge/src/proxy.rs:278) and re-walks the focused app's AT-SPI
+    /// tree on receipt. Idempotent; safe to call rapidly.
+    Process {
+        id: refreshActiveProcess
+        command: [
+            "gdbus", "call", "--session",
+            "--dest", "org.noctalia.AppMenu",
+            "--object-path", "/org/noctalia/AppMenu/Active",
+            "--method", "org.noctalia.AppMenu.Active.RefreshActive"
+        ]
+    }
+
+    /// Re-attempt opening the pending button's popup after the bridge
+    /// has had a moment to re-walk. 250 ms is generous — Firefox
+    /// menubar walks well under that in steady state per v1.0.8
+    /// parallel-walk telemetry.
+    Timer {
+        id: retryTimer
+        interval: 250
+        repeat: false
+        onTriggered: {
+            const btn = root._pendingRetryButton;
+            root._pendingRetryButton = null;
+            if (!btn || !btn.modelData) return;
+            const md = btn.modelData;
+            if (md.children && md.children.length > 0) {
+                console.log("[appmenu] RefreshActive retry succeeded:",
+                            md.label, "children:", md.children.length);
+                root._capturedWinid = root.focusWinid;
+                popup.openAt(btn, md);
+            } else {
+                console.log("[appmenu] RefreshActive retry STILL empty for:",
+                            md.label, "— falling through to native click");
+                if (popup.isOpen) popup.close();
+                root.fireClick(md);
+            }
+        }
     }
 }
