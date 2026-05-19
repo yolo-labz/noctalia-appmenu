@@ -130,6 +130,11 @@ fn write_active_json(
     let payload = serde_json::json!({
         "v": ACTIVE_JSON_SCHEMA_VERSION,
         "focus_pid": snap.focus_pid,
+        // niri window id of the focused window. Plugin uses this to
+        // call `niri msg action focus-window --id <id>` before invoking
+        // `Action.DoAction(0)`, so multi-window apps route the action
+        // to the correct window (issue #109).
+        "focus_winid": snap.focus_winid,
         "app_id": snap.app_id,
         "title": snap.title,
         "source": source.as_str(),

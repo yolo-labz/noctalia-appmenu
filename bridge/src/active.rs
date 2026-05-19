@@ -19,6 +19,14 @@ use zbus::zvariant::OwnedObjectPath;
 pub struct ActiveSnapshot {
     /// PID of the currently-focused window's owning client.
     pub focus_pid: u32,
+    /// niri window id of the focused window. `0` when there is no
+    /// focused window. Needed by the plugin to issue a
+    /// `niri msg action focus-window --id <id>` *before* invoking
+    /// `Action.DoAction(0)`, so multi-window apps (Firefox in
+    /// particular) route the action to the correct window rather
+    /// than to whichever window has Firefox-internal focus at the
+    /// moment of the click. See issue #109.
+    pub focus_winid: u64,
     /// Wayland app-id of the focused window.
     pub app_id: String,
     /// Title of the focused window.
@@ -36,6 +44,7 @@ impl ActiveSnapshot {
     pub fn empty() -> Self {
         Self {
             focus_pid: 0,
+            focus_winid: 0,
             app_id: String::new(),
             title: String::new(),
             menu_service: String::new(),
@@ -58,6 +67,7 @@ pub fn snapshot(focus: Option<&FocusEvent>) -> ActiveSnapshot {
         None => ActiveSnapshot::empty(),
         Some(f) => ActiveSnapshot {
             focus_pid: f.pid,
+            focus_winid: f.winid,
             app_id: f.app_id.clone(),
             title: f.title.clone(),
             menu_service: String::new(),
@@ -126,6 +136,26 @@ mod tests {
         assert_eq!(snap.focus_pid, 123);
         assert_eq!(snap.app_id, "App");
         assert_eq!(snap.title, "t");
+    }
+
+    #[test]
+    fn focus_populates_winid_for_multi_window_routing() {
+        // Issue #109: plugin needs the niri window id to route a
+        // `niri msg action focus-window` call before DoAction.
+        // Multi-window Firefox is the canonical case.
+        let f = FocusEvent {
+            winid: 42,
+            pid: 99,
+            app_id: "Firefox".into(),
+            title: "t".into(),
+        };
+        let snap = snapshot(Some(&f));
+        assert_eq!(snap.focus_winid, 42);
+    }
+
+    #[test]
+    fn no_focus_yields_zero_winid() {
+        assert_eq!(snapshot(None).focus_winid, 0);
     }
 
     #[test]
