@@ -38,6 +38,7 @@ incomplete stage.
 | `plugin-release` | Polls `gh release view vVERSION` until artifacts published | Confirms tag-driven release.yml fired |
 | `nixos-bump` | Worktree on `phsb5321/NixOS`, `nix flake lock --update-input noctalia-appmenu`, eval desktop, push PR, admin-merge | The user-CLAUDE.md forbids `git push origin main`; PR + admin-merge is the only safe path |
 | `nixos-deploy` | `sudo nixos-rebuild switch --flake .#$(hostname)` (clears stale HM `.backup` first) | `nh os switch` was banned by a niri-block hook on this host |
+| `cache-nuke` | `rm -rf ~/.cache/noctalia-qs/qmlcache/` | Nix store sets all file mtimes to the 1969-12-31 epoch; Quickshell's mtime-based `.qmlc` freshness check then prefers the WALL-CLOCK-dated cache from the previous release over the new source. Symptom: Pedro screenshots labelled "absolutely nothing changes !!" three releases running (v1.0.15, v1.0.16, v1.0.17). Cache must die BEFORE the shell restart, or the restart re-loads yesterday's bytecode. |
 | `shell-restart` | `systemctl --user restart noctalia-shell.service` | Memory `feedback_nh_switch_no_shell_restart.md` — switch alone does NOT reload user services |
 | `verify` | `noctalia-appmenu-bridge --version == VERSION` and `org.noctalia.AppMenu` present on session bus | Catches "deploy claimed, binary unchanged" (drift trigger G) |
 

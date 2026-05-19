@@ -76,6 +76,13 @@ and the underlying `scripts/release.sh`. **Do not improvise.** The skill enforce
   `pre-push` hook, refuses any local-only `v*` tag whose target commit
   subject lacks the version. Second layer of defence for the same drift.
 - NixOS flake bump via PR + admin-merge — never `git push origin main`.
+- QML bytecode cache nuke (`rm -rf ~/.cache/noctalia-qs/qmlcache/`)
+  immediately before the shell restart. Nix store mtimes are the epoch
+  (1969-12-31); Quickshell's mtime-based `.qmlc` freshness check loses
+  to the wall-clock-dated cache from the previous release, so the
+  restart re-loads yesterday's compiled QML. Symptom: Pedro reports
+  "absolutely nothing changes !!" three releases running. Mechanical
+  fix — the cache must die or the deploy is invisible.
 - `systemctl --user restart noctalia-shell.service` after `nixos-rebuild`
   — closes the "deploy claimed, binary unchanged" gap
   (`feedback_nh_switch_no_shell_restart.md`).

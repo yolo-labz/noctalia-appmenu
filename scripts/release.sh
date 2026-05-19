@@ -25,8 +25,9 @@
 #   5. plugin-release — wait for GH release workflow to publish artifacts
 #   6. nixos-bump     — update NixOS flake input, push PR, admin-merge
 #   7. nixos-deploy   — sudo nixos-rebuild switch on the local host
-#   8. shell-restart  — systemctl --user restart noctalia-shell.service
-#   9. verify         — bridge --version matches, busctl proxy alive
+#   8. cache-nuke     — clear Quickshell QML bytecode cache (Nix epoch-mtime trap)
+#   9. shell-restart  — systemctl --user restart noctalia-shell.service
+#   10. verify        — bridge --version matches, busctl proxy alive
 #
 # Hard bans honoured: no `git push origin main`, no `git stash`, no
 # `--no-verify`, no `git add -A`, no tag-pin without SHA comment.
@@ -254,7 +255,35 @@ nixos_deploy() {
 }
 
 ###############################################################################
-# 8. shell-restart — feedback_nh_switch_no_shell_restart.md
+# 8. cache-nuke — drop Quickshell's QML bytecode cache BEFORE the restart.
+#
+# Lesson from v1.0.17 (18/05/2026): the Nix store sets all file mtimes
+# to the epoch (`1969-12-31 21:00:01 -0300`) so derivations are
+# reproducible. Quickshell's `.qmlc` freshness check is mtime-based: if
+# `cached.qmlc.mtime > source.qml.mtime` it skips recompile. Because
+# the cache was written AFTER the prior plugin install (real wall-clock
+# date) and the new source has *epoch* mtime, the cache wins → the
+# shell loads YESTERDAY's compiled QML even though the source on disk
+# is current. Symptom: "absolutely nothing changed" between releases,
+# repeatedly. Mechanically fix by nuking the cache pre-restart.
+#
+# Drift trigger F (static check green, runtime red) and G (deploy
+# claimed, binary unchanged) both manifest through this gap.
+###############################################################################
+cache_nuke() {
+    local cache_dir="$HOME/.cache/noctalia-qs/qmlcache"
+    if [[ -d "$cache_dir" ]]; then
+        local count
+        count="$(find "$cache_dir" -name '*.qmlc' | wc -l)"
+        rm -rf "$cache_dir"
+        log "nuked Quickshell QML cache ($count .qmlc files) — forces recompile from current sources"
+    else
+        log "no QML cache to nuke (path: $cache_dir)"
+    fi
+}
+
+###############################################################################
+# 9. shell-restart — feedback_nh_switch_no_shell_restart.md
 ###############################################################################
 shell_restart() {
     systemctl --user is-active noctalia-shell.service >/dev/null \
@@ -265,7 +294,7 @@ shell_restart() {
 }
 
 ###############################################################################
-# 9. verify
+# 10. verify
 ###############################################################################
 verify() {
     local got
@@ -290,6 +319,7 @@ stage plugin-tag      plugin_tag
 stage plugin-release  plugin_release
 stage nixos-bump      nixos_bump
 stage nixos-deploy    nixos_deploy
+stage cache-nuke      cache_nuke
 stage shell-restart   shell_restart
 stage verify          verify
 log "DONE — $TAG live on $(hostname)"
