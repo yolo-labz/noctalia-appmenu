@@ -66,6 +66,12 @@ commit-msg:
 pre-push:
   parallel: true
   commands:
+    # verify-tag-subject MUST be sequential-safe (reads stdin); lefthook
+    # forwards the same stdin to all parallel commands, but only this
+    # one consumes it. Keeps it cheap — pre-push parallelism preserved.
+    verify-tag-subject:
+      tags: release
+      run: scripts/verify-tag-subject.sh
     bridge-clippy:
       tags: rust
       run: cd bridge && cargo clippy --all-features --all-targets --locked -- -D warnings

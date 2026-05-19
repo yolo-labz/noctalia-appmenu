@@ -64,6 +64,38 @@ git worktree remove ../noctalia-appmenu-${NN}-${SLUG}
 git fetch origin main && git pull --ff-only origin main
 ```
 
+## Releases — invoke the canonical skill
+
+End-to-end release + deploy is codified in **`.claude/commands/release-deploy.md`**
+and the underlying `scripts/release.sh`. **Do not improvise.** The skill enforces:
+
+- Tag-on-correct-commit — `plugin-tag` stage refuses to tag if `origin/main`
+  HEAD subject does not contain the version. Catches the v1.0.14 drift
+  (CLAUDE.md trigger E) mechanically.
+- Pre-push tag verification — `scripts/verify-tag-subject.sh` runs in lefthook's
+  `pre-push` hook, refuses any local-only `v*` tag whose target commit
+  subject lacks the version. Second layer of defence for the same drift.
+- NixOS flake bump via PR + admin-merge — never `git push origin main`.
+- `systemctl --user restart noctalia-shell.service` after `nixos-rebuild`
+  — closes the "deploy claimed, binary unchanged" gap
+  (`feedback_nh_switch_no_shell_restart.md`).
+- Final `noctalia-appmenu-bridge --version` check — closes drift trigger G.
+
+Usage:
+
+```bash
+# After opening a worktree-first bump PR with VERSION in the title:
+scripts/release.sh 1.0.18
+
+# Resume mid-flow after a stage failure:
+scripts/release.sh 1.0.18 --skip-stage plugin-merge --skip-stage plugin-tag
+```
+
+If you find yourself wanting to run any release step by hand — **stop**.
+Add the missing capability to `scripts/release.sh` (single source of truth)
+and re-invoke. Hand-rolled release flows are the drift mechanism this skill
+exists to suppress.
+
 ## Specialised agents (`.claude/agents/`)
 
 | Agent | When to invoke |
