@@ -51,6 +51,15 @@ enum Cmd {
         service: String,
         /// AT-SPI object path (e.g. `/org/a11y/atspi/accessible/12`).
         path: String,
+        /// niri window id to focus *before* invoking `DoAction(0)`.
+        /// Defaults to 0 (no pre-focus) for back-compat. When > 0, the
+        /// subcommand sends `niri msg action focus-window --id <id>`
+        /// via niri-ipc and sleeps `focus_settle_ms` before the click,
+        /// so multi-window apps (Firefox in particular) route the
+        /// action to the captured window rather than to whichever
+        /// window has app-internal focus at click time. See issue #109.
+        #[arg(long, default_value_t = 0)]
+        winid: u64,
     },
 }
 
@@ -70,8 +79,13 @@ async fn main() -> Result<()> {
     // CLI subcommands run in their own short-lived process — no
     // tracing setup, no daemon machinery, no D-Bus listener. Just
     // do the call and exit.
-    if let Some(Cmd::AtspiClick { service, path }) = cli.cmd.as_ref() {
-        return run_atspi_click(service, path).await;
+    if let Some(Cmd::AtspiClick {
+        service,
+        path,
+        winid,
+    }) = cli.cmd.as_ref()
+    {
+        return run_atspi_click(service, path, *winid).await;
     }
 
     init_tracing(cli.foreground);
@@ -165,7 +179,35 @@ async fn main() -> Result<()> {
 /// and exit with status 2 + a `MenuError::Stale {...}` line on stderr.
 /// The QML widget interprets exit-2 as "click missed, snapshot will
 /// repaint shortly" and re-renders against the refreshed `active.json`.
-async fn run_atspi_click(service: &str, path: &str) -> Result<()> {
+async fn run_atspi_click(service: &str, path: &str, winid: u64) -> Result<()> {
+    // Issue #109: pre-focus the captured niri window so multi-window
+    // apps route `Action.DoAction(0)` to the correct window. Firefox
+    // is the canonical case — `DoAction` on its menu accessibles
+    // delegates to whichever Firefox window has internal focus, so
+    // without this pre-step *New Tab* on window A's menu can open
+    // the tab on window B if focus drifted between popup-open and
+    // click.
+    //
+    // `winid == 0` means "no captured window id" — older plugin
+    // builds, synthetic items, or first-focus edge cases. Skip the
+    // pre-focus entirely there; the original behaviour is preserved.
+    if winid > 0 {
+        if let Err(e) = niri_focus_window(winid).await {
+            // Best-effort: a failed pre-focus is logged but does NOT
+            // block the click. niri may be temporarily unreachable
+            // and the DoAction often still works (window already had
+            // focus). Surfacing as a hard error would regress every
+            // single-window scenario.
+            eprintln!("warning: niri focus-window {winid} failed: {e:#}; continuing with click");
+        } else {
+            // Compositor needs a frame to swap input focus and for
+            // Firefox to sync its internal "current window". 30 ms
+            // is empirically enough on niri 25.x without becoming
+            // user-perceptible latency.
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+    }
+
     match atspi::do_action(service, path).await {
         Ok(()) => Ok(()),
         Err(err) => {
@@ -185,6 +227,21 @@ async fn run_atspi_click(service: &str, path: &str) -> Result<()> {
             Err(err)
         }
     }
+}
+
+/// Send `niri msg action focus-window --id <winid>` over niri-IPC.
+/// Used by [`run_atspi_click`] to align compositor focus with the
+/// window whose menu the user is acting on (issue #109).
+async fn niri_focus_window(winid: u64) -> Result<()> {
+    use niri_ipc::{socket::Socket, Action, Request};
+
+    let mut socket = Socket::connect().context("connecting to niri IPC socket")?;
+    let reply = socket
+        .send(Request::Action(Action::FocusWindow { id: winid }))
+        .context("sending FocusWindow action to niri")?;
+    reply
+        .map_err(|e| anyhow::anyhow!("niri rejected FocusWindow(id={winid}): {e}"))?;
+    Ok(())
 }
 
 /// Send a `RefreshActive` D-Bus method call to the running bridge so

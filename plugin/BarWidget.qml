@@ -72,6 +72,21 @@ Item {
     property string title: ""
     property string menuService: ""
     property string menuPath: ""
+    /// niri window id of the bridge's currently-focused window. Used
+    /// by `fireClick` to send `niri msg action focus-window --id <id>`
+    /// before invoking `Action.DoAction(0)`, so multi-window apps
+    /// (Firefox in particular) route the action to the captured
+    /// window rather than to whichever window has app-internal focus
+    /// at click time. See issue #109. `0` when the bridge has not
+    /// yet reported a focused window or the older bridge is running.
+    property int focusWinid: 0
+
+    /// Snapshot of `focusWinid` taken at popup-open time. Read by
+    /// `fireClick` (which may run *after* the user hovers over a
+    /// sibling window, drifting `focusWinid`). Reset to 0 on popup
+    /// close to surface bugs loudly rather than silently route to
+    /// the previous window.
+    property int _capturedWinid: 0
 
     // v1.0.9 — close any open popup the moment the focused app
     // changes. Catches alt-tab away (and the noctalia-shell focus
@@ -234,6 +249,7 @@ Item {
             root.title = "";
             root.menuService = "";
             root.menuPath = "";
+            root.focusWinid = 0;
             if (root.topLevel.length > 0) root.topLevel = [];
             return;
         }
@@ -241,6 +257,7 @@ Item {
         root.title = j.title || "";
         root.menuService = j.menu_service || "";
         root.menuPath = j.menu_path || "";
+        root.focusWinid = j.focus_winid || 0;
         // Walk into menu.children. Defaults to empty when bridge
         // wrote `menu: null` (e.g. focused app has no menu and no
         // synthetic fallback applied).
@@ -537,6 +554,13 @@ Item {
                         if (popup.isOpen && popup.anchorItem === btn) {
                             popup.close();
                         } else if (btn.modelData.children && btn.modelData.children.length > 0) {
+                            // Issue #109 — capture the niri window id of
+                            // the *currently-focused* window at popup-open
+                            // time. Reused in fireClick so any action
+                            // fired through the popup routes back to this
+                            // exact window, even if the user hovers over
+                            // a sibling window before clicking a leaf.
+                            root._capturedWinid = root.focusWinid;
                             popup.openAt(btn, btn.modelData);
                         } else {
                             // Leaf at top level OR submenu the bridge
@@ -591,6 +615,13 @@ Item {
         onItemActivated: function (item) {
             root.fireClick(item);
         }
+
+        // Issue #109 — clear the captured winid the instant the popup
+        // closes. Surfaces a routing bug as a no-op pre-focus rather
+        // than silently re-using the previous popup's window id.
+        onIsOpenChanged: {
+            if (!isOpen) root._capturedWinid = 0;
+        }
     }
 
     // ── Click forwarding ──────────────────────────────────────────────
@@ -608,12 +639,20 @@ Item {
         if (!item || !item.service || !item.path) {
             return;
         }
-        clickProcess.command = [
+        // Issue #109 — pass the captured winid to the bridge so it
+        // can pre-focus the right niri window before DoAction. When
+        // unknown (older bridge, synthetic items), `_capturedWinid`
+        // is 0 and the bridge skips the pre-focus step.
+        const cmd = [
             root.bridgeBin,
             "atspi-click",
             item.service,
             item.path
         ];
+        if (root._capturedWinid > 0) {
+            cmd.push("--winid", String(root._capturedWinid));
+        }
+        clickProcess.command = cmd;
         clickProcess.running = true;
     }
 
