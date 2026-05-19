@@ -18,6 +18,7 @@ import Quickshell
 import Quickshell.Wayland
 import qs.Commons
 import qs.Services.UI
+import qs.Widgets
 
 PanelWindow {
     id: root
@@ -154,25 +155,31 @@ PanelWindow {
         }
     }
 
+    // ── Drop shadow (sibling pattern — mirror of AppmenuPopupWindow) ─
+    NDropShadow {
+        anchors.fill: menuBox
+        source: menuBox
+        visible: menuBox.visible
+    }
+
     // ── Menu Rectangle (visible content) ───────────────────────────
     Rectangle {
         id: menuBox
-        // v1.0.17 — same visual polish as AppmenuPopupWindow.
+        // v1.0.18 — mirror of AppmenuPopupWindow.qml visual iter 2.
         visible: root.visible && !!root.parentMenuItem
         x: root._menuX
         y: root._menuY
         width: Math.max(220, root._calcWidth)
-        height: submenuCol.implicitHeight + 2 * (Style.marginS !== undefined ? Style.marginS : 6)
+        height: submenuCol.implicitHeight + 2 * Style.marginM
         color: Color.mSurface
-        radius: Style.radiusM !== undefined ? Style.radiusM : 16
-        border.color: Color.mOutline !== undefined ? Color.mOutline : Color.mPrimary
-        border.width: Style.borderS !== undefined ? Style.borderS : 1
+        radius: Style.radiusL
+        border.width: 0
         clip: true
 
         opacity: root.visible ? 1.0 : 0.0
         Behavior on opacity {
             NumberAnimation {
-                duration: Style.animationNormal !== undefined ? Style.animationNormal : 300
+                duration: Style.animationNormal
                 easing.type: Easing.OutQuad
             }
         }
@@ -192,7 +199,7 @@ PanelWindow {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: Style.marginS !== undefined ? Style.marginS : 6
+            anchors.margins: Style.marginM
             spacing: 0
 
             Repeater {

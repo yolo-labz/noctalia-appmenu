@@ -62,6 +62,7 @@ import Quickshell
 import Quickshell.Wayland
 import qs.Commons
 import qs.Services.UI
+import qs.Widgets
 
 PanelWindow {
     id: root
@@ -177,30 +178,47 @@ PanelWindow {
         }
     }
 
+    // ── Drop shadow (sibling pattern — matches noctalia Cards) ──────
+    // NDropShadow is NOT a layer.effect; it's an Item that takes a
+    // source property. Sits as a sibling of menuBox so it can render
+    // BEHIND the surface.
+    NDropShadow {
+        anchors.fill: menuBox
+        source: menuBox
+        visible: menuBox.visible
+    }
+
     // ── Menu surface (visible content, only this rect paints) ──────
     Rectangle {
         id: menuBox
-        // v1.0.17 — visual polish per specs/013-sota-overhaul/visual-spec.md.
-        // Canonical noctalia card vocabulary (matches NPopupContextMenu):
-        //   surface=mSurface, border=mOutline at Style.borderS,
-        //   radius=Style.radiusM (16 px at default ratio), open/close
-        //   opacity fade Style.animationNormal/OutQuad.
+        // v1.0.18 — visual iter 2 matching Calendar/Clock card vocabulary.
+        // Drops the ternary `!== undefined` fallbacks: Color/Style are
+        // singletons under qs.Commons; if either fails to resolve the
+        // plugin is broken and a black popup is a clearer signal than a
+        // pink fallback border masquerading as design.
+        //
+        // Visual targets (image #3 reference, Pedro decision 19/05/2026):
+        //   - radius: Style.radiusL (20 px) — Cards radius, not menu radius
+        //   - border: omitted — Calendar/Clock define edge by radius +
+        //     drop-shadow (sibling NDropShadow above), not by a 1px
+        //     stroke. The shadow only renders if the user opts in via
+        //     `Settings.data.general.enableShadows`.
+        //   - padding: Style.marginM (9 px) inner — matches Calendar rows.
         visible: root.visible && !!root.menuItem
         x: root._menuX
         y: root._menuY
         width: Math.max(220, root._calcWidth)
-        height: popupCol.implicitHeight + 2 * (Style.marginS !== undefined ? Style.marginS : 6)
+        height: popupCol.implicitHeight + 2 * Style.marginM
         color: Color.mSurface
-        radius: Style.radiusM !== undefined ? Style.radiusM : 16
-        border.color: Color.mOutline !== undefined ? Color.mOutline : Color.mPrimary
-        border.width: Style.borderS !== undefined ? Style.borderS : 1
+        radius: Style.radiusL
+        border.width: 0
         clip: true
 
         // Open/close fade — shell idiom from NPopupContextMenu.qml:214-222.
         opacity: root.visible ? 1.0 : 0.0
         Behavior on opacity {
             NumberAnimation {
-                duration: Style.animationNormal !== undefined ? Style.animationNormal : 300
+                duration: Style.animationNormal
                 easing.type: Easing.OutQuad
             }
         }
@@ -221,7 +239,7 @@ PanelWindow {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.top: parent.top
-            anchors.margins: Style.marginS !== undefined ? Style.marginS : 6
+            anchors.margins: Style.marginM
             spacing: 0
 
             Repeater {
