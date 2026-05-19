@@ -239,8 +239,7 @@ async fn niri_focus_window(winid: u64) -> Result<()> {
     let reply = socket
         .send(Request::Action(Action::FocusWindow { id: winid }))
         .context("sending FocusWindow action to niri")?;
-    reply
-        .map_err(|e| anyhow::anyhow!("niri rejected FocusWindow(id={winid}): {e}"))?;
+    reply.map_err(|e| anyhow::anyhow!("niri rejected FocusWindow(id={winid}): {e}"))?;
     Ok(())
 }
 
