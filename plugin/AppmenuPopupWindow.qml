@@ -206,11 +206,23 @@ PanelWindow {
         //   - padding: Style.marginM (9 px) inner — matches Calendar rows.
         visible: root.visible && !!root.menuItem
         x: root._menuX
-        y: root._menuY
+        // v1.0.19 — pull the popup's top edge UP by 1 px so it overlaps
+        // the bar's bottom edge by a sub-pixel. Eliminates the tiny
+        // visible gap that made the popup look "detached from the bar"
+        // in image #4. Asymmetric corners (top=0, bottom=radiusL) below
+        // complete the macOS-style attach.
+        y: Math.max(0, root._menuY - 1)
         width: Math.max(220, root._calcWidth)
         height: popupCol.implicitHeight + 2 * Style.marginM
         color: Color.mSurface
-        radius: Style.radiusL
+        // v1.0.19 — square top corners + radiusL bottom corners create a
+        // "tabbed-card" silhouette that visually merges with the bar
+        // item above (Pedro feedback 19/05/2026: "still do not have that
+        // merge with the topbar"). Direct macOS-AppMenu mimic.
+        topLeftRadius: 0
+        topRightRadius: 0
+        bottomLeftRadius: Style.radiusL
+        bottomRightRadius: Style.radiusL
         border.width: 0
         clip: true
 
