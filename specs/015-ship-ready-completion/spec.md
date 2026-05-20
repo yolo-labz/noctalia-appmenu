@@ -159,20 +159,38 @@ clicking *File → New Tab* and grepping
 `journalctl --user -u noctalia-shell | grep '\[appmenu\] atspi-click'`
 for a single line containing all six fields.
 
-### FR-003 — Accelerator-key fallback for high-confidence routing
+### FR-003 — Accelerator-key fallback for high-confidence routing — DEFERRED
 
-For menu leaves whose `keybinding` field (parsed from
-AT-SPI's `Action.GetKeyBinding(0)` and serialised into
-`active.json` per a v1.0.22 schema bump) names a
-standard-X11-style accelerator (Ctrl+T, Ctrl+W, Ctrl+N,
-Ctrl+Shift+P, …), the bridge SHALL prefer dispatching the
-accelerator via niri-IPC keyboard-input rather than AT-SPI
-DoAction. Accelerator-bearing leaves route to the compositor's
-focused window by Wayland-spec design — eliminating the
-Firefox-internal-active-browser race for the common case.
-Verifiable by running a routing smoke against 10 alternating
-Firefox-window focus sequences and observing zero misroutes
-on the accelerator-bearing leaves.
+**Status: DEFERRED.** See [ADR-0028](../../docs/adr/ADR-0028-fr-003-accelerator-deferred.md).
+
+niri-ipc 26.4.0 (the bridge's pinned IPC surface) exposes
+**no** keyboard-input-synthesis variant on its `Action` enum
+— verified against the 141-variant enum in
+`/nix/store/mk4r9mi3k0qwwzlk135hz65in175ix98-cargo-package-niri-ipc-26.4.0/src/lib.rs`.
+Alternatives (`wtype` requires the Wayland virtual-keyboard
+protocol which niri does not implement; `ydotool` requires
+root + `/dev/uinput`) both violate the "single sidecar talks
+niri-IPC + D-Bus, nothing else" architecture invariant from
+ADR-0001. Deferring closes the drift-trigger-I exit
+(would-be 4th patch on the wrong-window-routing symptom
+axis after v1.0.20..v1.0.22). The 150 ms focus-settle floor
+shipped in v1.0.22 is the mitigation of record; self-heal
+(FR-005) + cascade self-heal (FR-006) cover residual races.
+
+Reopening criteria + un-defer flow live in ADR-0028
+§"Reopening criteria". Tasks T1.1, T1.2, T1.3, T2.5 carry
+the same DEFERRED status in `tasks.md`.
+
+Original (now-shelved) proposal: *For menu leaves whose
+`keybinding` field (parsed from AT-SPI's
+`Action.GetKeyBinding(0)` and serialised into `active.json`
+per a v1.0.22 schema bump) names a standard-X11-style
+accelerator (Ctrl+T, Ctrl+W, Ctrl+N, Ctrl+Shift+P, …), the
+bridge would prefer dispatching the accelerator via niri-IPC
+keyboard-input rather than AT-SPI DoAction. Accelerator-
+bearing leaves route to the compositor's focused window by
+Wayland-spec design — eliminating the Firefox-internal-
+active-browser race for the common case.*
 
 ### FR-004 — Visual-spec pixel audit
 
