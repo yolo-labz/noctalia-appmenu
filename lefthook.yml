@@ -21,6 +21,14 @@ pre-commit:
     qmllint:
       glob: "plugin/**/*.qml"
       run: qmllint {staged_files}
+    # Spec 015 FR-010 — token-discipline guard. Refuses raw design
+    # literals (#hex, font.pixelSize: N, radius: N, border.width: N,
+    # duration: N) in plugin/*.qml. Mirrors visual-audit.md
+    # VP-060..VP-064 rows. Defensive-fallback pattern is the migration
+    # bridge — see scripts/verify-tokens.sh header for the carve-out.
+    verify-tokens:
+      glob: "plugin/**/*.qml"
+      run: bash scripts/verify-tokens.sh {staged_files}
     nix-fmt:
       glob: "{*.nix,**/*.nix}"
       run: alejandra --check {staged_files}
@@ -110,6 +118,9 @@ pre-push:
     plugin-qmllint:
       tags: qml
       run: qmllint plugin/BarWidget.qml plugin/components/*.qml
+    plugin-verify-tokens:
+      tags: qml
+      run: bash scripts/verify-tokens.sh
     nix-flake-check:
       tags: nix
       run: nix flake check --no-build --accept-flake-config
