@@ -18,16 +18,17 @@
 #   VERSION format: 1.0.18 (no leading 'v', no 'v1.0.18'; tag is 'v$VERSION')
 #
 # Stages (run in order, each gated by an idempotency check):
-#   1. preflight      — clean tree, on main, bridge/Cargo.toml has VERSION
-#   2. plugin-pr      — PR exists (or is created) with the bump, CI green
-#   3. plugin-merge   — squash-merge the bump PR
-#   4. plugin-tag     — verify HEAD subject contains VERSION, tag, push
-#   5. plugin-release — wait for GH release workflow to publish artifacts
-#   6. nixos-bump     — update NixOS flake input, push PR, admin-merge
-#   7. nixos-deploy   — sudo nixos-rebuild switch on the local host
-#   8. cache-nuke     — clear Quickshell QML bytecode cache (Nix epoch-mtime trap)
-#   9. shell-restart  — systemctl --user restart noctalia-shell.service
-#   10. verify        — bridge --version matches, busctl proxy alive
+#   1. preflight        — clean tree, on main, bridge/Cargo.toml has VERSION
+#   2. plugin-pr        — PR exists (or is created) with the bump, CI green
+#   3. plugin-merge     — squash-merge the bump PR
+#   4. plugin-tag       — verify HEAD subject contains VERSION, tag, push
+#   5. verify-checklist — run four spec-015 release gates (FR-007); SKIP allowed
+#   6. plugin-release   — wait for GH release workflow to publish artifacts
+#   7. nixos-bump       — update NixOS flake input, push PR, admin-merge
+#   8. nixos-deploy     — sudo nixos-rebuild switch on the local host
+#   9. cache-nuke       — clear Quickshell QML bytecode cache (Nix epoch-mtime trap)
+#  10. shell-restart    — systemctl --user restart noctalia-shell.service
+#  11. verify           — bridge --version matches, busctl proxy alive
 #
 # Hard bans honoured: no `git push origin main`, no `git stash`, no
 # `--no-verify`, no `git add -A`, no tag-pin without SHA comment.
@@ -166,7 +167,28 @@ This is the v1.0.14 drift trigger (CLAUDE.md trigger E). Either:
 }
 
 ###############################################################################
-# 5. plugin-release — wait for tag-driven release.yml to publish artifacts.
+# 5. verify-checklist — run all four spec-015 release gates.
+#
+# Gates live under specs/015-ship-ready-completion/gates/*.sh and are
+# driven by scripts/verify-release.sh. The driver emits one PASS/FAIL/
+# SKIP line per gate and a JSON ledger at /tmp/noctalia-appmenu-
+# release-gate-v$VERSION.json.
+#
+# --allow-skip is mandatory here: in this flow we are tagging from a
+# host that may or may not have a live niri seat / Firefox windows.
+# The driver gates on SKIP-with-remediation; release.sh trusts SKIP
+# (= "checked, gate not exercisable here") but refuses FAIL.
+###############################################################################
+verify_checklist() {
+    cd "$REPO_ROOT"
+    local driver="$REPO_ROOT/scripts/verify-release.sh"
+    [[ -x "$driver" ]] || die "missing $driver — spec 015 FR-007 not installed"
+    "$driver" "$VERSION" --allow-skip \
+        || die "release gates failed — see /tmp/noctalia-appmenu-release-gate-v${VERSION}.json"
+}
+
+###############################################################################
+# 6. plugin-release — wait for tag-driven release.yml to publish artifacts.
 ###############################################################################
 plugin_release() {
     cd "$REPO_ROOT"
@@ -182,7 +204,7 @@ plugin_release() {
 }
 
 ###############################################################################
-# 6. nixos-bump — open + admin-merge a flake bump on phsb5321/NixOS.
+# 7. nixos-bump — open + admin-merge a flake bump on phsb5321/NixOS.
 ###############################################################################
 nixos_bump() {
     cd "$NIXOS_ROOT"
@@ -237,7 +259,7 @@ Bridge version verified: $VERSION"
 }
 
 ###############################################################################
-# 7. nixos-deploy — sudo nixos-rebuild switch on the local host.
+# 8. nixos-deploy — sudo nixos-rebuild switch on the local host.
 ###############################################################################
 nixos_deploy() {
     cd "$NIXOS_ROOT"
@@ -270,7 +292,7 @@ nixos_deploy() {
 }
 
 ###############################################################################
-# 8. cache-nuke — drop Quickshell's QML bytecode cache BEFORE the restart.
+# 9. cache-nuke — drop Quickshell's QML bytecode cache BEFORE the restart.
 #
 # Lesson from v1.0.17 (18/05/2026): the Nix store sets all file mtimes
 # to the epoch (`1969-12-31 21:00:01 -0300`) so derivations are
@@ -298,7 +320,7 @@ cache_nuke() {
 }
 
 ###############################################################################
-# 9. shell-restart — feedback_nh_switch_no_shell_restart.md
+# 10. shell-restart — feedback_nh_switch_no_shell_restart.md
 ###############################################################################
 shell_restart() {
     systemctl --user is-active noctalia-shell.service >/dev/null \
@@ -309,7 +331,7 @@ shell_restart() {
 }
 
 ###############################################################################
-# 10. verify
+# 11. verify
 ###############################################################################
 verify() {
     local got
@@ -330,8 +352,9 @@ log "release flow for $TAG (NIXOS_ROOT=$NIXOS_ROOT)"
 stage preflight       preflight
 stage plugin-pr       plugin_pr
 stage plugin-merge    plugin_merge
-stage plugin-tag      plugin_tag
-stage plugin-release  plugin_release
+stage plugin-tag        plugin_tag
+stage verify-checklist  verify_checklist
+stage plugin-release    plugin_release
 stage nixos-bump      nixos_bump
 stage nixos-deploy    nixos_deploy
 stage cache-nuke      cache_nuke
