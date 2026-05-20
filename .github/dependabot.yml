@@ -15,6 +15,15 @@ updates:
     commit-message:
       prefix: "fix(bridge)"
       include: scope
+    # Ignore major bumps for breaking-API stacks until a deliberate
+    # migration spec lands. zbus 5.x reworks async surfaces; bridge
+    # registrar/proxy/atspi modules need targeted port work. Keep
+    # patch + minor bumps flowing.
+    ignore:
+      - dependency-name: "zbus"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "zvariant"
+        update-types: ["version-update:semver-major"]
     groups:
       zbus-stack:
         patterns: ["zbus", "zvariant"]
