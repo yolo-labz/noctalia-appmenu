@@ -286,10 +286,13 @@ top-level:` line.
 
 ### NFR-002 Reliability
 
-Routing smoke (FR-003) SHALL pass in 10 / 10 trials on the
-multi-Firefox-instance scenario. Visual-audit table
-(FR-004) SHALL have zero FAIL rows. Self-heal counter
-(FR-005) SHALL show 0 retries across 50 popup-opens in
+Routing smoke (SC-001, owned by `gates/routing.sh`) SHALL pass in
+10 / 10 trials on the multi-Firefox-instance scenario. Note: FR-003
+(accelerator-key fallback) is DEFERRED per ADR-0028 — routing
+correctness in v1.0.22+ rides on FR-001's focus-settle window
+(150 ms) plus the niri-pre-focus path landed in PR #112.
+Visual-audit table (FR-004) SHALL have zero FAIL rows. Self-heal
+counter (FR-005) SHALL show 0 retries across 50 popup-opens in
 steady state.
 
 ### NFR-003 Reproducibility

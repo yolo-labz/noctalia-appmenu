@@ -83,7 +83,14 @@ integration land together as a single coherent change.
 
 ## Phase 2 — Plugin work
 
-### T2.1 — Plugin reads `keybinding`
+### T2.1 — Plugin reads `keybinding` — DEFERRED
+
+**Status: DEFERRED.** Sets up T2.5 which is itself deferred per
+[ADR-0028](../../docs/adr/ADR-0028-fr-003-accelerator-deferred.md).
+The bridge does not emit a `keybinding` field (T1.1 deferred), so
+the chip-rendering half has no data to render and is held until
+FR-003 un-defers. Plugin code in v1.0.23 ships without the
+keybinding chip.
 
 - **Owner:** qml dev (plugin)
 - **Files:** `plugin/BarWidget.qml`, `plugin/MenuRow.qml`
@@ -93,7 +100,8 @@ integration land together as a single coherent change.
   a right-aligned `keybinding` chip on rows that carry one
   (subtle, Color.mOnSurfaceVariant, Style.fontSizeXS).
 - **Tests:** qmllint clean; visual smoke confirms the chip.
-- **FR closed:** none directly; sets up T2.5.
+- **FR closed:** none directly; sets up T2.5 (deferred).
+- **Blocked by:** T1.1, T1.3 (both deferred).
 
 ### T2.2 — Self-heal cascade for submenus
 
