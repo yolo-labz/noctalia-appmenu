@@ -36,6 +36,7 @@ rules:
       - tests
       - meta
       - release
+      - deps
   subject-case:
     - 2
     - never
