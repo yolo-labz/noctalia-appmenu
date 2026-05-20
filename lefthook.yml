@@ -72,6 +72,14 @@ pre-push:
     verify-tag-subject:
       tags: release
       run: scripts/verify-tag-subject.sh
+    # Spec 015 FR-008 — drift trigger I enforcement. Refuses push when
+    # the branch's commit subject overlaps the symptom phrase of ≥ 2
+    # recently-merged PRs. Catches "third patch on same symptom" loops
+    # that triggers A-H miss (each patch is on a different axis, but
+    # the user-visible bug is unchanged).
+    verify-no-third-patch:
+      tags: governance
+      run: scripts/verify-no-third-patch.sh
     bridge-clippy:
       tags: rust
       run: cd bridge && cargo clippy --all-features --all-targets --locked -- -D warnings

@@ -192,6 +192,7 @@ Check these before every commit. If ANY fires, the decision tree below is mandat
 | **F** | Static check (qmllint / clippy) green, runtime red | Last release shipped with `qmllint` clean but `journalctl --user -u noctalia-shell` shows QML errors on load |
 | **G** | Deploy claimed, running binary unchanged | `noctalia-appmenu-bridge --version` ≠ the tag you just pushed |
 | **H** | Commit body says "should" / "expected to" without "verified by" | `git commit -m` containing "should fix" / "expected to" / "will probably" |
+| **I** | User-reported failure mode persists across ≥ 2 deploys against the same symptom | `gh issue list --state all --search "<symptom phrase>"` returns ≥ 2 hits AND `gh pr list --state merged --search "<symptom phrase> in:body"` returns ≥ 2 hits. Spec 015 case study: v1.0.20 → v1.0.21 → v1.0.22 all targeted the "wrong-window routing" symptom; each shipped, each was followed by Pedro re-filing the same symptom. The drift triggers A-H caught none of these because every patch was on a different axis (settle, telemetry, log, accelerator) but the user-visible failure was unchanged. |
 
 ### Decision tree (trigger → action → entry command)
 
@@ -205,6 +206,7 @@ Check these before every commit. If ANY fires, the decision tree below is mandat
 | F | Add runtime smoke to CI BEFORE next release | `qml --offscreen -I plugin/ plugin/BarWidget.qml` in `.github/workflows/ci.yml` |
 | G | Verify binary state at runtime before iterating | `systemctl --user restart noctalia-shell.service && noctalia-appmenu-bridge --version` |
 | H | Block commit; require explicit "verified by ..." smoke evidence in body | Pre-commit hook regex `\b(should\|expected to\|will probably)\b` → fail |
+| I | Open redesign spec under `specs/NNN-<bug>/spec.md`; halt patches on the symptom axis | `git worktree add ../noctalia-appmenu-NNN-redesign-<bug> -b NNN-redesign origin/main && cp .specify/templates/spec-template.md specs/NNN-<bug>/spec.md`. The redesign spec MUST cite every prior patch by tag and explain *why* each failed before proposing a new approach. |
 
 ### Alignment guardrails (always-on rules)
 
