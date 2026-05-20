@@ -15,6 +15,7 @@
 
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Services.UI
@@ -213,6 +214,25 @@ PanelWindow {
                         if (nestedLoader.item) {
                             nestedLoader.item.close();
                         }
+                        // Spec 015 FR-006 cascade self-heal. When the
+                        // bridge's AT-SPI walker raced lazy realisation
+                        // and serialised this submenu's children empty,
+                        // kick RefreshActive and re-try the open once.
+                        // Single-shot ceiling per cascade-open session
+                        // (FR-005) — _cascadePendingRetry resets in the
+                        // retry timer before the inspect, so a
+                        // repeatedly-empty walk produces one fall-through
+                        // to native click rather than a refresh storm.
+                        if ((!item.children || item.children.length === 0)
+                            && root._cascadePendingRetry === null) {
+                            console.log("[appmenu/submenu] empty cascade — triggering RefreshActive retry:",
+                                        item.label);
+                            root._cascadePendingRetry = {item: item, anchor: anchor};
+                            root._cascadeRetryCount++;
+                            refreshActiveProcess.running = true;
+                            cascadeRetryTimer.restart();
+                            return;
+                        }
                         root._pendingNested = {item: item, anchor: anchor};
                         if (nestedLoader.source.toString().length === 0) {
                             nestedLoader.source = Qt.resolvedUrl("SubmenuPopup.qml");
@@ -244,6 +264,64 @@ PanelWindow {
         } catch (e) {
             console.error("[appmenu/submenu] nested open failed:", e,
                           "stack:", (e && e.stack) || "(no stack)");
+        }
+    }
+
+    // ── Cascade self-heal (spec 015 FR-005 + FR-006) ────────────────
+    /// Captured submenu-anchor for the retry-open path. Single-shot —
+    /// reset before retry to bound the loop at one fall-through.
+    property var _cascadePendingRetry: null
+    /// Telemetry counter; bumped each time the cascade self-heal fires
+    /// in this popup's lifetime. Emitted on close so steady-state runs
+    /// can grep `retried=0` in journal.
+    property int _cascadeRetryCount: 0
+
+    Process {
+        id: refreshActiveProcess
+        command: [
+            "gdbus", "call", "--session",
+            "--dest", "org.noctalia.AppMenu",
+            "--object-path", "/org/noctalia/AppMenu/Active",
+            "--method", "org.noctalia.AppMenu.Active.RefreshActive"
+        ]
+    }
+
+    Timer {
+        id: cascadeRetryTimer
+        interval: 250
+        repeat: false
+        onTriggered: {
+            const pend = root._cascadePendingRetry;
+            root._cascadePendingRetry = null;
+            if (!pend) return;
+            const item = pend.item;
+            if (item && item.children && item.children.length > 0) {
+                console.log("[appmenu/submenu] cascade self-heal succeeded:",
+                            item.label, "children:", item.children.length);
+                root._pendingNested = {item: item, anchor: pend.anchor};
+                if (nestedLoader.source.toString().length === 0) {
+                    nestedLoader.source = Qt.resolvedUrl("SubmenuPopup.qml");
+                } else {
+                    nestedLoader.active = false;
+                    nestedLoader.active = true;
+                }
+                root._tryOpenNested();
+            } else {
+                console.log("[appmenu/submenu] cascade self-heal STILL empty for:",
+                            item ? item.label : "(unknown)",
+                            "— falling through to native click");
+                root.itemActivated(pend.item);
+                root.close();
+            }
+        }
+    }
+
+    onVisibleChanged: {
+        if (!visible) {
+            console.log("[appmenu/submenu] popup-close depth=", root.depth,
+                        "retried=", root._cascadeRetryCount);
+            root._cascadeRetryCount = 0;
+            root._cascadePendingRetry = null;
         }
     }
 

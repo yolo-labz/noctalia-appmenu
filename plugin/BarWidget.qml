@@ -576,9 +576,18 @@ Item {
                             // also returns zero children, the second click
                             // will hit the leaf-fallback branch below and
                             // fire DoAction(0) on the bar item.
+                            // Spec 015 FR-005 ceiling — single-shot per
+                            // popup-open session. Existing retry already
+                            // in flight = drop the click silently.
+                            if (root._pendingRetryButton !== null) {
+                                console.log("[appmenu] retry already in flight — ignoring duplicate click:",
+                                            btn.modelData.label);
+                                return;
+                            }
                             console.log("[appmenu] empty top-level — triggering RefreshActive retry:",
                                         btn.modelData.label);
                             root._pendingRetryButton = btn;
+                            root._selfHealCount++;
                             refreshActiveProcess.running = true;
                             retryTimer.restart();
                         } else {
@@ -638,8 +647,15 @@ Item {
         // Issue #109 — clear the captured winid the instant the popup
         // closes. Surfaces a routing bug as a no-op pre-focus rather
         // than silently re-using the previous popup's window id.
+        // Spec 015 FR-005 — emit the self-heal counter on close;
+        // gates/self-heal.sh greps for `retried=0` in steady state.
         onIsOpenChanged: {
-            if (!isOpen) root._capturedWinid = 0;
+            if (!isOpen) {
+                console.log("[appmenu] popup-close",
+                            "retried=" + root._selfHealCount);
+                root._capturedWinid = 0;
+                root._selfHealCount = 0;
+            }
         }
     }
 
@@ -694,6 +710,12 @@ Item {
     /// retry — refusing to loop indefinitely if the re-walk also
     /// returns zero children.
     property var _pendingRetryButton: null
+
+    /// Spec 015 FR-005 telemetry — bumped each time self-heal fires
+    /// in this widget's lifetime. Emitted on popup close so steady-
+    /// state runs surface as `retried=0` in journal. SC-003 gate
+    /// scans for that line over 50 steady-state opens.
+    property int _selfHealCount: 0
 
     /// Returns true when `item.label` looks like a top-level group
     /// (File, Edit, View, History, Bookmarks, Profiles, Tools, Help,
