@@ -8,7 +8,13 @@ should execute. Each task closes one or more FRs.
 
 ## Phase 1 — Bridge accelerator scaffold
 
-### T1.1 — Add `keybinding` to MenuItem + walker
+### T1.1 — Add `keybinding` to MenuItem + walker — DEFERRED
+
+**Status: DEFERRED.** Closes FR-003 which is shelved per
+[ADR-0028](../../docs/adr/ADR-0028-fr-003-accelerator-deferred.md).
+The `MenuItem` struct stays at its current shape; no
+`keybinding` field, no walker change. Un-defer when
+ADR-0028 reopening criteria are met.
 
 - **Owner:** rust dev (bridge)
 - **Files:** `bridge/src/atspi.rs`
@@ -19,34 +25,52 @@ should execute. Each task closes one or more FRs.
   "Option::is_none")]` so empty stays out of the wire.
 - **Tests:** New unit test `keybinding_round_trip` covering
   serialize / deserialize of a `Ctrl+T` value.
-- **FR closed:** Bridge half of FR-003.
+- **FR closed:** Bridge half of FR-003 (deferred).
 - **Blocks:** T1.2, T2.4.
 
-### T1.2 — Bridge `atspi-click` grows `--focus-settle-ms`, `--mode`, `--keybinding`
+### T1.2 — Bridge `atspi-click` grows `--focus-settle-ms`, `--mode`, `--keybinding` — PARTIAL / DEFERRED
+
+**Status: PARTIAL.** The `--focus-settle-ms` half SHIPPED
+in v1.0.22 (defaulting to 150 ms; closes FR-001 + FR-002).
+The `--mode` / `--keybinding` half is DEFERRED per
+[ADR-0028](../../docs/adr/ADR-0028-fr-003-accelerator-deferred.md)
+because niri-ipc 26.4.0 has no keyboard-input-synthesis
+variant. No `ClickMode` enum is added; no `--mode` or
+`--keybinding` clap flag is added. Un-defer when ADR-0028
+reopening criteria are met.
 
 - **Owner:** rust dev (bridge)
 - **Files:** `bridge/src/main.rs`
 - **Changes:**
   - `clap` enum `ClickMode { Atspi, Accelerator, Auto }`,
     default `Auto`.
-  - `--focus-settle-ms u64` default 150.
-  - `--keybinding String` optional.
+  - `--focus-settle-ms u64` default 150. **(SHIPPED v1.0.22)**
+  - `--keybinding String` optional. **(deferred)**
   - `run_atspi_click(service, path, winid, settle_ms, mode,
     keybinding)`:
     - `Auto`: route to `Accelerator` if `keybinding` is
-      Some+non-empty; else `Atspi`.
+      Some+non-empty; else `Atspi`. **(deferred)**
     - `Accelerator`: invoke niri keyboard-input dispatch
       (research niri 26.4 IPC; fall through to AT-SPI on
-      missing surface).
+      missing surface). **(deferred — niri-ipc gap)**
     - `Atspi`: existing path with `settle_ms` replacing the
-      30 ms constant.
-  - INFO log line per spec FR-002.
+      30 ms constant. **(SHIPPED v1.0.22)**
+  - INFO log line per spec FR-002. **(SHIPPED)**
 - **Tests:** Bridge subprocess smoke against a synthetic
   AT-SPI fixture (cargo + bridge integration test).
-- **FR closed:** FR-001, FR-002, bridge half of FR-003.
+- **FR closed:** FR-001, FR-002 (shipped); bridge half of
+  FR-003 (deferred).
 - **Blocks:** T2.5.
 
-### T1.3 — active.json schema v2
+### T1.3 — active.json schema v2 — DEFERRED
+
+**Status: DEFERRED.** The schema bump only carries meaning
+if T1.1 has populated the `keybinding` field — which is
+deferred per
+[ADR-0028](../../docs/adr/ADR-0028-fr-003-accelerator-deferred.md).
+`ACTIVE_JSON_SCHEMA_VERSION` stays at 1. When FR-003 is
+un-deferred, the schema bump and the plugin `fireClick`
+integration land together as a single coherent change.
 
 - **Owner:** rust dev (bridge)
 - **Files:** `bridge/src/proxy.rs`
@@ -55,7 +79,7 @@ should execute. Each task closes one or more FRs.
   tolerate unknown keys; legacy v1 readers ignore.
 - **Tests:** Snapshot-write test confirms the key is present
   when MenuItem.keybinding is Some.
-- **FR closed:** FR-003 wire format.
+- **FR closed:** FR-003 wire format (deferred).
 
 ## Phase 2 — Plugin work
 
@@ -107,7 +131,14 @@ should execute. Each task closes one or more FRs.
 - **Tests:** qmllint clean; manual click-storm smoke.
 - **FR closed:** FR-005 ceiling.
 
-### T2.5 — Plugin passes `keybinding` to atspi-click
+### T2.5 — Plugin passes `keybinding` to atspi-click — DEFERRED
+
+**Status: DEFERRED.** The plugin half of FR-003 is shelved
+because the bridge half (T1.1, T1.2, T1.3) is deferred per
+[ADR-0028](../../docs/adr/ADR-0028-fr-003-accelerator-deferred.md).
+`BarWidget.qml::fireClick` continues to invoke `atspi-click`
+with the existing flag set; no `--mode` / `--keybinding`
+arguments are added.
 
 - **Owner:** qml dev (plugin)
 - **Files:** `plugin/BarWidget.qml`
@@ -117,7 +148,7 @@ should execute. Each task closes one or more FRs.
   `--mode auto`.
 - **Tests:** Live smoke: click `File → New Tab` (Ctrl+T).
   Bridge log shows `mode=accelerator key=Ctrl+T`.
-- **FR closed:** Plugin half of FR-003.
+- **FR closed:** Plugin half of FR-003 (deferred).
 - **Depends on:** T1.1, T1.2.
 
 ## Phase 3 — Visual audit + token discipline
@@ -259,9 +290,9 @@ should execute. Each task closes one or more FRs.
 ## Dependency graph (summary)
 
 ```
-T1.1 → T1.2 → T1.3
+T1.1 → T1.2 → T1.3       [all DEFERRED per ADR-0028]
               ↓
-T2.5 ←——— T2.5
+T2.5 ←——— T2.5           [DEFERRED per ADR-0028]
 T2.2, T2.3, T2.4 independent
 T3.1 independent
 T3.2 independent
