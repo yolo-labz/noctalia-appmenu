@@ -60,6 +60,17 @@ enum Cmd {
         /// window has app-internal focus at click time. See issue #109.
         #[arg(long, default_value_t = 0)]
         winid: u64,
+        /// Milliseconds to sleep after the niri FocusWindow IPC reply
+        /// and before issuing `Action.DoAction(0)`. The compositor
+        /// needs at least one frame to swap wl_keyboard focus, and
+        /// Firefox needs another tick to sync its internal
+        /// "active browser" pointer. v1.0.20's 30 ms was empirically
+        /// too short (Pedro confirms wrong-window routing persists);
+        /// spec 015 FR-001 bumps the default to 150 ms and makes the
+        /// constant configurable. 0 disables the wait (only valid
+        /// when `winid == 0`).
+        #[arg(long, default_value_t = 150)]
+        focus_settle_ms: u64,
     },
 }
 
@@ -83,9 +94,10 @@ async fn main() -> Result<()> {
         service,
         path,
         winid,
+        focus_settle_ms,
     }) = cli.cmd.as_ref()
     {
-        return run_atspi_click(service, path, *winid).await;
+        return run_atspi_click(service, path, *winid, *focus_settle_ms).await;
     }
 
     init_tracing(cli.foreground);
@@ -179,7 +191,12 @@ async fn main() -> Result<()> {
 /// and exit with status 2 + a `MenuError::Stale {...}` line on stderr.
 /// The QML widget interprets exit-2 as "click missed, snapshot will
 /// repaint shortly" and re-renders against the refreshed `active.json`.
-async fn run_atspi_click(service: &str, path: &str, winid: u64) -> Result<()> {
+async fn run_atspi_click(
+    service: &str,
+    path: &str,
+    winid: u64,
+    focus_settle_ms: u64,
+) -> Result<()> {
     // Issue #109: pre-focus the captured niri window so multi-window
     // apps route `Action.DoAction(0)` to the correct window. Firefox
     // is the canonical case — `DoAction` on its menu accessibles
@@ -191,22 +208,37 @@ async fn run_atspi_click(service: &str, path: &str, winid: u64) -> Result<()> {
     // `winid == 0` means "no captured window id" — older plugin
     // builds, synthetic items, or first-focus edge cases. Skip the
     // pre-focus entirely there; the original behaviour is preserved.
+    //
+    // spec 015 FR-001 / FR-002: structured INFO log + configurable
+    // settle window. v1.0.20's hard-coded 30 ms was empirically too
+    // short. Default bumps to 150 ms; harness can override.
+    let mut niri_focus_result = "skipped";
     if winid > 0 {
-        if let Err(e) = niri_focus_window(winid).await {
-            // Best-effort: a failed pre-focus is logged but does NOT
-            // block the click. niri may be temporarily unreachable
-            // and the DoAction often still works (window already had
-            // focus). Surfacing as a hard error would regress every
-            // single-window scenario.
-            eprintln!("warning: niri focus-window {winid} failed: {e:#}; continuing with click");
-        } else {
-            // Compositor needs a frame to swap input focus and for
-            // Firefox to sync its internal "current window". 30 ms
-            // is empirically enough on niri 25.x without becoming
-            // user-perceptible latency.
-            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        match niri_focus_window(winid).await {
+            Ok(()) => {
+                niri_focus_result = "ok";
+                // Compositor needs ≥ 1 vblank to swap wl_keyboard
+                // focus AND Firefox needs ≥ 1 event-loop tick to
+                // sync its internal "active browser" pointer.
+                tokio::time::sleep(std::time::Duration::from_millis(focus_settle_ms)).await;
+            }
+            Err(e) => {
+                niri_focus_result = "err";
+                // Best-effort: a failed pre-focus is logged but does
+                // NOT block the click. niri may be temporarily
+                // unreachable and the DoAction often still works
+                // (window already had focus). Surfacing as a hard
+                // error would regress every single-window scenario.
+                eprintln!(
+                    "warning: niri focus-window {winid} failed: {e:#}; continuing with click"
+                );
+            }
         }
     }
+
+    eprintln!(
+        "[appmenu] atspi-click service={service} path={path} winid={winid} settle_ms={focus_settle_ms} niri_focus={niri_focus_result}"
+    );
 
     match atspi::do_action(service, path).await {
         Ok(()) => Ok(()),

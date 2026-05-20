@@ -1,6 +1,6 @@
 [package]
 name = "noctalia-appmenu-bridge"
-version = "1.0.21"
+version = "1.0.22"
 edition = "2021"
 rust-version = "1.81"
 authors = ["Pedro H S Balbino <phsb5321@gmail.com>"]
