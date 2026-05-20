@@ -449,10 +449,10 @@ Item {
     visible: shouldRender || opacity > 0
     opacity: shouldRender ? 1.0 : 0.0
     Behavior on opacity {
-        NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: Style.animationNormal !== undefined ? Style.animationNormal : 180; easing.type: Easing.OutCubic }
     }
     Behavior on implicitWidth {
-        NumberAnimation { duration: 180; easing.type: Easing.InOutCubic }
+        NumberAnimation { duration: Style.animationNormal !== undefined ? Style.animationNormal : 180; easing.type: Easing.InOutCubic }
     }
 
     // ── Static fallback label (opt-in) ─────────────────────────────
