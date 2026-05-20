@@ -241,10 +241,25 @@ Bridge version verified: $VERSION"
 ###############################################################################
 nixos_deploy() {
     cd "$NIXOS_ROOT"
-    # Memory note: HM activation barfs on stale .backup files left from
-    # prior generations. Remove them defensively.
-    for f in /home/notroot/.config/git/hooks/pre-{push,commit}.backup; do
-        [[ -e "$f" ]] && rm -f "$f"
+    # Spec 015 DI-050 — HM activation barfs on stale .backup files left
+    # from prior generations. The v1.0.21 deploy hit this twice in 24h
+    # on .claude/plugins/known_marketplaces.json.backup. v1.0.22 had to
+    # be re-run after a manual rm. Sweep every well-known HM-managed
+    # config root pre-rebuild. Cheap (find + xargs), safe (only *.backup
+    # files matched), idempotent.
+    local backup_roots=(
+        "$HOME/.config/git/hooks"
+        "$HOME/.claude/plugins"
+        "$HOME/.config/noctalia"
+        "$HOME/.config/quickshell"
+    )
+    for root in "${backup_roots[@]}"; do
+        [[ -d "$root" ]] || continue
+        # -maxdepth 4 keeps the sweep bounded — HM's backup file always
+        # lives next to the managed file, at most a few levels deep.
+        while IFS= read -r path; do
+            log "swept HM backup: $path"
+        done < <(find "$root" -maxdepth 4 -name "*.backup" -type f -print -delete 2>/dev/null)
     done
 
     local host
