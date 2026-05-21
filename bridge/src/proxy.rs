@@ -391,40 +391,32 @@ pub async fn run(
         );
         publish_props(&conn, &cfg, &proxy, &snapshot).await?;
 
-        // v0.3 substrate: walk the focused app's AT-SPI menubar
-        // with up-to-3 cancellable retries. Pass-1 PID resolution
-        // is sequential and can blow the per-call timeout when a
-        // misbehaving registered app is slow; on the first walk
-        // after bridge restart the registry can also be cold.
-        // Retry-on-None gives the registry a chance to warm. The
-        // sleep is cancellation-aware so a user alt-tabbing during
-        // backoff doesn't get stuck rendering the old menu.
-        // Apps without an AT-SPI menu (terminals, electron-no-a11y)
-        // pay 200+400=600ms extra per focus before settling on
-        // null — accepted as the cost of universal correctness.
-        // v1.0.6 — fast paths BEFORE the AT-SPI walk:
+        // Resolve the focused app's menu with three fast paths before
+        // the (expensive, cross-process) AT-SPI walk:
         //
-        // 1. Skip-list: known no-menubar apps (terminals, X11 hosts,
-        //    Firefox/Chromium per Pedro field report) return None
-        //    immediately — no D-Bus traffic at all. ~0ms.
+        // 1. Learned skip: this `app_id` was previously walked to no
+        //    menubar. Returns None with no D-Bus traffic (~0ms). The
+        //    verdict is self-learned from prior walk outcomes (see
+        //    `atspi::learned_skip`) — there is no hardcoded app-id list.
         //
-        // 2. Cache hit: same (app_id, pid) walked in the last
-        //    MENU_CACHE_TTL (30s) returns the cached value (positive
-        //    or negative) instantly — also ~0ms. Re-focusing an app
-        //    Pedro just had focused is the common case.
+        // 2. Cache hit: same (app_id, pid) walked within MENU_CACHE_TTL
+        //    (30s) returns the cached value instantly. Re-focusing an
+        //    app just focused is the common case.
         //
-        // 3. Cache miss + not in skip-list: walk AT-SPI ONCE (no
-        //    retry loop), populate cache, move on. The retry-on-None
-        //    loop the v0.3 code shipped paid 200+400=600ms backoff
-        //    on every cache miss for an app without a menubar — the
-        //    cache eliminates that for steady-state.
+        // 3. Cache miss + not skipped: walk AT-SPI ONCE, then teach the
+        //    learned-skip set from the outcome. A real menubar clears
+        //    any verdict (`forget_menubar`); no menubar records one —
+        //    permanent when the walk was expensive (app not on the a11y
+        //    bus: terminals, xwayland), time-bounded when cheap (on bus,
+        //    no MENU_BAR: Chrome, GTK4 popover). A transient Err teaches
+        //    nothing.
         let menu: Option<atspi::MenuItem> = if snapshot.focus_pid == 0 {
             None
-        } else if atspi::is_known_no_menubar(&snapshot.app_id) {
+        } else if atspi::should_skip_walk(&snapshot.app_id) {
             debug!(
                 app_id = %snapshot.app_id,
                 pid = snapshot.focus_pid,
-                "skip-list: known no-menubar app, no AT-SPI walk"
+                "learned skip: app has no usable menubar, no AT-SPI walk"
             );
             None
         } else if let Some(cached) =
@@ -438,17 +430,26 @@ pub async fn run(
             );
             cached
         } else {
+            let walk_started = std::time::Instant::now();
             match atspi::fetch_menubar_for_pid(&client, snapshot.focus_pid, Some(&snapshot.app_id))
                 .await
             {
                 Ok(opt) => {
+                    let walk_elapsed = walk_started.elapsed();
                     debug!(
+                        app_id = %snapshot.app_id,
                         pid = snapshot.focus_pid,
                         top_level = opt.as_ref().map(|m| m.children.len()).unwrap_or(0),
+                        walk_ms = walk_elapsed.as_millis(),
                         cached_negative = opt.is_none(),
                         "walked atspi menubar; caching"
                     );
                     atspi::cache_menu_for_pid(&snapshot.app_id, snapshot.focus_pid, opt.clone());
+                    if opt.is_some() {
+                        atspi::forget_menubar(&snapshot.app_id);
+                    } else {
+                        atspi::record_negative_walk(&snapshot.app_id, walk_elapsed);
+                    }
                     opt
                 }
                 Err(e) => {
