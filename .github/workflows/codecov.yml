@@ -43,6 +43,13 @@ jobs:
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          # codecov-action runs `git config --global --add safe.directory`
+          # internally; on this self-hosted runner $HOME/.config/git/config
+          # is intermittently a read-only mount, so that write fails with
+          # exit 255 *before* the upload (fail_ci_if_error only suppresses
+          # upload errors, not this crash). Redirect --global writes to a
+          # per-job writable temp so the safe.directory step always succeeds.
+          GIT_CONFIG_GLOBAL: ${{ runner.temp }}/codecov-gitconfig
 
       - name: Upload coverage as artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
