@@ -115,44 +115,155 @@ mod role {
 /// prevent runaway walks on malformed trees.
 const MAX_FIND_DEPTH: u32 = 8;
 
-/// v1.0.7 — apps known not to expose a usable AT-SPI menubar.
-/// Matched against `app_id` (Wayland-side identifier from niri).
-/// Listed apps short-circuit the AT-SPI walk — bridge emits
-/// `menu: null` immediately, no D-Bus round-trip, no 500ms timeout.
+/// v1.0.9 — self-learning no-menubar skip, replacing the hardcoded
+/// `KNOWN_NO_MENUBAR_APPS` list (v1.0.6..v1.0.8). The skip set now
+/// populates itself from observed walk outcomes, keyed by `app_id`,
+/// so terminals/X11/Chrome are skipped automatically with no per-app
+/// id maintained in source.
 ///
-/// Pedro field report 16/05/2026: focusing xwayland-satellite-hosted
-/// X11 apps drained the full FETCH_BUDGET on every focus event,
-/// making the bar feel frozen. This list is the cheapest possible
-/// fast-reject.
+/// Why a list existed at all (Pedro field report 16/05/2026): focusing
+/// xwayland-satellite-hosted X11 apps and terminals drained the full
+/// `FETCH_BUDGET` on every focus event because they are not on the
+/// a11y bus — the per-connection PID scan finds no match only after
+/// exhausting every registered app. That made the bar feel frozen.
 ///
-/// v1.0.7: removed Firefox + Chromium. The 30s `MENU_CACHE_TTL`
-/// amortises their first-focus 500ms-2.1s walk cost; subsequent
-/// focuses within the TTL are cache-instant. Pedro wants Firefox
-/// menu visible. Terminals + xwayland-satellite stay (no AT-SPI
-/// registration possible at all — cache cannot help).
-const KNOWN_NO_MENUBAR_APPS: &[&str] = &[
-    // Terminals
-    "com.mitchellh.ghostty",
-    "kitty",
-    "foot",
-    "org.alacritty.Alacritty",
-    "Alacritty",
-    "alacritty",
-    "org.wezfurlong.wezterm",
-    "wezterm",
-    // X11 host (all X11 apps appear under this PID/app_id on niri)
-    "xwayland-satellite",
-    ".xwayland-satel",
-];
+/// The learned mechanism reproduces the list's protection from the
+/// *outcome* of the walk, not a name:
+///   - A walk that returns no menubar *expensively* (≥ `EXPENSIVE_WALK`)
+///     is the not-on-bus case (terminals, xwayland). Re-walking
+///     re-freezes the bar, so the verdict is permanent for the life
+///     of the process.
+///   - A walk that returns no menubar *cheaply* is the on-bus
+///     no-`MENU_BAR` case (Chrome's hamburger menu, GTK4 popover-only
+///     apps). Cheap to re-confirm, so the verdict expires after
+///     `RECHECK_TTL` — a lazily-built menubar self-heals on re-walk.
+///   - A walk that finds a real menubar (`forget`) drops any verdict,
+///     so an app that gained a menu is never skipped.
+///
+/// Transient `Err` walks record nothing (not a "no menubar" signal).
+mod learned_skip {
+    use std::collections::HashMap;
+    use std::sync::{LazyLock, Mutex};
+    use std::time::{Duration, Instant};
 
-/// Returns true when the focused app's `app_id` matches a known
-/// no-menubar entry; the proxy can skip the AT-SPI walk entirely.
-#[must_use]
-pub fn is_known_no_menubar(app_id: &str) -> bool {
-    KNOWN_NO_MENUBAR_APPS
-        .iter()
-        .any(|&id| id.eq_ignore_ascii_case(app_id))
+    /// A no-menubar walk slower than this drained most of the
+    /// `FETCH_BUDGET`: the app is not on the a11y bus. Healthy apps
+    /// answer in < 50 ms; Chrome's depth-8 DFS over a populated tree
+    /// is well under this. 750 ms cleanly separates "DFS one app" from
+    /// "scanned every connection and gave up / hung". Heuristic knob:
+    /// a cheap app misclassified expensive only loses lazy self-heal
+    /// (harmless — it has no menu); the reverse cannot happen because
+    /// not-on-bus apps have no menu to lazily build.
+    const EXPENSIVE_WALK: Duration = Duration::from_millis(750);
+
+    /// How long a *cheap* no-menubar verdict suppresses re-walks before
+    /// the next focus re-walks once and re-learns.
+    const RECHECK_TTL: Duration = Duration::from_secs(300);
+
+    struct Verdict {
+        learned_at: Instant,
+        expensive: bool,
+    }
+
+    static SKIP: LazyLock<Mutex<HashMap<String, Verdict>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+
+    /// Pure verdict-currency decision, split out so tests can probe the
+    /// TTL boundary without sleeping `RECHECK_TTL`.
+    fn skip_decision(expensive: bool, age: Duration) -> bool {
+        expensive || age < RECHECK_TTL
+    }
+
+    /// Pure cost classifier, split out for the same reason.
+    fn classify_expensive(walk: Duration) -> bool {
+        walk >= EXPENSIVE_WALK
+    }
+
+    /// Tier-1 fast reject: has this `app_id` been learned to have no
+    /// usable menubar, and is that verdict still current?
+    pub fn should_skip(app_id: &str) -> bool {
+        let Ok(map) = SKIP.lock() else {
+            return false;
+        };
+        map.get(app_id)
+            .is_some_and(|v| skip_decision(v.expensive, v.learned_at.elapsed()))
+    }
+
+    /// Record that a walk for `app_id` found no menubar. `walk` is the
+    /// wall-clock cost of that walk; see `EXPENSIVE_WALK`.
+    pub fn record_negative(app_id: &str, walk: Duration) {
+        if let Ok(mut map) = SKIP.lock() {
+            map.insert(
+                app_id.to_string(),
+                Verdict {
+                    learned_at: Instant::now(),
+                    expensive: classify_expensive(walk),
+                },
+            );
+        }
+    }
+
+    /// A walk found a real menubar for `app_id` — drop any verdict so
+    /// the app is never skipped again.
+    pub fn forget(app_id: &str) {
+        if let Ok(mut map) = SKIP.lock() {
+            map.remove(app_id);
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn expensive_walk_is_classified_expensive() {
+            assert!(classify_expensive(Duration::from_millis(2000)));
+            assert!(classify_expensive(EXPENSIVE_WALK)); // boundary inclusive
+            assert!(!classify_expensive(Duration::from_millis(50)));
+            assert!(!classify_expensive(Duration::from_millis(749)));
+        }
+
+        #[test]
+        fn expensive_verdict_never_expires() {
+            // Even a verdict aged far past the recheck window still skips.
+            assert!(skip_decision(true, Duration::from_secs(86_400)));
+        }
+
+        #[test]
+        fn cheap_verdict_expires_after_ttl() {
+            assert!(skip_decision(false, Duration::from_secs(10)));
+            assert!(!skip_decision(false, RECHECK_TTL));
+            assert!(!skip_decision(false, RECHECK_TTL + Duration::from_secs(1)));
+        }
+
+        #[test]
+        fn unknown_app_is_not_skipped() {
+            assert!(!should_skip("org.test.never-seen-app-id"));
+        }
+
+        #[test]
+        fn cheap_negative_skips_then_forget_clears() {
+            let app = "org.test.cheap-app";
+            record_negative(app, Duration::from_millis(40));
+            assert!(should_skip(app), "fresh cheap verdict should skip");
+            forget(app);
+            assert!(!should_skip(app), "forget should clear the verdict");
+        }
+
+        #[test]
+        fn expensive_negative_skips_immediately() {
+            let app = "org.test.expensive-app";
+            record_negative(app, Duration::from_millis(2400));
+            assert!(should_skip(app));
+            forget(app);
+        }
+    }
 }
+
+pub use learned_skip::{
+    forget as forget_menubar, record_negative as record_negative_walk,
+    should_skip as should_skip_walk,
+};
 
 /// v1.0.6 — TTL-bounded cache of AT-SPI menu walks, keyed by
 /// `(app_id, pid)`. Re-focusing the same app within `MENU_CACHE_TTL`

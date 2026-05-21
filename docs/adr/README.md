@@ -21,6 +21,7 @@ Each ADR captures a decision with its **reason** — the part not derivable from
 | [0013](ADR-0013-runner-agnostic-ci.md) | Runner-agnostic labels + multi-runner pool | Accepted |
 | [0014](ADR-0014-local-first-ci.md) | Local-first CI ("prechew") via lefthook | Accepted |
 | [0015](ADR-0015-v01-fallback-only-shipping.md) | v0.1 ships fallback-only; menu rendering deferred to v0.2 | Accepted |
+| [0029](ADR-0029-learned-no-menubar-skip.md) | Learned no-menubar skip replaces hardcoded list | Accepted |
 
 ## Format
 
