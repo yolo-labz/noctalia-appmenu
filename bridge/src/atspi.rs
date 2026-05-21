@@ -151,7 +151,7 @@ mod learned_skip {
     /// answer in < 50 ms; Chrome's depth-8 DFS over a populated tree
     /// is well under this. 750 ms cleanly separates "DFS one app" from
     /// "scanned every connection and gave up / hung". Heuristic knob:
-    /// a cheap app mis-classified expensive only loses lazy self-heal
+    /// a cheap app misclassified expensive only loses lazy self-heal
     /// (harmless — it has no menu); the reverse cannot happen because
     /// not-on-bus apps have no menu to lazily build.
     const EXPENSIVE_WALK: Duration = Duration::from_millis(750);
