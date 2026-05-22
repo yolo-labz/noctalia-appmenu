@@ -265,9 +265,15 @@ pub use learned_skip::{
     should_skip as should_skip_walk,
 };
 
-/// v1.0.6 — TTL-bounded cache of AT-SPI menu walks, keyed by
-/// `(app_id, pid)`. Re-focusing the same app within `MENU_CACHE_TTL`
-/// returns the cached menu instantly (no D-Bus traffic at all).
+/// v1.0.6 — TTL-bounded cache of AT-SPI menu walks. v1.0.25 widened
+/// the key from `(app_id, pid)` to `(app_id, pid, winid)`: a single
+/// process can own several windows (Firefox, okular, LibreOffice) whose
+/// menus differ, so a pid-only key served one window's menu for another
+/// until the TTL expired (the cache half of the wrong-window-routing
+/// bug — see ADR-0030). `winid` is niri's stable per-session window id.
+///
+/// Re-focusing the same window within `MENU_CACHE_TTL` returns the
+/// cached menu instantly (no D-Bus traffic at all).
 ///
 /// Cache stores BOTH `Some(menu)` (positive) and `None` (negative —
 /// app exposes nothing) so we don't re-walk apps we've already
@@ -285,25 +291,25 @@ mod menu_cache {
         fetched_at: Instant,
     }
 
-    type Key = (String, u32);
+    type Key = (String, u32, u64);
     static CACHE: LazyLock<Mutex<HashMap<Key, Entry>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
     /// Returns `Some(cached_value)` (where the inner `Option<MenuItem>`
     /// is the actual cached result) on hit; `None` on miss or stale.
-    pub fn get(app_id: &str, pid: u32) -> Option<Option<MenuItem>> {
+    pub fn get(app_id: &str, pid: u32, winid: u64) -> Option<Option<MenuItem>> {
         let cache = CACHE.lock().ok()?;
-        let entry = cache.get(&(app_id.to_string(), pid))?;
+        let entry = cache.get(&(app_id.to_string(), pid, winid))?;
         if entry.fetched_at.elapsed() > MENU_CACHE_TTL {
             return None;
         }
         Some(entry.menu.clone())
     }
 
-    pub fn put(app_id: &str, pid: u32, menu: Option<MenuItem>) {
+    pub fn put(app_id: &str, pid: u32, winid: u64, menu: Option<MenuItem>) {
         if let Ok(mut cache) = CACHE.lock() {
             cache.insert(
-                (app_id.to_string(), pid),
+                (app_id.to_string(), pid, winid),
                 Entry {
                     menu,
                     fetched_at: Instant::now(),
@@ -313,9 +319,9 @@ mod menu_cache {
     }
 
     /// Drop a specific entry (e.g. after a `MenuError::Stale` re-walk).
-    pub fn invalidate(app_id: &str, pid: u32) {
+    pub fn invalidate(app_id: &str, pid: u32, winid: u64) {
         if let Ok(mut cache) = CACHE.lock() {
-            cache.remove(&(app_id.to_string(), pid));
+            cache.remove(&(app_id.to_string(), pid, winid));
         }
     }
 }
@@ -566,6 +572,7 @@ pub async fn find_app_for_pid(
     a11y: &Connection,
     pid: u32,
     app_id_hint: Option<&str>,
+    focus_title: Option<&str>,
 ) -> Result<Option<(String, OwnedObjectPath)>> {
     let registry = AccessibleProxy::builder(a11y)
         .destination("org.a11y.atspi.Registry")?
@@ -597,7 +604,10 @@ pub async fn find_app_for_pid(
             Err(_) => continue,
         };
         if app_pid == pid {
-            return Ok(Some((service, path)));
+            // ADR-0030: do NOT return the app root for a multi-window
+            // process — `find_menubar`'s DFS would grab an arbitrary
+            // window's menubar. Scope to the niri-focused window's frame.
+            return Ok(resolve_focused_frame(a11y, service, path, focus_title).await);
         }
         candidates.push((service, path));
     }
@@ -667,6 +677,148 @@ pub async fn find_app_for_pid(
         }
     }
     Ok(None)
+}
+
+/// The frame-selection verdict for a PID-matched application. Kept as a
+/// separate enum so the policy ([`choose_frame`]) is pure and unit-tested
+/// without standing up an AT-SPI bus.
+#[derive(Debug, PartialEq, Eq)]
+enum FrameChoice {
+    /// 0 or 1 window — the app root is unambiguous; preserve the proven
+    /// single-window path (`find_menubar` DFS finds the lone menubar).
+    AppRoot,
+    /// The frame path identifying the niri-focused window.
+    Frame(OwnedObjectPath),
+    /// Multi-window and we cannot tell which is focused — serve the
+    /// placeholder rather than an arbitrary (likely wrong) window's menu.
+    NoMenu,
+}
+
+/// Pure frame-selection policy (ADR-0030). `n_children` is the number of
+/// top-level windows under the app root; `title_hit`/`active_hit` are the
+/// frame paths matched by the niri window title and by `STATE_ACTIVE`.
+///
+/// Priority: single-window → app root; else exact title match (the only
+/// deterministic same-PID-multi-window discriminator AT-SPI exposes —
+/// `STATE_ACTIVE` is not authoritative here, at-spi2-core
+/// `constants.h`); else `STATE_ACTIVE` as a tiebreaker; else no menu.
+fn choose_frame(
+    n_children: usize,
+    title_hit: Option<OwnedObjectPath>,
+    active_hit: Option<OwnedObjectPath>,
+) -> FrameChoice {
+    if n_children <= 1 {
+        return FrameChoice::AppRoot;
+    }
+    if let Some(p) = title_hit {
+        return FrameChoice::Frame(p);
+    }
+    if let Some(p) = active_hit {
+        return FrameChoice::Frame(p);
+    }
+    FrameChoice::NoMenu
+}
+
+/// Whether an AT-SPI frame's accessible Name identifies the niri-focused
+/// window. niri's window title and the toolkit's frame Name are the same
+/// string for GTK/Qt/Firefox windows, so an **exact trimmed** match is the
+/// safe discriminator: a containment/fuzzy match would mispair Firefox
+/// windows that share a long common suffix (" — Firefox Nightly"). On no
+/// exact match the caller falls back to `STATE_ACTIVE`, then to no-menu.
+fn title_matches(frame_name: &str, focus_title: &str) -> bool {
+    let a = frame_name.trim();
+    let b = focus_title.trim();
+    !a.is_empty() && a == b
+}
+
+/// On a PID match we hold the AT-SPI application root. A single process
+/// may own several top-level windows (Firefox, okular, LibreOffice) whose
+/// menubars differ; `find_menubar`'s first-hit DFS from the app root would
+/// grab an arbitrary window's menubar — the wrong-window-routing bug
+/// (ADR-0030, drift-trigger-I). Scope the walk to the niri-focused
+/// window's frame via [`choose_frame`].
+async fn resolve_focused_frame(
+    a11y: &Connection,
+    service: String,
+    app_root: OwnedObjectPath,
+    focus_title: Option<&str>,
+) -> Option<(String, OwnedObjectPath)> {
+    const ACTIVE_BIT: u64 = 1 << 1;
+
+    // Direct children of the app root are its top-level windows
+    // (Firefox/Anki/GIMP at depth 1). read_name gives each frame's title.
+    let frames = list_frames(a11y, &service, &app_root.as_ref()).await;
+
+    let title_hit = focus_title.and_then(|t| {
+        frames
+            .iter()
+            .find(|(_, name)| title_matches(name, t))
+            .map(|(p, _)| p.clone())
+    });
+    // STATE_ACTIVE tiebreaker only when title-matching was inconclusive.
+    // Depth 2 covers Qt's `Application → AppName → frame` nesting.
+    let active_hit = if frames.len() > 1 && title_hit.is_none() {
+        scan_for_active_frame(a11y, &service, &app_root.as_ref(), 2, ACTIVE_BIT).await
+    } else {
+        None
+    };
+
+    match choose_frame(frames.len(), title_hit, active_hit) {
+        FrameChoice::AppRoot => Some((service, app_root)),
+        FrameChoice::Frame(path) => {
+            tracing::debug!(%service, frame = %path, "atspi frame-scoped to focused window");
+            Some((service, path))
+        }
+        FrameChoice::NoMenu => {
+            tracing::debug!(
+                %service,
+                frames = frames.len(),
+                "multi-window app: no frame matched focus title or STATE_ACTIVE — serving placeholder"
+            );
+            None
+        }
+    }
+}
+
+/// Enumerate an application root's direct children (its top-level windows)
+/// as `(frame_path, accessible_name)`. The Name is the window title used
+/// by [`resolve_focused_frame`] to pick the niri-focused window. Errors on
+/// individual children are skipped (best-effort), mirroring the rest of
+/// the walker.
+async fn list_frames(
+    a11y: &Connection,
+    service: &str,
+    app_root: &ObjectPath<'_>,
+) -> Vec<(OwnedObjectPath, String)> {
+    let mut frames = Vec::new();
+    let proxy = match AccessibleProxy::builder(a11y)
+        .destination(service.to_owned())
+        .and_then(|b| b.path(app_root.to_owned()))
+        .map(|b| b.cache_properties(zbus::CacheProperties::No))
+    {
+        Ok(b) => match b.build().await {
+            Ok(p) => p,
+            Err(_) => return frames,
+        },
+        Err(_) => return frames,
+    };
+    let count = read_child_count(a11y, service, app_root).await.unwrap_or(0);
+    for i in 0..count {
+        let (child_service, child_path) = match proxy.get_child_at_index(i).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        // Crossing bus connections under one app is uncommon; the foreign
+        // proxy would just fail. Keep to the same service.
+        if child_service != service {
+            continue;
+        }
+        let name = read_name(a11y, service, &child_path.as_ref())
+            .await
+            .unwrap_or_default();
+        frames.push((child_path, name));
+    }
+    frames
 }
 
 /// Walk each candidate AT-SPI app's tree (depth ≤ 2) looking for the
@@ -1098,6 +1250,7 @@ pub async fn fetch_menubar_for_pid(
     client: &AtspiClient,
     pid: u32,
     app_id_hint: Option<&str>,
+    focus_title: Option<&str>,
 ) -> Result<Option<MenuItem>> {
     // v1.0.8 — raised 500 ms → 2500 ms now that the children walk
     // is parallel and the X11 case is fully covered by the skip-list.
@@ -1119,7 +1272,7 @@ pub async fn fetch_menubar_for_pid(
     const FETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(2500);
     match tokio::time::timeout(
         FETCH_BUDGET,
-        fetch_menubar_for_pid_inner(client, pid, app_id_hint),
+        fetch_menubar_for_pid_inner(client, pid, app_id_hint, focus_title),
     )
     .await
     {
@@ -1139,9 +1292,10 @@ async fn fetch_menubar_for_pid_inner(
     client: &AtspiClient,
     pid: u32,
     app_id_hint: Option<&str>,
+    focus_title: Option<&str>,
 ) -> Result<Option<MenuItem>> {
     let a11y = client.connection().await?;
-    let app = match find_app_for_pid(&a11y, pid, app_id_hint).await? {
+    let app = match find_app_for_pid(&a11y, pid, app_id_hint, focus_title).await? {
         Some(a) => a,
         None => return Ok(None),
     };
@@ -1516,6 +1670,65 @@ async fn dispatch_niri_action(action: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn op(s: &str) -> OwnedObjectPath {
+        OwnedObjectPath::try_from(s).unwrap()
+    }
+
+    // ADR-0030 frame-selection policy.
+    #[test]
+    fn choose_frame_single_or_zero_window_uses_app_root() {
+        // 0 or 1 top-level window: the app root is unambiguous, preserve
+        // the proven single-window path regardless of title/active hits.
+        assert_eq!(choose_frame(0, None, None), FrameChoice::AppRoot);
+        assert_eq!(choose_frame(1, None, None), FrameChoice::AppRoot);
+        assert_eq!(
+            choose_frame(1, Some(op("/win/1")), Some(op("/win/2"))),
+            FrameChoice::AppRoot
+        );
+    }
+
+    #[test]
+    fn choose_frame_title_hit_beats_active() {
+        // Multi-window: deterministic title match wins over STATE_ACTIVE.
+        assert_eq!(
+            choose_frame(3, Some(op("/win/title")), Some(op("/win/active"))),
+            FrameChoice::Frame(op("/win/title"))
+        );
+    }
+
+    #[test]
+    fn choose_frame_active_is_tiebreaker() {
+        assert_eq!(
+            choose_frame(2, None, Some(op("/win/active"))),
+            FrameChoice::Frame(op("/win/active"))
+        );
+    }
+
+    #[test]
+    fn choose_frame_multiwindow_no_match_serves_placeholder() {
+        // The bug case: several windows, none identifiable as focused.
+        // Serving the app root would DFS an arbitrary window's menubar.
+        assert_eq!(choose_frame(3, None, None), FrameChoice::NoMenu);
+    }
+
+    #[test]
+    fn title_matches_is_exact_trimmed_only() {
+        assert!(title_matches(
+            "Mail — Firefox Nightly",
+            "Mail — Firefox Nightly"
+        ));
+        assert!(title_matches("  Mail — Firefox  ", "Mail — Firefox"));
+        // Distinct windows sharing a suffix must NOT match.
+        assert!(!title_matches(
+            "CapSolver — Firefox Nightly",
+            "Mail — Firefox Nightly"
+        ));
+        // No substring/containment matching (would mispair same-app windows).
+        assert!(!title_matches("Firefox Nightly", "Mail — Firefox Nightly"));
+        assert!(!title_matches("", ""));
+        assert!(!title_matches("", "Mail"));
+    }
 
     #[test]
     fn menu_item_default_is_empty() {
