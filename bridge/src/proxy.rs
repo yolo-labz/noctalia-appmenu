@@ -420,31 +420,47 @@ pub async fn run(
             );
             None
         } else if let Some(cached) =
-            atspi::cached_menu_for_pid(&snapshot.app_id, snapshot.focus_pid)
+            atspi::cached_menu_for_pid(&snapshot.app_id, snapshot.focus_pid, snapshot.focus_winid)
         {
             debug!(
                 app_id = %snapshot.app_id,
                 pid = snapshot.focus_pid,
+                winid = snapshot.focus_winid,
                 cached_some = cached.is_some(),
                 "cache hit; skipping AT-SPI walk"
             );
             cached
         } else {
             let walk_started = std::time::Instant::now();
-            match atspi::fetch_menubar_for_pid(&client, snapshot.focus_pid, Some(&snapshot.app_id))
-                .await
+            // ADR-0030: pass the niri focused-window title so the walker
+            // can disambiguate same-PID multi-window apps (Firefox) to the
+            // focused window's frame. Empty title → None (no discriminator).
+            let focus_title = (!snapshot.title.is_empty()).then_some(snapshot.title.as_str());
+            match atspi::fetch_menubar_for_pid(
+                &client,
+                snapshot.focus_pid,
+                Some(&snapshot.app_id),
+                focus_title,
+            )
+            .await
             {
                 Ok(opt) => {
                     let walk_elapsed = walk_started.elapsed();
                     debug!(
                         app_id = %snapshot.app_id,
                         pid = snapshot.focus_pid,
+                        winid = snapshot.focus_winid,
                         top_level = opt.as_ref().map(|m| m.children.len()).unwrap_or(0),
                         walk_ms = walk_elapsed.as_millis(),
                         cached_negative = opt.is_none(),
                         "walked atspi menubar; caching"
                     );
-                    atspi::cache_menu_for_pid(&snapshot.app_id, snapshot.focus_pid, opt.clone());
+                    atspi::cache_menu_for_pid(
+                        &snapshot.app_id,
+                        snapshot.focus_pid,
+                        snapshot.focus_winid,
+                        opt.clone(),
+                    );
                     if opt.is_some() {
                         atspi::forget_menubar(&snapshot.app_id);
                     } else {
