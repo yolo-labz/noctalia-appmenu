@@ -66,3 +66,5 @@ specs/**/.cache/
 # claude-code transient
 .claude/state/
 .claude/cache/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
