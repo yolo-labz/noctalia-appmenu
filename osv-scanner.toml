@@ -1,0 +1,22 @@
+# OSV-Scanner V2 configuration.
+#
+# Run locally:
+#   osv-scanner scan source --recursive .
+#
+# CI runs `osv-scanner` on every PR + weekly schedule via
+# .github/workflows/osv-scan.yml. The CI invocation auto-discovers
+# this file at the repo root.
+#
+# Matches the ignore list in `deny.toml` so cargo-deny and OSV-Scanner
+# agree on which advisories are accepted-risk. Every entry MUST carry
+# an inline rationale; keep the two configs in sync or downgrade
+# silently to a false negative on one of them.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2025-0141"
+# bincode 1.x permanently unmaintained (per upstream announcement).
+# Pulled in transitively as a dev-only dep by iai-callgrind 0.16.1
+# (benches/iai.rs) — NOT in the production release closure.
+# Track upstream iai-callgrind for a v2 migration; remove this
+# ignore once the bench harness is off bincode 1.x.
+reason = "Dev-only via iai-callgrind benches; not shipped in release binary. Mirrored in deny.toml."
