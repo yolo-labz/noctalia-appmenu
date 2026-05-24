@@ -48,7 +48,7 @@ jobs:
         # via an env var so the artifact lands at `<workspace>/book`.
         env:
           BOOK_OUT: ${{ github.workspace }}/book
-        run: nix develop --command bash -c 'mdbook build docs -d "$BOOK_OUT"'
+        run: nix develop --command mdbook build docs -d "$BOOK_OUT"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
