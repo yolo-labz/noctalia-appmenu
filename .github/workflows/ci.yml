@@ -54,7 +54,6 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      security-events: write
     steps:
       - name: Harden runner
         uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
@@ -157,12 +156,17 @@ jobs:
           echo "qmllint diagnostics: $(jq '.runs[0].results | length' qmllint.sarif)"
           exit $rc
 
-      - name: Upload qmllint SARIF to code-scanning
-        if: always()
-        uses: github/codeql-action/upload-sarif@9e0d7b8d25671d64c341c19c0152d693099fb5ba # v4.35.5
-        with:
-          sarif_file: qmllint.sarif
-          category: qmllint
+      # SARIF upload removed 24/05/2026 — qmllint runs without
+      # noctalia-shell's `qs.*` import paths (set up at runtime via
+      # QQmlEngine::addImportPath, not lint-resolvable from this repo),
+      # so every `import qs.Commons` cascades into hundreds of
+      # "Unqualified access" / "Could not find property" false
+      # positives. Each CI run accreted a fresh batch into GitHub Code
+      # Scanning, peaking at 662 open alerts. Console output of the
+      # qmllint step above is still authoritative; a hard parse failure
+      # still fails the job via `rc=1`. See the project memory file
+      # `project_qmllint_sarif_flood.md` for the re-enable conditions
+      # when an `-I` strategy that covers `qs.*` exists.
 
       - name: manifest schema check
         # Mirror noctalia-shell's `validateManifest` (PluginRegistry.qml):
