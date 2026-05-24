@@ -6,6 +6,7 @@
 # would otherwise flag. Add new entries with a one-line rationale
 # in a follow-up PR's commit body, not inline.
 aas = "aas"
+ags = "ags"
 ans = "ans"
 bw = "bw"
 caf = "caf"

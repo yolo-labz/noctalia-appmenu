@@ -41,7 +41,14 @@ jobs:
           persist-credentials: false
 
       - name: Build via nix devShell
-        run: nix develop --command bash -c 'mdbook build docs -d ../book'
+        # mdbook resolves `-d` relative to CWD, not the book src; `-d ../book`
+        # landed the output in `$_work/noctalia-appmenu/book` (one level above
+        # $GITHUB_WORKSPACE) so the upload step's `tar -C book` exited 2 with
+        # "No such file or directory". Anchor the path on $GITHUB_WORKSPACE
+        # via an env var so the artifact lands at `<workspace>/book`.
+        env:
+          BOOK_OUT: ${{ github.workspace }}/book
+        run: nix develop --command mdbook build docs -d "$BOOK_OUT"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
