@@ -21,6 +21,19 @@ Each ADR captures a decision with its **reason** — the part not derivable from
 | [0013](ADR-0013-runner-agnostic-ci.md) | Runner-agnostic labels + multi-runner pool | Accepted |
 | [0014](ADR-0014-local-first-ci.md) | Local-first CI ("prechew") via lefthook | Accepted |
 | [0015](ADR-0015-v01-fallback-only-shipping.md) | v0.1 ships fallback-only; menu rendering deferred to v0.2 | Accepted |
+| [0016](ADR-0016-niri-event-stream-schema.md) | niri event-stream JSON schema | Accepted |
+| [0017](ADR-0017-plugin-manifest-schema.md) | Plugin manifest schema (noctalia-shell v1) | Accepted |
+| [0018](ADR-0018-bar-widget-api-contract.md) | Bar-widget API contract | Accepted |
+| [0019](ADR-0019-always-visible-bar-widget.md) | Bar widget must always claim layout space | Accepted |
+| [0020](ADR-0020-fixed-width-slot.md) | Bar widget slot must be fixed-width | Accepted |
+| [0021](ADR-0021-fileview-text-call.md) | Quickshell.Io.FileView exposes content via `text()` (call) | Accepted |
+| [0022](ADR-0022-bridge-owns-registrar.md) | Bridge owns the AppMenu Registrar bus name | Accepted |
+| [0023](ADR-0023-dbusmenu-fetch-on-focus.md) | Fetch DBusMenu trees on focus change | Accepted |
+| [0024](ADR-0024-atspi-substrate.md) | Replace DBusMenu/Registrar with AT-SPI menubar walker | Accepted |
+| [0025](ADR-0025-cognitive-complexity-waiver.md) | Cognitive-complexity waiver for `find_app_for_pid` + `fetch_menu_tree` | Accepted (time-boxed) |
+| [0026](ADR-0026-cyclonedx-1.6-syft-constraint.md) | CycloneDX 1.6 in v1.0.0-rc.x releases (syft constraint) | Accepted |
+| [0027](ADR-0027-no-osconfig-in-hm-module.md) | Drop osConfig from HM module to avoid eval recursion | Accepted |
+| [0028](ADR-0028-fr-003-accelerator-deferred.md) | FR-003 accelerator dispatch deferred (niri-ipc 26.4.0 gap) | Accepted |
 | [0029](ADR-0029-learned-no-menubar-skip.md) | Learned no-menubar skip replaces hardcoded list | Accepted |
 | [0030](ADR-0030-frame-scoped-menu-resolution.md) | Frame-scoped menu resolution by focused-window title | Accepted |
 
