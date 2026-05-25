@@ -1,5 +1,14 @@
 # Running the fake registrar
 
+> **STATUS — historical.** [ADR-0024](../adr/ADR-0024-atspi-substrate.md)
+> switched the bridge to the AT-SPI substrate; the fake registrar
+> below targets the retired DBusMenu/Registrar pipeline. Kept for
+> contributors archaeologising the v0.1..v0.2 design and for
+> reference if upstream Qt6 ever ships compositor-agnostic
+> registrar auto-registration. For current integration testing,
+> see [`atspi.md`](../architecture/atspi.md) and
+> `bridge/tests/atspi_integration.rs`.
+
 For integration testing without a real Qt/GTK app.
 
 ## What it is

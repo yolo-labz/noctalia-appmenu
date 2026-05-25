@@ -7,7 +7,7 @@ Bridge config lives at `$XDG_CONFIG_HOME/noctalia-appmenu-bridge/config.toml` (d
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `focus_debounce_ms` | `u64` (ms) | `75` | Trail-edge debounce on niri focus events. ([ADR-0009](../adr/ADR-0009-debouncing-policy.md)) |
-| `registrar_debounce_ms` | `u64` (ms) | `250` | Trail-edge debounce on registrar churn (e.g. KDE `KMainWindow` rebuilds). |
+| `registrar_debounce_ms` | `u64` (ms) | `250` | **Deprecated (no-op since v0.3).** [ADR-0024](../adr/ADR-0024-atspi-substrate.md) retired the `com.canonical.AppMenu.Registrar` substrate; the bridge no longer subscribes to registrar signals. Key is preserved for backward-compatible config files. Slated for removal in v2. |
 | `niri_binary` | `path` | `niri` | Path to the `niri` binary; resolved at startup. Set to absolute path if niri lives outside `$PATH`. |
 | `publish_service` | `string` | `org.noctalia.AppMenu` | D-Bus bus name we own. **Constant across releases — don't change.** The QML widget hard-codes it. |
 | `publish_path` | `string` | `/org/noctalia/AppMenu/Active` | D-Bus object path of the active proxy. **Constant across releases.** |

@@ -7,9 +7,20 @@
 /SECURITY.md                @phsb5321
 /sonar-project.properties   @phsb5321
 
-# Bridge core (D-Bus protocol surface)
-/bridge/src/registrar.rs    @phsb5321
+# Bridge core (substrate + joiner)
+/bridge/src/atspi.rs        @phsb5321
+/bridge/src/niri.rs         @phsb5321
 /bridge/src/active.rs       @phsb5321
+/bridge/src/proxy.rs        @phsb5321
+
+# Supply-chain + governance configs
+/deny.toml                  @phsb5321
+/osv-scanner.toml           @phsb5321
+/.github/dependabot.yml     @phsb5321
+/.github/CODEOWNERS         @phsb5321
+/cliff.toml                 @phsb5321
+/lefthook.yml               @phsb5321
+/.commitlintrc.yml          @phsb5321
 
 # Plugin core (QML)
 /plugin/manifest.json       @phsb5321
