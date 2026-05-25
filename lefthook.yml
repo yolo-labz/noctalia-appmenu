@@ -45,6 +45,15 @@ pre-commit:
     actionlint:
       glob: ".github/workflows/*.{yml,yaml}"
       run: actionlint {staged_files}
+    # PR #141 backfilled 15 ADRs (0016..0030) that landed but were
+    # silently invisible in the mdbook sidebar — SUMMARY.md and
+    # adr/README.md had drifted. mdbook builds files not listed in
+    # SUMMARY without warning, so this guard converts that silent
+    # drift into a loud commit refusal whenever the touched paths
+    # could plausibly introduce the same gap.
+    verify-adr-summary:
+      glob: "docs/{SUMMARY.md,adr/**}"
+      run: bash scripts/verify-adr-summary.sh
 
 commit-msg:
   commands:
