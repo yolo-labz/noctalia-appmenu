@@ -12,8 +12,14 @@ updates:
     labels:
       - dependencies
       - rust
+    # `include: scope` makes Dependabot append `(deps)` to the type.
+    # Pairing it with `prefix: "fix(bridge)"` produced double-scope
+    # titles like `fix(bridge)(deps): ...` that fail commitlint's
+    # single-scope regex. Use bare `fix` so the rendered title is
+    # `fix(deps): bump <pkg> from X to Y` — single-scope, valid.
+    # The bridge path stays visible in the PR body footer.
     commit-message:
-      prefix: "fix(bridge)"
+      prefix: "fix"
       include: scope
     # Ignore major bumps for breaking-API stacks until a deliberate
     # migration spec lands. zbus 5.x reworks async surfaces; bridge
