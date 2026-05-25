@@ -1,5 +1,13 @@
 # Fake Registrar
 
+> **STATUS — historical.** [ADR-0024](../../docs/adr/ADR-0024-atspi-substrate.md)
+> switched the bridge to AT-SPI; this fake registrar targets the
+> retired DBusMenu/Registrar pipeline. Current integration testing
+> lives in `bridge/tests/atspi_integration.rs` and uses an in-process
+> AT-SPI tree stub. Kept here for archaeology / re-enablement if
+> upstream Qt6 ever ships compositor-agnostic registrar
+> auto-registration.
+
 A minimal Python implementation of `com.canonical.AppMenu.Registrar` and `com.canonical.dbusmenu` that publishes a canned 3-item menubar (`File`, `Edit`, `Help`) at a known service+path. Used by the integration test harness to validate the bridge end-to-end without requiring a real Qt or GTK app.
 
 ## Run
