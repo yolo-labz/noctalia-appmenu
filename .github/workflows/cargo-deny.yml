@@ -44,7 +44,16 @@ jobs:
           persist-credentials: false
 
       - name: cargo deny
-        uses: EmbarkStudios/cargo-deny-action@a531616d8ce3b9177443e48a1159bc945a099823 # v2.0.19
+        # Pinned to v2.0.17 — v2.0.19 (PR #147) failed on this repo's
+        # self-hosted runners with `fatal: detected dubious ownership
+        # in repository at '/github/home/.cargo/advisory-db/...'`.
+        # cargo-deny-action runs cargo-deny inside a Docker container;
+        # the advisory-db checkout's UID inside the container does not
+        # match the host runner's notroot UID, so git's safe.directory
+        # check refuses to read FETCH_HEAD timestamps. v2.0.17 did not
+        # trip the check. Revert until upstream lands a fix; Dependabot
+        # is told to skip this bump via ignore rule in dependabot.yml.
+        uses: EmbarkStudios/cargo-deny-action@91bf2b620e09e18d6eb78b92e7861937469acedb # v2.0.17
         with:
           command: check ${{ matrix.check }}
           manifest-path: bridge/Cargo.toml
