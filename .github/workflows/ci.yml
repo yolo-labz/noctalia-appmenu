@@ -3,7 +3,16 @@ name: ci
 on:
   push:
     branches: [main]
+  # `edited` is added beyond the default trigger set
+  # (`opened, synchronize, reopened`) so a PR-title rename re-fires
+  # the `PR title commitlint` job without needing a manual push of
+  # an empty commit. The whole CI suite re-runs, but the
+  # `concurrency: cancel-in-progress: true` block below kills the old
+  # run, so the marginal cost is bounded. Surfaced after PR #140 and
+  # #152 both needed manual empty-commit pushes following title
+  # renames.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions: {}
 
