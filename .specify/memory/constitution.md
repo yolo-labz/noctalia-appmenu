@@ -1,23 +1,34 @@
 <!--
 Sync Impact Report
-- Version: 0.0.0 → 1.0.0 (initial ratification)
-- Modified principles: n/a (initial)
-- Added sections: Core Principles I-VII, Additional Constraints, Development Workflow, Governance
+- Version: 1.0.0 → 1.1.0 (MINOR: principle text + scope corrections, no removals)
+- Modified principles:
+  - VI. yolo-labz release-engineering — SBOM version (CycloneDX 1.7 → 1.6 per ADR-0026),
+    attest-build-provenance pin (v2 → v4.1.0 per fleet rollout standard)
+- Modified sections:
+  - "Additional Constraints" / Stack lock — Rust 1.81+ → Rust 1.95+ (match flake.lock toolchain)
+  - "Additional Constraints" / Versioning — v1.0.0 shipped 13/05/2026 (was target); v1.0.25 current
+  - "Out of scope" — Removed three stale items: (1) Firefox/Thunderbird DBusMenu claim
+    superseded by AT-SPI partial support (ADR-0024); (2) Electron/Chromium hard-out claim
+    contradicted by README's `--force-accessibility` workflow; (3) Registrar-delegation
+    line — bridge no longer talks to com.canonical.AppMenu.Registrar (ADR-0024).
+  - "Additional Constraints" / Substrate — NEW subsection naming AT-SPI as the v1 substrate,
+    pointing at ADR-0024.
+- Added sections: Substrate (under Additional Constraints).
 - Removed sections: n/a
 - Templates that depend on this constitution:
-  ✅ .specify/templates/spec-template.md (created in same commit)
-  ✅ .specify/templates/plan-template.md (created in same commit)
-  ✅ .specify/templates/tasks-template.md (created in same commit)
-  ✅ CLAUDE.md (cross-references this file)
-  ✅ docs/adr/ (decision records consume principles)
+  ✅ .specify/templates/spec-template.md (unchanged)
+  ✅ .specify/templates/plan-template.md (unchanged)
+  ✅ .specify/templates/tasks-template.md (unchanged)
+  ✅ CLAUDE.md (cross-references this file; out-of-scope wording matches)
+  ✅ docs/adr/ (ADR-0024 + ADR-0026 cited inline)
 - Follow-up TODOs: none
 -->
 
 # noctalia-appmenu Constitution
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Ratified:** 2026-05-04
-**Last amended:** 2026-05-04
+**Last amended:** 2026-05-25
 
 This is the load-bearing rulebook for the project. Every PR's `plan.md` must include a "Constitution Check" section that grades each principle below as PASS / FAIL / N/A and explains FAIL cases. Constitution amendments require a dedicated PR with a Sync Impact Report and a major-version bump on breaking changes.
 
@@ -67,7 +78,7 @@ This is the load-bearing rulebook for the project. Every PR's `plan.md` must inc
 
 ### VI. yolo-labz release-engineering compliance (non-negotiable)
 
-**Rule.** This repo follows the yolo-labz release-engineering standard verbatim: `actions/attest-build-provenance@v2`, CycloneDX 1.7 + SPDX 2.3 SBOMs, full 40-char SHA action pinning with `# vX.Y.Z` comment trail, Repository Rulesets (not classic branch protection), `permissions: {}` at workflow level, `step-security/harden-runner`, no re-tagging releases, `SOURCE_DATE_EPOCH` everywhere.
+**Rule.** This repo follows the yolo-labz release-engineering standard verbatim: `actions/attest-build-provenance@v4.1.0` (current fleet pin, full 40-char SHA), CycloneDX 1.6 + SPDX 2.3 SBOMs (1.6 not 1.7 — `syft` pre-1.34 emits 1.6; see [ADR-0026](../../docs/adr/ADR-0026-cyclonedx-1.6-syft-constraint.md)), full 40-char SHA action pinning with `# vX.Y.Z` comment trail, Repository Rulesets (not classic branch protection), `permissions: {}` at workflow level, `step-security/harden-runner`, no re-tagging releases, `SOURCE_DATE_EPOCH` everywhere.
 
 **Why.** The standard exists because we audited the alternatives. Deviation requires a documented exception in the relevant ADR, approved by `@phsb5321` (CODEOWNER on the file).
 
@@ -87,23 +98,27 @@ This is the load-bearing rulebook for the project. Every PR's `plan.md` must inc
 
 ### Stack lock
 
-- **Bridge:** Rust 1.81+, `zbus`, `niri-ipc`, `tokio`, `serde`. No async-std, no smol. No FFI to Qt — talk to D-Bus only.
+- **Bridge:** Rust 1.95+ (toolchain pinned via `rust-overlay` in `flake.lock`; bumps land via Dependabot/flake-update PRs). `zbus`, `niri-ipc`, `tokio`, `serde`. No async-std, no smol. No FFI to Qt — talk to D-Bus / AT-SPI only.
 - **Plugin:** Quickshell ≥ v0.3.0 QML primitives only. No external QML imports beyond `Quickshell.*`, `Qt.*`, `noctalia-shell` exports.
 - **Build:** Nix flakes. Direct `cargo` invocation only inside `nix develop` shell or CI runner.
+
+### Substrate
+
+- **AT-SPI menubar walker** is the v1 substrate ([ADR-0024](../../docs/adr/ADR-0024-atspi-substrate.md)). The bridge connects to the a11y bus via `org.a11y.Bus.GetAddress()`, walks `org.a11y.atspi.Registry` root children, PID-matches against niri's `WindowFocusChanged.pid`, and exports the walked menu tree at `org.noctalia.AppMenu /org/noctalia/AppMenu/Active`.
+- The pre-v1 `com.canonical.AppMenu.Registrar` / DBusMenu pipeline is preserved in [`docs/architecture/dbusmenu.md`](../../docs/architecture/dbusmenu.md) for historical context. The bridge no longer talks to the registrar daemon.
 
 ### Versioning
 
 - Semantic Versioning 2.0.0.
-- v0.x is alpha; breaking changes allowed in minor bumps.
-- v1.0.0 ships when: niri Qt+GTK works on three different apps, integration tests pass on CI runner, README's "Verify the install" recipe works clean on a fresh NixOS box.
+- v0.x was alpha (breaking changes allowed in minor bumps).
+- v1.0.0 shipped 2026-05-13 against the original gate (niri Qt+GTK on three apps, integration tests on CI, README's "Verify the install" recipe). Subsequent v1.0.x patches address focus-resolution, popup-dismiss, and supply-chain follow-ups.
 
 ### Out of scope (explicitly)
 
-- Firefox / Thunderbird global-menu support (no DBusMenu integration upstream).
-- Electron / Chromium support (flag-gated, brittle, not worth the ongoing maintenance).
+- **Chrome's hamburger menu.** AT-SPI shape does not expose a `MENU_BAR` role; the bridge's learned-skip caches the no-walk outcome per [ADR-0029](../../docs/adr/ADR-0029-learned-no-menubar-skip.md). Other Chromium-based apps work via `--force-accessibility`.
 - Multi-monitor menubar duplication (v1 = focused-output only; multi-output deferred).
-- Alt-letter mnemonics + global Alt-F intercept (deferred to v2 — no clean Quickshell hook in v1).
-- Hosting `com.canonical.AppMenu.Registrar` ourselves (we delegate to `vala-panel-appmenu`'s daemon).
+- Alt-letter mnemonics + global Alt-F intercept (deferred to v2 — no clean Quickshell hook in v1, see [ADR-0010](../../docs/adr/ADR-0010-no-keybind-intercept-v1.md)).
+- Accelerator dispatch (deferred — [ADR-0028](../../docs/adr/ADR-0028-fr-003-accelerator-deferred.md); niri-ipc 26.4.0 gap).
 
 ---
 

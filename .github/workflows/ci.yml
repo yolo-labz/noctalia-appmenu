@@ -230,7 +230,7 @@ jobs:
       - name: validate PR title (squash-merge subject)
         run: |
           subject="$PR_TITLE"
-          if ! [[ "$subject" =~ ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9._/,-]+\))?!?:\ .+ ]]; then
+          if ! [[ "$subject" =~ ^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|governance)(\([a-z0-9._/,-]+\))?!?:\ .+ ]]; then
             echo "::error::PR title does not follow Conventional Commits: $subject"
             exit 1
           fi
