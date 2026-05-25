@@ -52,3 +52,12 @@ updates:
     commit-message:
       prefix: "ci"
       include: scope
+    ignore:
+      # cargo-deny-action v2.0.19 fails on this repo's self-hosted
+      # runners with a `git config --global --add safe.directory`
+      # error inside the Docker container that wraps cargo-deny.
+      # Pinned at v2.0.17 in cargo-deny.yml until upstream lands a
+      # fix; otherwise Dependabot re-suggests the bump every week
+      # and re-breaks main. Re-evaluate quarterly.
+      - dependency-name: "EmbarkStudios/cargo-deny-action"
+        update-types: ["version-update:semver-patch", "version-update:semver-minor"]
