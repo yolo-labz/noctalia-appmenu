@@ -5,7 +5,8 @@
 # Architecture
 
 - [Overview](architecture/overview.md)
-- [DBusMenu pipeline](architecture/dbusmenu.md)
+- [AT-SPI pipeline](architecture/atspi.md)
+- [DBusMenu pipeline (historical)](architecture/dbusmenu.md)
 - [niri-IPC contract](architecture/niri-ipc.md)
 
 # How-to

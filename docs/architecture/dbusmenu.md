@@ -1,5 +1,12 @@
 # DBusMenu pipeline
 
+> **STATUS — historical.** This document describes the v0.1..v0.2
+> approach. The shipping substrate since v0.3 is AT-SPI; see
+> [`atspi.md`](./atspi.md) and [ADR-0024](../adr/ADR-0024-atspi-substrate.md).
+> The DBusMenu/Registrar mechanism below is preserved for context —
+> Qt6 on niri never registered against the bridge because no
+> non-KWin compositor implements `org_kde_kwin_appmenu_manager`.
+
 The full life of a menu item from app to bar.
 
 ## At app startup
