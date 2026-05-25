@@ -16,7 +16,7 @@ Only the latest minor release on the `main` branch receives security fixes. We d
 
 ## Supply-chain posture
 
-Releases are produced by the GitHub Actions self-hosted runner on `vm103.home302server` (Proxmox), gated by Repository Rulesets requiring CodeQL, OSV-Scanner, OpenSSF Scorecard, SonarQube, and reproducibility checks to pass before merge to `main`.
+Releases are produced by a hardened self-hosted GitHub Actions runner (Tailscale-only, `step-security/harden-runner` in audit mode), gated by Repository Rulesets requiring CodeQL, OSV-Scanner, OpenSSF Scorecard, SonarQube, and reproducibility checks to pass before merge to `main`.
 
 Each release artefact ships:
 
