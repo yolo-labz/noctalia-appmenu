@@ -40,6 +40,7 @@ incomplete stage.
 | `nixos-deploy` | `sudo nixos-rebuild switch --flake .#$(hostname)` (clears stale HM `.backup` first) | `nh os switch` was banned by a niri-block hook on this host |
 | `cache-nuke` | `rm -rf ~/.cache/noctalia-qs/qmlcache/` | Nix store sets all file mtimes to the 1969-12-31 epoch; Quickshell's mtime-based `.qmlc` freshness check then prefers the WALL-CLOCK-dated cache from the previous release over the new source. Symptom: Pedro screenshots labelled "absolutely nothing changes !!" three releases running (v1.0.15, v1.0.16, v1.0.17). Cache must die BEFORE the shell restart, or the restart re-loads yesterday's bytecode. |
 | `shell-restart` | `systemctl --user restart noctalia-shell.service` | Memory `feedback_nh_switch_no_shell_restart.md` — switch alone does NOT reload user services |
+| `runner-rechown` | `sudo chown -R notroot:users <runner-workspace>` if any root-owned path is detected | Memory `feedback_runner_workspace_root_chown.md` — `nixos-rebuild switch` flips ownership of `_work/.../.git/objects/**` and `_work/_temp/_github_home/.cargo/advisory-db/**` to root; subsequent CI jobs explode on `insufficient permission for adding an object`. No-op on hosts without the desktop runner. |
 | `verify` | `noctalia-appmenu-bridge --version == VERSION` and `org.noctalia.AppMenu` present on session bus | Catches "deploy claimed, binary unchanged" (drift trigger G) |
 
 ## Invocation

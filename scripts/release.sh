@@ -28,7 +28,8 @@
 #   8. nixos-deploy     — sudo nixos-rebuild switch on the local host
 #   9. cache-nuke       — clear Quickshell QML bytecode cache (Nix epoch-mtime trap)
 #  10. shell-restart    — systemctl --user restart noctalia-shell.service
-#  11. verify           — bridge --version matches, busctl proxy alive
+#  11. runner-rechown   — chown the actions-runner workspace back to notroot
+#  12. verify           — bridge --version matches, busctl proxy alive
 #
 # Hard bans honoured: no `git push origin main`, no `git stash`, no
 # `--no-verify`, no `git add -A`, no tag-pin without SHA comment.
@@ -331,7 +332,44 @@ shell_restart() {
 }
 
 ###############################################################################
-# 11. verify
+# 11. runner-rechown — feedback_runner_workspace_root_chown.md
+#
+# `sudo nixos-rebuild switch` (stage 8) flips ownership on a subset of
+# the local actions-runner workspace to root:root — reproducibly on
+# `_work/.../noctalia-appmenu/.git/objects/**` and
+# `_work/_temp/_github_home/.cargo/advisory-db/**`. The runner service
+# runs as `notroot`, so every subsequent CI job on this runner fails
+# `actions/checkout` with `insufficient permission for adding an object
+# to repository database .git/objects` or `unable to append to
+# .git/logs/refs/heads/main`.
+#
+# Observed twice: post-v1.0.25 deploy on 24/05/2026, again post-v1.1.1
+# on 26/05/2026 (PR #158 SonarQube). Fires every time, no exceptions.
+# Cheap fix: chown back to notroot before `verify`.
+#
+# Gated by `[[ -d <runner-workspace> ]]` so the stage is a no-op on
+# hosts that don't host the desktop runner.
+###############################################################################
+runner_rechown() {
+    local runner_root="$HOME/actions-runner-noctalia-appmenu-desktop/_work"
+    if [[ ! -d "$runner_root" ]]; then
+        log "no desktop runner workspace at $runner_root — skip"
+        return 0
+    fi
+    local stray
+    stray="$(sudo find "$runner_root" -not -user notroot -print -quit 2>/dev/null)"
+    if [[ -z "$stray" ]]; then
+        log "runner workspace already owned by notroot — skip"
+        return 0
+    fi
+    log "stray root-owned path detected: $stray"
+    sudo chown -R notroot:users "$runner_root" \
+        || die "chown -R notroot:users $runner_root failed"
+    log "runner workspace re-chowned to notroot:users"
+}
+
+###############################################################################
+# 12. verify
 ###############################################################################
 verify() {
     local got
@@ -359,5 +397,6 @@ stage nixos-bump      nixos_bump
 stage nixos-deploy    nixos_deploy
 stage cache-nuke      cache_nuke
 stage shell-restart   shell_restart
+stage runner-rechown  runner_rechown
 stage verify          verify
 log "DONE — $TAG live on $(hostname)"
