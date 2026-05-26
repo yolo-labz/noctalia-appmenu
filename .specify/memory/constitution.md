@@ -1,6 +1,19 @@
 <!--
 Sync Impact Report
-- Version: 1.0.0 → 1.1.0 (MINOR: principle text + scope corrections, no removals)
+- Version: 1.1.0 → 1.1.1 (PATCH: wording correction — stale registrar reference in Principle VII)
+- Modified principles:
+  - VII. Graceful degradation — replaced "when the registrar daemon is offline" with
+    "when the AT-SPI bus is unreachable or the app is not on the a11y registry"
+    to match the AT-SPI substrate (ADR-0024). v1.0.0+ has no registrar daemon.
+- Modified sections: n/a (text-only fix inside Principle VII rule)
+- Added sections: n/a
+- Removed sections: n/a
+- Templates that depend on this constitution: unchanged
+- Follow-up TODOs: none
+-->
+
+<!--
+Prior Sync Impact Report (v1.0.0 → 1.1.0, 2026-05-25):
 - Modified principles:
   - VI. yolo-labz release-engineering — SBOM version (CycloneDX 1.7 → 1.6 per ADR-0026),
     attest-build-provenance pin (v2 → v4.1.0 per fleet rollout standard)
@@ -14,21 +27,13 @@ Sync Impact Report
   - "Additional Constraints" / Substrate — NEW subsection naming AT-SPI as the v1 substrate,
     pointing at ADR-0024.
 - Added sections: Substrate (under Additional Constraints).
-- Removed sections: n/a
-- Templates that depend on this constitution:
-  ✅ .specify/templates/spec-template.md (unchanged)
-  ✅ .specify/templates/plan-template.md (unchanged)
-  ✅ .specify/templates/tasks-template.md (unchanged)
-  ✅ CLAUDE.md (cross-references this file; out-of-scope wording matches)
-  ✅ docs/adr/ (ADR-0024 + ADR-0026 cited inline)
-- Follow-up TODOs: none
 -->
 
 # noctalia-appmenu Constitution
 
-**Version:** 1.1.0
+**Version:** 1.1.1
 **Ratified:** 2026-05-04
-**Last amended:** 2026-05-25
+**Last amended:** 2026-05-26
 
 This is the load-bearing rulebook for the project. Every PR's `plan.md` must include a "Constitution Check" section that grades each principle below as PASS / FAIL / N/A and explains FAIL cases. Constitution amendments require a dedicated PR with a Sync Impact Report and a major-version bump on breaking changes.
 
@@ -86,7 +91,7 @@ This is the load-bearing rulebook for the project. Every PR's `plan.md` must inc
 
 ### VII. Graceful degradation over feature gating
 
-**Rule.** When the active app has no registered menu, when the registrar daemon is offline, when niri-IPC is unreachable — the widget renders a minimal fallback (app name + Quit / About derived from `.desktop`), or hides itself. It does not error out, log noisily, or crash the bar.
+**Rule.** When the active app has no exported menu, when the AT-SPI bus is unreachable or the app is not on the a11y registry, when niri-IPC is unreachable — the widget renders a minimal fallback (app name + Quit / About derived from `.desktop`), or hides itself. It does not error out, log noisily, or crash the bar.
 
 **Why.** Bar widgets are user-facing. A crashed widget breaks the whole bar. A noisy widget is a worse user experience than a quiet pseudo-menu.
 
