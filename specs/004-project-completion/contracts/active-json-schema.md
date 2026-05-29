@@ -7,22 +7,28 @@
 
 ## Schema (v=1.1, v1.0.0)
 
+Field names below are the **actual wire keys** emitted by
+`bridge/src/proxy.rs::write_active_json` (the code is the source of truth).
+
 ```json
 {
   "v": 1,
-  "pid": 12345,
+  "focus_pid": 12345,
+  "focus_winid": 7,
   "app_id": "org.kde.kate",
   "title": "Document — kate",
   "source": "atspi",
+  "menu_service": "",
+  "menu_path": "",
   "menu": {
     "id": 0,
     "label": "",
-    "item_type": "submenu",
+    "type": "submenu",
     "enabled": true,
     "visible": true,
     "icon_name": "",
-    "toggle_type": null,
-    "toggle_state": null,
+    "toggle_type": "",
+    "toggle_state": 0,
     "service": ":1.123",
     "path": "/org/a11y/atspi/accessible/root",
     "children": [ ...MenuItem ]
@@ -30,16 +36,22 @@
 }
 ```
 
+`menu_service` / `menu_path` are legacy empty carriers (ADR-0024) kept for
+D-Bus property back-compat. `menu` is `null` (not an object) when there is
+no menu.
+
 ## Field semantics
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `v` | integer `1` | yes | Schema version. Consumers reject snapshots with `v != 1`. |
-| `pid` | integer ≥ 0 | yes | Focused process PID. `0` is reserved for "no focus" — paired with `source = "empty"`. |
+| `focus_pid` | integer ≥ 0 | yes | Focused process PID. `0` is reserved for "no focus" — paired with `source = "empty"`. |
+| `focus_winid` | integer ≥ 0 | yes | niri window id; `0` when no focused window. Used by the plugin to pre-focus the right window before a click (issue #109). |
 | `app_id` | string | yes | Reverse-DNS app identifier as resolved by the focus sink. Empty when `source = "empty"`. |
 | `title` | string | yes | Window title; may be empty. |
 | `source` | string enum | **new at v1.0.0** | One of `"atspi"`, `"synthetic"` (legacy, unused), `"desktop-fallback"` (spec 016 / ADR-0031), `"empty"`. |
-| `menu` | object (`MenuItem` root) | yes | Walker output or synthetic fallback. `children: []` is mandatory when `source = "empty"`. |
+| `menu_service` / `menu_path` | string | yes | Legacy empty carriers (ADR-0024); always `""`. |
+| `menu` | object (`MenuItem` root) or `null` | yes | Walker output, desktop fallback, or `null` when `source = "empty"`. |
 
 ## `MenuItem` shape
 
@@ -47,12 +59,12 @@
 |---|---|---|
 | `id` | integer | Walker-assigned monotonic; not stable across walks. |
 | `label` | string | Accessible Name with accelerator markers stripped. |
-| `item_type` | string enum | `"standard"`, `"separator"`, `"submenu"`. |
+| `type` | string enum | Serialised key is `type` (Rust field `item_type`, `#[serde(rename)]`). One of `"standard"`, `"separator"`, `"submenu"`. |
 | `enabled` | bool | AT-SPI states `ENABLED` ∧ `SENSITIVE`. |
 | `visible` | bool | AT-SPI states `VISIBLE` ∧ `SHOWING`. |
 | `icon_name` | string | freedesktop icon-theme name; empty when absent. |
-| `toggle_type` | string enum or null | `"checkmark"`, `"radio"`, or null. |
-| `toggle_state` | bool or null | Defined iff `toggle_type` is non-null. |
+| `toggle_type` | string | `"checkmark"`, `"radio"`, or `""` (empty = not a toggle). |
+| `toggle_state` | integer | `0` / `1`; meaningful only when `toggle_type` is non-empty. |
 | `service` | string | AT-SPI bus connection name (e.g. `":1.123"`). |
 | `path` | string | AT-SPI object path (e.g. `"/org/a11y/atspi/accessible/42"`). |
 | `children` | array of `MenuItem` | DFS subtree. Empty for `standard` leaves. |
@@ -69,8 +81,8 @@
 3. `source == "empty"` ⇒ `menu` is `null` (the producer writes `null`, not an empty `MenuItem`; consumers treat both as "no menu").
 4. `source == "synthetic"` ⇒ `app_id` is non-empty. (Legacy; no live producer — superseded by `desktop-fallback`.)
 5. `source == "desktop-fallback"` ⇒ `app_id` is non-empty AND `menu` is a non-null `MenuItem` with ≥ 1 child. Built only after AT-SPI returns no menubar, so it never co-occurs with `source == "atspi"` (spec 016 / ADR-0031).
-6. `toggle_state` is null iff `toggle_type` is null.
-7. For each `MenuItem` in `menu.children` (recursively): `item_type == "submenu"` iff `children` is non-empty.
+6. `toggle_state` is meaningful only when `toggle_type` is non-empty (else `0`).
+7. For each `MenuItem` in `menu.children` (recursively): `type == "submenu"` iff `children` is non-empty (separators and standard leaves have `children: []`).
 
 ## Producer-side dedup contract
 

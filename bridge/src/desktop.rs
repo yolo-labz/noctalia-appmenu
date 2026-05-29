@@ -294,10 +294,12 @@ pub fn exec_to_argv(exec: &str) -> Vec<String> {
 ///
 /// On NixOS the per-user + system profile `share` dirs are already part
 /// of `XDG_DATA_DIRS` (`/run/current-system/sw/share`,
-/// `~/.nix-profile/share`, `/etc/profiles/per-user/$USER/share`), so
-/// honouring `XDG_DATA_DIRS` is the NixOS-correct discovery path — we do
-/// NOT hardcode `/usr/share`. Spec defaults fill in only when the env
-/// vars are unset.
+/// `~/.nix-profile/share`, `/etc/profiles/per-user/$USER/share`), which a
+/// niri/noctalia session always exports — so honouring `XDG_DATA_DIRS` is
+/// the NixOS-correct discovery path. The hardcoded
+/// `"/usr/local/share:/usr/share"` is the freedesktop-spec default used
+/// ONLY when `XDG_DATA_DIRS` is entirely unset (it would miss the Nix
+/// profiles, but that env state does not occur in a real session).
 #[must_use]
 pub fn app_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -345,6 +347,27 @@ fn read_candidate(path: &Path, id: &str) -> Option<DesktopEntry> {
     parse_entry(&content, id)
 }
 
+/// Whether `id` is a safe desktop / app identifier to interpolate into a
+/// `<dir>/<id>.desktop` path. **Security boundary** (ADR-0031): the
+/// resolver builds that path by `Path::join`, and `Path::join` with an
+/// absolute or `..`-laden component would escape the trusted XDG dirs
+/// (an absolute component *replaces* the base entirely). A tampered
+/// `active.json` carrying `xdg:/tmp/pwn` or `xdg:../../etc/x` could then
+/// have an arbitrary `.desktop`'s `Exec` spawned. freedesktop desktop
+/// ids are bare reverse-DNS tokens, so we whitelist `[A-Za-z0-9._-]`
+/// (which excludes `/`, whitespace, and absolute paths) and reject any
+/// `..` path component. Wayland `app_id`s fit the same shape; an exotic
+/// one simply degrades to the minimal identity fallback.
+#[must_use]
+fn is_valid_desktop_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 255
+        && id != ".."
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
 /// Resolve an `app_id` to a [`DesktopEntry`] by searching `dirs`.
 ///
 /// Split out from [`resolve`] so tests can point it at a fixture
@@ -357,15 +380,17 @@ fn read_candidate(path: &Path, id: &str) -> Option<DesktopEntry> {
 ///    `Exec` basename, then normalised `Name`/id fuzzy-equality.
 ///
 /// First displayable hit wins; directories earlier in `dirs` shadow
-/// later ones (XDG precedence).
+/// later ones (XDG precedence). Returns `None` for an id that fails
+/// [`is_valid_desktop_id`] — the path-traversal guard.
 #[must_use]
 pub fn resolve_in(dirs: &[PathBuf], app_id: &str) -> Option<DesktopEntry> {
     let app_id = app_id.trim();
-    if app_id.is_empty() {
+    if !is_valid_desktop_id(app_id) {
         return None;
     }
 
-    // Pass 1: direct filename hit (cheap stat, no full scan).
+    // Pass 1: direct filename hit (cheap stat, no full scan). `app_id`
+    // is validated above, so this join cannot escape `dir`.
     for dir in dirs {
         let candidate = dir.join(format!("{app_id}.desktop"));
         if candidate.is_file() {
@@ -449,7 +474,9 @@ static RESOLVE_CACHE: LazyLock<Mutex<HashMap<String, Memo>>> =
 #[must_use]
 pub fn resolve(app_id: &str) -> Option<DesktopEntry> {
     let key = app_id.trim().to_string();
-    if key.is_empty() {
+    // Path-traversal guard (see `is_valid_desktop_id`) — reject before we
+    // touch the filesystem or memoise a junk key.
+    if !is_valid_desktop_id(&key) {
         return None;
     }
     if let Ok(cache) = RESOLVE_CACHE.lock() {
@@ -850,6 +877,56 @@ Exec=real
         let tmp = tempfile::tempdir().unwrap();
         write_desktop(tmp.path(), "com.system76.CosmicFiles.desktop", COSMIC);
         assert!(resolve_in(&[tmp.path().to_path_buf()], "org.nope.Missing").is_none());
+    }
+
+    #[test]
+    fn valid_desktop_id_accepts_real_ids_rejects_traversal() {
+        for ok in [
+            "com.system76.CosmicFiles",
+            "firefox-nightly",
+            "org.kde.kate",
+            "google-chrome",
+            "obsidian",
+        ] {
+            assert!(is_valid_desktop_id(ok), "should accept {ok}");
+        }
+        for bad in [
+            "",
+            "..",
+            "/tmp/pwn",
+            "../../etc/shadow",
+            "a/b",
+            "a b",
+            "a;rm -rf",
+            "a$(x)",
+            "name\ninjected",
+        ] {
+            assert!(!is_valid_desktop_id(bad), "should reject {bad:?}");
+        }
+        // Length bound.
+        assert!(!is_valid_desktop_id(&"a".repeat(256)));
+    }
+
+    #[test]
+    fn resolve_in_rejects_path_traversal_even_when_target_exists() {
+        // BLOCKER guard (codex #160): a tampered id must not escape the
+        // search dirs via an absolute path or `..`. Plant a real file in
+        // a sibling dir and confirm a traversal id cannot reach it.
+        let dirs_root = tempfile::tempdir().unwrap();
+        let search = dirs_root.path().join("search");
+        let evil = dirs_root.path().join("evil");
+        std::fs::create_dir_all(&search).unwrap();
+        std::fs::create_dir_all(&evil).unwrap();
+        write_desktop(&evil, "pwn.desktop", COSMIC);
+
+        // Absolute path id.
+        let abs = evil.join("pwn");
+        let search_dirs = std::slice::from_ref(&search);
+        assert!(resolve_in(search_dirs, abs.to_str().unwrap()).is_none());
+        // Relative traversal id.
+        assert!(resolve_in(search_dirs, "../evil/pwn").is_none());
+        // resolve() (the live, memoised path) rejects too.
+        assert!(resolve("../evil/pwn").is_none());
     }
 
     // ── fallback menu shape ───────────────────────────────────────────

@@ -83,12 +83,41 @@ untouched) on the real host app set:
    `atspi` (e.g. a subtle dot) so users see provenance at a glance.
 6. Per-`.desktop`-action icon names (`icon_name` is currently empty).
 
-### Adversarial review
+### Adversarial review (Codex `codex-rescue`, 2026-05-29)
 
-See PR #160 description. Codex `codex-rescue` adversarial pass requested
-on the change set (AT-SPI regression risk, fake-fallback claims, unsafe
-Exec handling, XDG/NixOS path assumptions, schema breakage). Any
-BLOCKER/MAJOR resolved or documented before merge.
+Verdict: FIX-FIRST. Findings + resolution:
+
+- **BLOCKER — path traversal in click-time `xdg:`/`xdg-action:`
+  re-resolution.** `dir.join("{id}.desktop")` accepted absolute / `..`
+  ids, so a tampered `active.json` could spawn an arbitrary `.desktop`'s
+  Exec. **Fixed:** `is_valid_desktop_id` (whitelist `[A-Za-z0-9._-]`,
+  reject `..`/`/`/absolute/len>255) gates `resolve` + `resolve_in`. New
+  tests `valid_desktop_id_*` + `resolve_in_rejects_path_traversal_*`.
+- **MAJOR — eager publish transiently claimed `source="atspi"` with a
+  null menu.** **Fixed:** eager source is now `empty` (truthful
+  "loading") or an eagerly-built `desktop-fallback` for learned-skip
+  apps; never optimistic `atspi`.
+- **MAJOR — `XDG_DATA_DIRS` unset hardcodes `/usr/share`.** Code is the
+  freedesktop-spec default and that env state never occurs in a niri
+  session; **doc claim softened** (ADR-0031 + module doc).
+- **MAJOR — learned-skip can shadow a newly-real menubar.** Pre-existing
+  ADR-0029 behaviour, bounded by `RECHECK_TTL`; **documented** in
+  ADR-0031 consequences. Strictly better than the prior blank bar.
+- **Fixed (doc drift Codex caught):** schema contract now uses real wire
+  keys (`focus_pid`, `focus_winid`, `type`, `menu_service/_path`,
+  `menu: null`).
+
+### Remaining follow-ups / known MINORs (not blocking)
+
+- niri window-control dispatch uses `Command::new("niri")` (PATH), not
+  `config.niri_binary` — pre-existing; the `atspi-click` subprocess does
+  not load Config. Thread config into the click path in a later slice.
+- No QML fixture exercises a `source="desktop-fallback"` / `xdg:` leaf
+  payload yet (the widget provably ignores `source` and renders
+  `menu.children`, which the fallback supplies identically). Add a
+  qmltest fixture next slice.
+- `exec_to_argv` drops unknown `%X` field codes (safe for a no-arg
+  launch); revisit if a future slice passes file/URI args.
 
 ### Remaining risks
 

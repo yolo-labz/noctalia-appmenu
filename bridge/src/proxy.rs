@@ -372,25 +372,36 @@ pub async fn run(
         }
         let snapshot = active_rx.borrow_and_update().clone();
 
-        // Eager publish: write app_id + title to active.json with
-        // menu:null so the bar updates instantly, then refine the
-        // menu field once the AT-SPI walk completes. Without this
-        // the QML widget waits up to ~3.6s (timeout + retries)
-        // before showing the new app's title — a regression vs the
-        // pre-retry v0.3.0-alpha.6 behaviour (codex review of #40).
-        // The eager-publish `source` is `empty` when there is no
-        // focus, `atspi` when we expect the upcoming walk to succeed;
-        // the trailing write at the bottom of the loop overrides
-        // with the real provenance.
-        let eager_source = if snapshot.focus_pid == 0 {
-            MenuSource::Empty
-        } else {
-            MenuSource::Atspi
+        // Eager publish: write app_id + title to active.json instantly
+        // so the bar updates without waiting on the (cross-process,
+        // up-to-2.5s) AT-SPI walk — without this the widget lags the new
+        // app's title (codex review of #40). The trailing write at the
+        // bottom of the loop refines the menu once the walk completes.
+        //
+        // The eager `source` must stay TRUTHFUL (codex review of #160):
+        //   - no focus            → empty.
+        //   - learned no-menubar  → we already KNOW there is no AT-SPI
+        //     menubar, so build the desktop fallback eagerly (cheap; the
+        //     trailing write dedups to a no-op). No flicker for the
+        //     common no-menubar apps (libcosmic, terminals, chrome).
+        //   - otherwise           → empty with `menu: null` ("loading");
+        //     the trailing write upgrades to `atspi` / `desktop-fallback`.
+        // We never optimistically claim `atspi` for a null menu — that
+        // would publish a transient lie before the real provenance lands.
+        let eager_skip_fallback = snapshot.focus_pid != 0
+            && cfg.desktop_fallback
+            && atspi::should_skip_walk(&snapshot.app_id);
+        let eager_fallback = eager_skip_fallback
+            .then(|| crate::desktop::fallback_menu(&snapshot.app_id))
+            .flatten();
+        let (eager_menu, eager_source) = match eager_fallback {
+            Some(ref fb) => (Some(fb), MenuSource::DesktopFallback),
+            None => (None, MenuSource::Empty),
         };
         write_active_json(
             &active_json_path,
             &snapshot,
-            None,
+            eager_menu,
             eager_source,
             &mut last_body,
         );

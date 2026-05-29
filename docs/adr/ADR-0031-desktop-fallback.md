@@ -93,9 +93,14 @@ already operates under. The crate keeps `#![forbid(unsafe_code)]`.
 ### Positive
 
 - The bar is useful for the modern-app majority instead of blank.
-- Discovery honours `XDG_DATA_HOME` + `XDG_DATA_DIRS`, so NixOS profile
-  dirs (`/run/current-system/sw/share`, `~/.nix-profile/share`,
-  `/etc/profiles/per-user/$USER/share`) work with no hardcoded paths.
+- Discovery honours `XDG_DATA_HOME` + `XDG_DATA_DIRS`. NixOS sessions
+  always export `XDG_DATA_DIRS` with the profile dirs
+  (`/run/current-system/sw/share`, `~/.nix-profile/share`,
+  `/etc/profiles/per-user/$USER/share`), so those resolve with no
+  hardcoded paths. Only when `XDG_DATA_DIRS` is entirely unset does the
+  code fall back to the freedesktop-spec default
+  (`/usr/local/share:/usr/share`) — which would miss the Nix profiles,
+  but that env state does not occur in a real niri/noctalia session.
 - Zero QML changes: the widget already renders `menu.children` and routes
   `service`/`path` clicks through `atspi-click`; the fallback reuses the
   existing `::synthetic` dispatch with two new `xdg` / `xdg-action`
@@ -111,6 +116,15 @@ already operates under. The crate keeps `#![forbid(unsafe_code)]`.
   priority ladder (direct id → StartupWMClass → Exec basename → fuzzy
   Name) and a 60 s memo; a wrong match degrades to a slightly-wrong
   launch label, never a wrong/destructive action.
+- **Interaction with learned-skip (ADR-0029).** When an `app_id` has a
+  learned no-menubar verdict, the proxy skips the AT-SPI walk and serves
+  the fallback. If such an app *gains* a real menubar, the fallback
+  shadows it until the verdict clears. This is bounded: *cheap* verdicts
+  expire after `RECHECK_TTL` (300 s) and re-walk (re-promoting to
+  `atspi` via `forget_menubar`); *expensive* verdicts are exactly the
+  not-on-a11y-bus apps (terminals, libcosmic, xwayland) that never gain
+  an AT-SPI menubar, so serving them the fallback permanently is correct.
+  Net: strictly better than the prior blank bar for the same window.
 
 ## Verification
 
