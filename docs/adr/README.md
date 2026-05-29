@@ -36,6 +36,7 @@ Each ADR captures a decision with its **reason** — the part not derivable from
 | [0028](ADR-0028-fr-003-accelerator-deferred.md) | FR-003 accelerator dispatch deferred (niri-ipc 26.4.0 gap) | Accepted |
 | [0029](ADR-0029-learned-no-menubar-skip.md) | Learned no-menubar skip replaces hardcoded list | Accepted |
 | [0030](ADR-0030-frame-scoped-menu-resolution.md) | Frame-scoped menu resolution by focused-window title | Accepted |
+| [0031](ADR-0031-desktop-fallback.md) | `.desktop` fallback menu for apps without an AT-SPI menubar | Accepted (supersedes honest-or-hidden Empty) |
 
 ## Format
 

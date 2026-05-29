@@ -1542,7 +1542,7 @@ pub fn synthetic_menu(app_id: &str) -> MenuItem {
 }
 
 /// `niri:<action>` leaf factory. ID is the parent's child index.
-fn niri_leaf(id: i32, label: &str, action: &str) -> MenuItem {
+pub(crate) fn niri_leaf(id: i32, label: &str, action: &str) -> MenuItem {
     MenuItem {
         id,
         label: label.to_string(),
@@ -1561,7 +1561,7 @@ fn niri_leaf(id: i32, label: &str, action: &str) -> MenuItem {
 /// Submenu wrapping `children` under `label`. Submenu's own click
 /// path is the documented `niri:noop` so accidental leaf-style click
 /// (which the QML widget guards against anyway) is a no-op.
-fn synthetic_submenu(id: i32, label: &str, children: Vec<MenuItem>) -> MenuItem {
+pub(crate) fn synthetic_submenu(id: i32, label: &str, children: Vec<MenuItem>) -> MenuItem {
     MenuItem {
         id,
         label: label.to_string(),
@@ -1589,7 +1589,7 @@ fn synthetic_application_submenu(pretty: &str) -> MenuItem {
 }
 
 /// Window submenu — universal niri-IPC actions.
-fn synthetic_window_submenu() -> MenuItem {
+pub(crate) fn synthetic_window_submenu() -> MenuItem {
     synthetic_submenu(
         1,
         "Window",
@@ -1613,7 +1613,7 @@ fn synthetic_window_submenu() -> MenuItem {
 /// - `org.kde.okular` → `Okular`
 /// - `firefox-nightly` → `Firefox-nightly`
 /// - empty → `App`
-fn pretty_app_label(app_id: &str) -> String {
+pub(crate) fn pretty_app_label(app_id: &str) -> String {
     let stripped = match app_id.rfind('.') {
         Some(idx) if app_id[..idx].contains('.') => &app_id[idx + 1..],
         _ => app_id,
@@ -1643,6 +1643,18 @@ async fn dispatch_synthetic(path: &str) -> Result<()> {
         .with_context(|| format!("synthetic path missing dispatcher prefix: {path}"))?;
     match dispatcher {
         "niri" => dispatch_niri_action(action).await,
+        // Spec 016 desktop-fallback: `xdg:<desktop-id>` launches the
+        // resolved app's default action; `xdg-action:<desktop-id>:<action-id>`
+        // launches a specific `[Desktop Action]`. Both re-resolve the
+        // id against the trusted XDG application dirs at click time and
+        // spawn the parsed Exec as argv (NO shell) — see `crate::desktop`.
+        "xdg" => crate::desktop::launch_app(action).await,
+        "xdg-action" => {
+            let (id, action_id) = action.split_once(':').with_context(|| {
+                format!("xdg-action path missing `<desktop-id>:<action-id>`: {path}")
+            })?;
+            crate::desktop::launch_action(id, action_id).await
+        }
         other => anyhow::bail!("unknown synthetic dispatcher: {other}"),
     }
 }

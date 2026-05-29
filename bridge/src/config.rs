@@ -49,6 +49,13 @@ pub struct Config {
 
     /// D-Bus object path of the active proxy. Constant across releases.
     pub publish_path: String,
+
+    /// Emit a `source = "desktop-fallback"` menu (app name + `.desktop`
+    /// actions + niri window controls) when the focused app exposes no
+    /// AT-SPI menubar. Default `true` (spec 016 / ADR-0031). Set to
+    /// `false` to restore the v1.0.2 honest-or-hidden behaviour where
+    /// such apps emit `source = "empty"` and the bar collapses.
+    pub desktop_fallback: bool,
 }
 
 impl Default for Config {
@@ -59,6 +66,7 @@ impl Default for Config {
             niri_binary: PathBuf::from("niri"),
             publish_service: PUBLISH_SERVICE_DEFAULT.to_string(),
             publish_path: PUBLISH_PATH_DEFAULT.to_string(),
+            desktop_fallback: true,
         }
     }
 }
@@ -118,6 +126,18 @@ mod tests {
         assert_eq!(cfg.registrar_debounce_ms, REGISTRAR_DEBOUNCE_DEFAULT_MS);
         assert_eq!(cfg.publish_service, PUBLISH_SERVICE_DEFAULT);
         assert_eq!(cfg.publish_path, PUBLISH_PATH_DEFAULT);
+        // Desktop fallback is on by default (spec 016 / ADR-0031).
+        assert!(cfg.desktop_fallback);
+    }
+
+    #[test]
+    fn load_can_disable_desktop_fallback() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f, "desktop_fallback = false").unwrap();
+        let cfg = Config::load(Some(f.path())).unwrap();
+        assert!(!cfg.desktop_fallback);
+        // Unrelated fields stay at defaults.
+        assert_eq!(cfg.focus_debounce_ms, FOCUS_DEBOUNCE_DEFAULT_MS);
     }
 
     #[test]

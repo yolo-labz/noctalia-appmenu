@@ -38,7 +38,7 @@
 | `pid` | integer ≥ 0 | yes | Focused process PID. `0` is reserved for "no focus" — paired with `source = "empty"`. |
 | `app_id` | string | yes | Reverse-DNS app identifier as resolved by the focus sink. Empty when `source = "empty"`. |
 | `title` | string | yes | Window title; may be empty. |
-| `source` | string enum | **new at v1.0.0** | One of `"atspi"`, `"synthetic"`, `"empty"`. |
+| `source` | string enum | **new at v1.0.0** | One of `"atspi"`, `"synthetic"` (legacy, unused), `"desktop-fallback"` (spec 016 / ADR-0031), `"empty"`. |
 | `menu` | object (`MenuItem` root) | yes | Walker output or synthetic fallback. `children: []` is mandatory when `source = "empty"`. |
 
 ## `MenuItem` shape
@@ -66,10 +66,11 @@
 
 1. `pid >= 0`.
 2. `pid == 0` ⇒ `source == "empty"`.
-3. `source == "empty"` ⇒ `menu.children == []`.
-4. `source == "synthetic"` ⇒ `app_id` is non-empty.
-5. `toggle_state` is null iff `toggle_type` is null.
-6. For each `MenuItem` in `menu.children` (recursively): `item_type == "submenu"` iff `children` is non-empty.
+3. `source == "empty"` ⇒ `menu` is `null` (the producer writes `null`, not an empty `MenuItem`; consumers treat both as "no menu").
+4. `source == "synthetic"` ⇒ `app_id` is non-empty. (Legacy; no live producer — superseded by `desktop-fallback`.)
+5. `source == "desktop-fallback"` ⇒ `app_id` is non-empty AND `menu` is a non-null `MenuItem` with ≥ 1 child. Built only after AT-SPI returns no menubar, so it never co-occurs with `source == "atspi"` (spec 016 / ADR-0031).
+6. `toggle_state` is null iff `toggle_type` is null.
+7. For each `MenuItem` in `menu.children` (recursively): `item_type == "submenu"` iff `children` is non-empty.
 
 ## Producer-side dedup contract
 
