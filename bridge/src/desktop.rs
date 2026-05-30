@@ -70,6 +70,10 @@ pub struct DesktopEntry {
     pub name: String,
     /// `Exec` — the default launch command, field codes intact.
     pub exec: String,
+    /// `Icon` — freedesktop icon-theme name (e.g. `google-chrome`) or an
+    /// absolute path. Empty when absent. Surfaced as `icon_name` on the
+    /// fallback menu items so the QML widget can theme them.
+    pub icon: String,
     /// `StartupWMClass` — used to match a Wayland `app_id` that differs
     /// from the desktop id.
     pub startup_wm_class: Option<String>,
@@ -87,6 +91,9 @@ pub struct DesktopAction {
     pub name: String,
     /// `Exec` of the action, field codes intact.
     pub exec: String,
+    /// `Icon` of the action; empty when absent (then the entry's icon
+    /// is used as the fallback).
+    pub icon: String,
 }
 
 // ── Parsing ──────────────────────────────────────────────────────────
@@ -145,6 +152,7 @@ pub fn parse_entry(content: &str, id: &str) -> Option<DesktopEntry> {
 
     let name = entry_group.get("Name").cloned().unwrap_or_default();
     let exec = entry_group.get("Exec").cloned().unwrap_or_default();
+    let icon = entry_group.get("Icon").cloned().unwrap_or_default();
     let startup_wm_class = entry_group.get("StartupWMClass").cloned();
 
     // Ordered action ids from `Actions=a;b;c;`. Trailing `;` yields an
@@ -167,6 +175,7 @@ pub fn parse_entry(content: &str, id: &str) -> Option<DesktopEntry> {
             id: aid.to_string(),
             name: g.get("Name").cloned().unwrap_or_default(),
             exec: g.get("Exec").cloned().unwrap_or_default(),
+            icon: g.get("Icon").cloned().unwrap_or_default(),
         })
     };
 
@@ -189,6 +198,7 @@ pub fn parse_entry(content: &str, id: &str) -> Option<DesktopEntry> {
         id: id.to_string(),
         name,
         exec,
+        icon,
         startup_wm_class,
         actions,
     })
@@ -502,13 +512,16 @@ pub fn resolve(app_id: &str) -> Option<DesktopEntry> {
 // ── Fallback menu construction ───────────────────────────────────────
 
 /// A `.desktop`-action leaf. Click path `xdg-action:<id>:<action-id>`.
-fn action_leaf(idx: i32, label: &str, desktop_id: &str, action_id: &str) -> MenuItem {
+/// `icon` is a freedesktop icon-theme name (or empty); the QML widget
+/// resolves it via `Quickshell.iconPath`.
+fn action_leaf(idx: i32, label: &str, desktop_id: &str, action_id: &str, icon: &str) -> MenuItem {
     MenuItem {
         id: idx,
         label: label.to_string(),
         item_type: "standard".to_string(),
         enabled: true,
         visible: true,
+        icon_name: icon.to_string(),
         service: SYNTHETIC_SERVICE.to_string(),
         path: format!("xdg-action:{desktop_id}:{action_id}"),
         ..Default::default()
@@ -516,13 +529,14 @@ fn action_leaf(idx: i32, label: &str, desktop_id: &str, action_id: &str) -> Menu
 }
 
 /// Default-launch leaf ("New Window"). Click path `xdg:<id>`.
-fn launch_leaf(idx: i32, label: &str, desktop_id: &str) -> MenuItem {
+fn launch_leaf(idx: i32, label: &str, desktop_id: &str, icon: &str) -> MenuItem {
     MenuItem {
         id: idx,
         label: label.to_string(),
         item_type: "standard".to_string(),
         enabled: true,
         visible: true,
+        icon_name: icon.to_string(),
         service: SYNTHETIC_SERVICE.to_string(),
         path: format!("xdg:{desktop_id}"),
         ..Default::default()
@@ -559,7 +573,7 @@ fn build_enriched(app_id: &str, entry: &DesktopEntry) -> MenuItem {
         // No declared actions: synthesise a single default-launch item
         // so the app menu is still useful (e.g. Obsidian, a terminal).
         if !entry.exec.trim().is_empty() {
-            kids.push(launch_leaf(idx, "New Window", &entry.id));
+            kids.push(launch_leaf(idx, "New Window", &entry.id, &entry.icon));
             idx += 1;
         }
     } else {
@@ -573,7 +587,13 @@ fn build_enriched(app_id: &str, entry: &DesktopEntry) -> MenuItem {
             } else {
                 action.name.trim()
             };
-            kids.push(action_leaf(idx, label, &entry.id, &action.id));
+            // Action icon, falling back to the app's own icon.
+            let icon = if action.icon.trim().is_empty() {
+                entry.icon.as_str()
+            } else {
+                action.icon.as_str()
+            };
+            kids.push(action_leaf(idx, label, &entry.id, &action.id, icon));
             idx += 1;
         }
     }
@@ -594,6 +614,7 @@ fn build_enriched(app_id: &str, entry: &DesktopEntry) -> MenuItem {
         item_type: "submenu".to_string(),
         enabled: true,
         visible: true,
+        icon_name: entry.icon.clone(),
         service: SYNTHETIC_SERVICE.to_string(),
         path: "niri:noop".to_string(),
         children: vec![app_submenu, window_submenu],
@@ -699,6 +720,7 @@ Exec=cosmic-files --new-window
         assert_eq!(e.id, "com.system76.CosmicFiles");
         assert_eq!(e.name, "Files");
         assert_eq!(e.exec, "cosmic-files %U");
+        assert_eq!(e.icon, "com.system76.CosmicFiles");
         assert_eq!(
             e.startup_wm_class.as_deref(),
             Some("com.system76.CosmicFiles")
@@ -707,6 +729,55 @@ Exec=cosmic-files --new-window
         assert_eq!(e.actions[0].id, "new-window");
         assert_eq!(e.actions[0].name, "New Window");
         assert_eq!(e.actions[0].exec, "cosmic-files --new-window");
+        // Action declares no Icon of its own.
+        assert_eq!(e.actions[0].icon, "");
+    }
+
+    #[test]
+    fn build_enriched_populates_icon_name_from_desktop_icon() {
+        // Action with no Icon inherits the entry's Icon; the app's own
+        // Icon also lands on the root node.
+        let e = parse_entry(COSMIC, "com.system76.CosmicFiles").unwrap();
+        let m = build_enriched("com.system76.CosmicFiles", &e);
+        assert_eq!(m.icon_name, "com.system76.CosmicFiles");
+        let app = &m.children[0];
+        // First child is the (icon-inherited) action leaf.
+        assert_eq!(app.children[0].label, "New Window");
+        assert_eq!(app.children[0].icon_name, "com.system76.CosmicFiles");
+    }
+
+    #[test]
+    fn build_enriched_action_icon_overrides_entry_icon() {
+        let content = "\
+[Desktop Entry]
+Type=Application
+Name=Term
+Exec=term
+Icon=app-icon
+Actions=special;
+
+[Desktop Action special]
+Name=Special
+Exec=term --special
+Icon=special-icon
+";
+        let e = parse_entry(content, "term").unwrap();
+        let m = build_enriched("term", &e);
+        // Action's own Icon wins over the entry Icon.
+        assert_eq!(m.children[0].children[0].icon_name, "special-icon");
+    }
+
+    #[test]
+    fn build_enriched_launch_leaf_uses_entry_icon() {
+        // No actions → synthesised launch leaf carries the entry Icon.
+        let e = parse_entry(
+            "[Desktop Entry]\nType=Application\nName=Obsidian\nExec=obsidian\nIcon=obsidian\n",
+            "obsidian",
+        )
+        .unwrap();
+        let m = build_enriched("obsidian", &e);
+        assert_eq!(m.children[0].children[0].label, "New Window");
+        assert_eq!(m.children[0].children[0].icon_name, "obsidian");
     }
 
     #[test]
