@@ -11,6 +11,7 @@ Bridge config lives at `$XDG_CONFIG_HOME/noctalia-appmenu-bridge/config.toml` (d
 | `niri_binary` | `path` | `niri` | Path to the `niri` binary; resolved at startup. Set to absolute path if niri lives outside `$PATH`. |
 | `publish_service` | `string` | `org.noctalia.AppMenu` | D-Bus bus name we own. **Constant across releases — don't change.** The QML widget hard-codes it. |
 | `publish_path` | `string` | `/org/noctalia/AppMenu/Active` | D-Bus object path of the active proxy. **Constant across releases.** |
+| `desktop_fallback` | `bool` | `true` | Emit a `source = "desktop-fallback"` menu (app `.desktop` actions + niri window controls) when the focused app exposes no AT-SPI menubar ([ADR-0031](../adr/ADR-0031-desktop-fallback.md)). Set `false` to restore the v1.0.2 honest-or-hidden behaviour (bar collapses when no native menu). |
 
 ## Example
 

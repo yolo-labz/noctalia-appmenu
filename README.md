@@ -50,10 +50,11 @@ The Home-Manager module installs the bridge binary, the QML plugin payload, the 
 | Toolkit | Status | Notes |
 |---|---|---|
 | Qt6 (KDE Frameworks apps, Anki, Telegram, Krita, qutebrowser) | Works | Requires `QT_ACCESSIBILITY=1` in session env (set automatically by the HM module). |
-| GTK3 / GTK4 | Works | GTK4 `GtkPopoverMenuBar` (Nautilus 45+) exposes `MENU_BAR` role with zero children when the menu is closed; bridge falls back to a `.desktop`-derived pseudo-menu in that case ([spec 004 FR-004](specs/004-project-completion/spec.md)). |
+| GTK3 / GTK4 | Works | GTK4 `GtkPopoverMenuBar` (Nautilus 45+) exposes `MENU_BAR` with zero children when the menu is closed; the bridge then serves the [desktop fallback](#app-menu-fallback) (`source = "desktop-fallback"`). |
 | XWayland Qt5/GTK | Works | AT-SPI walker is toolkit-agnostic; X11 windowing does not interfere. |
-| Electron / Chromium | Workaround | Launch with `--force-accessibility`. See [Caveats](#caveats). |
-| Firefox / Thunderbird | Workaround | Set `accessibility.force_disabled = 0` in `about:config` and restart. See [Caveats](#caveats). |
+| Electron / Chromium | Fallback (full menu via flag) | No native menubar by default → the bridge serves the [desktop fallback](#app-menu-fallback) (app actions + window controls). Launch with `--force-accessibility` to expose the real menubar. |
+| Firefox / Thunderbird | Fallback (full menu via flag) | No native menubar by default → [desktop fallback](#app-menu-fallback). Set `accessibility.force_disabled = 0` in `about:config` and restart for the real menubar. |
+| libcosmic / Iced (`cosmic-files`, …) | Fallback only | No upstream AT-SPI export → [desktop fallback](#app-menu-fallback) always. Tracked at [#157](https://github.com/yolo-labz/noctalia-appmenu/issues/157). |
 
 ## Verify the install
 
@@ -177,16 +178,50 @@ sha256sum result/bin/noctalia-appmenu-bridge ./noctalia-appmenu-bridge
 # expect: identical hashes
 ```
 
+## App-menu fallback
+
+Most modern apps expose **no machine-readable menubar** on Wayland: libcosmic/Iced
+(`cosmic-files`), Electron without `--force-accessibility` (Obsidian, VS Code, Slack),
+Chromium/Chrome, Firefox, and GTK4 popover-only apps all register nothing usable on
+the AT-SPI bus. For these the bridge does **not** go blank — it serves an honest,
+identity-derived **fallback menu** (`source = "desktop-fallback"` in `active.json`),
+built from:
+
+- the app's freedesktop `.desktop` entry — display **Name** and any `[Desktop Action]`s
+  (e.g. Chrome's *New Window* / *New Incognito Window*, Firefox's *Profile Manager*),
+- a **New Window** launch item when the entry declares no actions,
+- a **Window** submenu of real niri controls (Close / Toggle Fullscreen / Toggle
+  Floating / Move to Next-or-Previous Workspace),
+- **Quit**, mapped to niri *close-window* (never `SIGKILL`).
+
+Every item maps to a real action — `.desktop` actions launch the app's own `Exec`
+(parsed to argv, **never** via a shell; field codes stripped), window controls call
+`niri msg action`. It is honest about *not* being the app's in-window menu: the
+`source` field says `desktop-fallback`, not `atspi`. This **supersedes** the v1.0.2
+"honest-or-hidden" behaviour (the bar used to collapse to nothing); see
+[ADR-0031](docs/adr/ADR-0031-desktop-fallback.md).
+
+Apps that **do** expose a native menubar via AT-SPI (Qt6 / GTK with the a11y bridge
+loaded — Anki, Okular, Kate, Krita, GIMP, LibreOffice) are unaffected: they always
+get the real menu (`source = "atspi"`); the fallback never shadows a native menubar.
+
+To opt back into blank-when-no-native-menu, set `desktop_fallback = false` in
+`~/.config/noctalia-appmenu-bridge/config.toml`.
+
 ## Caveats
 
-Known limitations at `v1.0.0`. Each item is tracked against a follow-up spec or ADR.
+Known limitations. Each item is tracked against a follow-up spec or ADR.
 
-- **Firefox / Thunderbird.** Menus surface only when `accessibility.force_disabled = 0` is set in `about:config` and the browser is restarted. Mozilla iterated on the Wayland a11y export through 2025–2026; the regression-free default is still partial. See [`specs/004-project-completion/research.md` §7](specs/004-project-completion/research.md) for the upstream status.
-- **Electron apps.** VS Code, Slack, Discord, etc. expose menus only when launched with `--force-accessibility`. Wrap the launch command or set the flag in your `.desktop` file. Chromium's native AT-SPI export is "quite good" but flag-gated.
+- **The fallback is not the app's real menu.** `desktop-fallback` surfaces launch
+  actions + window controls, not the app's File/Edit/View tree. For the real menubar
+  on Electron/Chromium/Firefox, use the per-app flags below. Native, machine-readable
+  menus are an upstream-toolkit responsibility the bridge cannot synthesise.
+- **Firefox / Thunderbird.** A native menubar surfaces only when `accessibility.force_disabled = 0` is set in `about:config` and the browser is restarted; otherwise the [desktop fallback](#app-menu-fallback) applies. Mozilla iterated on the Wayland a11y export through 2025–2026; the regression-free default is still partial. See [`specs/004-project-completion/research.md` §7](specs/004-project-completion/research.md) for the upstream status.
+- **Electron apps.** VS Code, Slack, Discord, etc. expose a native menubar only when launched with `--force-accessibility`; otherwise the [desktop fallback](#app-menu-fallback) applies. Wrap the launch command or set the flag in your `.desktop` file. Chromium's native AT-SPI export is "quite good" but flag-gated.
 - **Multi-monitor menubar duplication.** `v1.0.0` renders the focused-output menu only — no duplication across monitors. Deferred to v2 ([spec 004 §Out of scope](specs/004-project-completion/spec.md)).
 - **Alt-letter mnemonics / global Alt-F intercept.** Pressing `Alt-F` does NOT open the File menu via the appmenu. The in-window menu (if visible) still receives the keystroke. Deferred to v2 per [ADR-0010](docs/adr/ADR-0010-no-keybind-intercept-v1.md) — no clean Quickshell hook exists for global keybind interception at v1.
-- **GTK4 popover menubars.** GTK4 apps using `GtkPopoverMenuBar` (Nautilus 45+, some GNOME apps) expose menu structure only when the menu is open in-window. The bridge falls back to a `.desktop`-derived pseudo-menu for these ([spec 004 FR-004](specs/004-project-completion/spec.md)).
-- **libcosmic / Iced apps.** System76's libcosmic toolkit (`cosmic-files`, `cosmic-edit`, `cosmic-term`, `cosmic-settings`) and standalone Iced apps have no AT-SPI implementation upstream. They register on the session bus but never join `org.a11y.atspi.Registry`, so the bridge cannot enumerate their menus and the widget collapses to the `.desktop`-derived pseudo-menu. Tracked upstream at [pop-os/libcosmic accessibility](https://github.com/pop-os/libcosmic/issues?q=accessibility+OR+atspi); revisit when libcosmic ships AccessKit/AT-SPI export.
+- **GTK4 popover menubars.** GTK4 apps using `GtkPopoverMenuBar` (Nautilus 45+, some GNOME apps) expose menu structure only when the menu is open in-window. When the walk finds an empty menubar the bridge serves the [desktop fallback](#app-menu-fallback) instead.
+- **libcosmic / Iced apps.** System76's libcosmic toolkit (`cosmic-files`, `cosmic-edit`, `cosmic-term`, `cosmic-settings`) and standalone Iced apps have no AT-SPI implementation upstream. They register on the session bus but never join `org.a11y.atspi.Registry`, so the bridge cannot enumerate their menus and serves the [desktop fallback](#app-menu-fallback). Tracked at [#157](https://github.com/yolo-labz/noctalia-appmenu/issues/157) / [pop-os/libcosmic accessibility](https://github.com/pop-os/libcosmic/issues?q=accessibility+OR+atspi); revisit when libcosmic ships AccessKit/AT-SPI export.
 - **AT-SPI bus restart.** If `at-spi-bus-launcher` crashes and is restarted by D-Bus activation, the bridge re-flips `org.a11y.Status.IsEnabled = true` on its next focus-change attempt and resumes within ≤ 5 s. The QML widget collapses to a zero-paint stable slot during the gap (no error spam, no crash) — see [spec 004 Scenario 5](specs/004-project-completion/spec.md).
 - **niri reload.** `niri msg reload-config` may produce a ≤ 2 s blank-bar gap while the bridge reconnects; the backoff resets to its floor after any cleanly-EOF'd session ≥ 30 s, so successive reloads do not compound ([spec 004 FR-001](specs/004-project-completion/spec.md)).
 - **Compositor support.** niri is the only supported compositor at v1.0.0. Hyprland / Sway / KWin / COSMIC focus tracking is deferred to v2 ([ADR-0005](docs/adr/ADR-0005-niri-only-v1.md)); the bridge's focus-tracker abstraction door (`FocusSink` trait) is open but unwired.

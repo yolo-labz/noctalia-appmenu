@@ -134,12 +134,18 @@ Item {
     }
 
     /// Whether the widget should claim any layout space at all.
-    /// Pedro's split-the-loss UX (PR #47, 2026-05-10 swarm synthesis):
-    /// the bar widget is HONEST or HIDDEN — it shows real menus when
-    /// the focused app exposes them, and collapses to zero width
-    /// otherwise. No app-id-as-fallback text, no synthetic Window
-    /// submenu, no wtype-faked Edit. macOS has 100% coverage because
-    /// Apple owns Cocoa; Wayland-niri can't, so we don't pretend.
+    /// The widget never fabricates menus — it renders whatever the
+    /// bridge writes to `active.json`, and collapses to zero width when
+    /// `menu` is null. Provenance lives in the snapshot's `source`
+    /// field, which the widget does not branch on:
+    ///   - `source: "atspi"`           — the app's real native menubar,
+    ///   - `source: "desktop-fallback"` — an identity-derived fallback
+    ///     the bridge built (app `.desktop` actions + niri window
+    ///     controls) for apps with no AT-SPI menubar (spec 016 /
+    ///     ADR-0031). This SUPERSEDES the v1.0.2 honest-or-hidden Empty
+    ///     posture (PR #47); the bridge no longer fakes keystroke items,
+    ///     so the fallback is honest and `hasMenu` becomes true for it,
+    ///   - `source: "empty"`           — no menu; the bar hides.
     ///
     /// `fallbackText` (per-instance widget setting) opts into showing
     /// a static label even when no menu is present — for users who

@@ -82,25 +82,30 @@ enum MenuSource {
     /// Menu walked from the focused app's AT-SPI accessible tree.
     Atspi,
     /// Menu synthesised from `app_id` because the focused app has no
-    /// usable AT-SPI menubar. **Deprecated since v1.0.2** — the
-    /// production proxy emits `Empty` instead per the honest-or-
-    /// hidden UX (PR #47 / Pedro re-confirm 15/05/2026). Variant kept
-    /// for API/serde stability and for future opt-in via per-widget
-    /// setting; no live producer constructs it.
+    /// usable AT-SPI menubar. **Deprecated since v1.0.2** — superseded
+    /// by [`Self::DesktopFallback`] (spec 016 / ADR-0031). Variant kept
+    /// for API/serde stability; no live producer constructs it.
     #[allow(dead_code)]
     Synthetic,
+    /// Identity-derived fallback for a focused app with no AT-SPI
+    /// menubar (libcosmic/Iced, Electron-no-a11y, Chromium, Firefox,
+    /// GTK4 popover-only). Built by [`crate::desktop::fallback_menu`]
+    /// from the app's `.desktop` entry (name + actions) plus niri
+    /// window controls. Honest: labelled as a fallback, every item is a
+    /// real action — see ADR-0031. `menu` is non-null with ≥ 1 child.
+    DesktopFallback,
     /// No focus on a window, OR focused app has no usable AT-SPI
-    /// menubar (terminals, electron-no-a11y, native Wayland with no
-    /// a11y plugin). `menu` is `null` in this case.
+    /// menubar AND no identity-derived fallback could be built (empty
+    /// `app_id`, or the fallback is disabled). `menu` is `null`.
     Empty,
 }
 
 impl MenuSource {
-    #[allow(dead_code)]
     fn as_str(self) -> &'static str {
         match self {
             Self::Atspi => "atspi",
             Self::Synthetic => "synthetic",
+            Self::DesktopFallback => "desktop-fallback",
             Self::Empty => "empty",
         }
     }
@@ -367,25 +372,36 @@ pub async fn run(
         }
         let snapshot = active_rx.borrow_and_update().clone();
 
-        // Eager publish: write app_id + title to active.json with
-        // menu:null so the bar updates instantly, then refine the
-        // menu field once the AT-SPI walk completes. Without this
-        // the QML widget waits up to ~3.6s (timeout + retries)
-        // before showing the new app's title — a regression vs the
-        // pre-retry v0.3.0-alpha.6 behaviour (codex review of #40).
-        // The eager-publish `source` is `empty` when there is no
-        // focus, `atspi` when we expect the upcoming walk to succeed;
-        // the trailing write at the bottom of the loop overrides
-        // with the real provenance.
-        let eager_source = if snapshot.focus_pid == 0 {
-            MenuSource::Empty
-        } else {
-            MenuSource::Atspi
+        // Eager publish: write app_id + title to active.json instantly
+        // so the bar updates without waiting on the (cross-process,
+        // up-to-2.5s) AT-SPI walk — without this the widget lags the new
+        // app's title (codex review of #40). The trailing write at the
+        // bottom of the loop refines the menu once the walk completes.
+        //
+        // The eager `source` must stay TRUTHFUL (codex review of #160):
+        //   - no focus            → empty.
+        //   - learned no-menubar  → we already KNOW there is no AT-SPI
+        //     menubar, so build the desktop fallback eagerly (cheap; the
+        //     trailing write dedups to a no-op). No flicker for the
+        //     common no-menubar apps (libcosmic, terminals, chrome).
+        //   - otherwise           → empty with `menu: null` ("loading");
+        //     the trailing write upgrades to `atspi` / `desktop-fallback`.
+        // We never optimistically claim `atspi` for a null menu — that
+        // would publish a transient lie before the real provenance lands.
+        let eager_skip_fallback = snapshot.focus_pid != 0
+            && cfg.desktop_fallback
+            && atspi::should_skip_walk(&snapshot.app_id);
+        let eager_fallback = eager_skip_fallback
+            .then(|| crate::desktop::fallback_menu(&snapshot.app_id))
+            .flatten();
+        let (eager_menu, eager_source) = match eager_fallback {
+            Some(ref fb) => (Some(fb), MenuSource::DesktopFallback),
+            None => (None, MenuSource::Empty),
         };
         write_active_json(
             &active_json_path,
             &snapshot,
-            None,
+            eager_menu,
             eager_source,
             &mut last_body,
         );
@@ -479,23 +495,42 @@ pub async fn run(
             }
         };
 
-        // Spec 011 — honest-or-hidden UX (Pedro's PR #47, 15/05/2026
-        // re-confirm): when the focused app has no usable AT-SPI
-        // menubar (terminals, electron-no-a11y, native Wayland with
-        // no a11y plugin), DROP the synthetic pseudo-menu and emit
-        // `menu: null` so the bar widget collapses to its zero-paint
-        // stable slot. macOS has 100% coverage because Apple owns
-        // Cocoa; Wayland-niri can't, so we don't pretend.
+        // Menu provenance ladder (spec 016 / ADR-0031):
         //
-        // The synthetic_menu function is preserved in atspi.rs for
-        // the test surface and for any future opt-in via per-widget
-        // setting; the production proxy emits None.
+        //   1. AT-SPI walked a real menubar         → source = "atspi".
+        //   2. No AT-SPI menubar but a focused app   → source =
+        //      "desktop-fallback": an identity-derived menu built from
+        //      the app's `.desktop` entry (name + actions) plus niri
+        //      window controls. Covers the modern-app gap (libcosmic,
+        //      Electron, Chromium, Firefox, GTK4 popover) that AT-SPI
+        //      cannot reach.
+        //   3. No focus, OR no identity / fallback disabled → "empty".
+        //
+        // ADR-0031 supersedes the v1.0.2 honest-or-hidden Empty (PR #47):
+        // the fallback is honest because it is LABELLED as a fallback and
+        // every item maps to a real action (niri primitives + the app's
+        // own `.desktop` Exec/actions) — no faked keystrokes. Users who
+        // still prefer blank-when-no-native-menu set
+        // `desktop_fallback = false` in the bridge config.
         let (final_menu, final_source): (Option<atspi::MenuItem>, MenuSource) =
             if snapshot.focus_pid == 0 {
                 (None, MenuSource::Empty)
             } else {
                 match menu {
                     Some(m) => (Some(m), MenuSource::Atspi),
+                    None if cfg.desktop_fallback => {
+                        match crate::desktop::fallback_menu(&snapshot.app_id) {
+                            Some(fb) => {
+                                debug!(
+                                    app_id = %snapshot.app_id,
+                                    top_level = fb.children.len(),
+                                    "no AT-SPI menubar; emitting desktop-fallback menu"
+                                );
+                                (Some(fb), MenuSource::DesktopFallback)
+                            }
+                            None => (None, MenuSource::Empty),
+                        }
+                    }
                     None => (None, MenuSource::Empty),
                 }
             };
