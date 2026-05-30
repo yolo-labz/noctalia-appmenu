@@ -112,7 +112,7 @@ already operates under. The crate keeps `#![forbid(unsafe_code)]`.
 - A user could mistake a fallback for the real menu if they ignore the
   `source` field. Mitigated by docs and by the fallback's distinct,
   obviously-not-File/Edit/View shape.
-- `.desktop` resolution can mis-map an unusual `app_id`. Mitigated by a
+- `.desktop` resolution can misidentify an unusual `app_id`. Mitigated by a
   priority ladder (direct id → StartupWMClass → Exec basename → fuzzy
   Name) and a 60 s memo; a wrong match degrades to a slightly-wrong
   launch label, never a wrong/destructive action.

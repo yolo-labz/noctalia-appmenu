@@ -121,7 +121,7 @@ Verdict: FIX-FIRST. Findings + resolution:
 
 ### Remaining risks
 
-- `.desktop` resolution can mis-map an unusual `app_id` → wrong launch
+- `.desktop` resolution can misidentify an unusual `app_id` → wrong launch
   label (never a wrong/destructive action). Priority ladder + 60 s memo.
 - A user ignoring the `source` field could mistake the fallback for a
   native menu. Mitigated by docs + the obviously-non-native shape.
