@@ -1541,7 +1541,25 @@ pub fn synthetic_menu(app_id: &str) -> MenuItem {
     }
 }
 
-/// `niri:<action>` leaf factory. ID is the parent's child index.
+/// Map a niri action to a freedesktop icon-theme name for the synthetic
+/// menu leaves, or `""` when no standard name cleanly fits (the QML
+/// widget then renders the row without an icon — never a wrong one).
+/// Pure, so it is unit-tested without standing up a menu.
+pub(crate) fn niri_action_icon(action: &str) -> &'static str {
+    match action {
+        "close-window" => "window-close",
+        "fullscreen-window" => "view-fullscreen",
+        "move-window-to-workspace-down" => "go-down",
+        "move-window-to-workspace-up" => "go-up",
+        // No widely-themed standard name for "floating"/noop → no icon.
+        _ => "",
+    }
+}
+
+/// `niri:<action>` leaf factory. ID is the parent's child index. The
+/// `icon_name` is derived from the action via [`niri_action_icon`] so the
+/// synthetic Window / Quit leaves theme consistently with the
+/// `.desktop`-derived action leaves (which carry the app's own icon).
 pub(crate) fn niri_leaf(id: i32, label: &str, action: &str) -> MenuItem {
     MenuItem {
         id,
@@ -1549,7 +1567,7 @@ pub(crate) fn niri_leaf(id: i32, label: &str, action: &str) -> MenuItem {
         item_type: "standard".to_string(),
         enabled: true,
         visible: true,
-        icon_name: String::new(),
+        icon_name: niri_action_icon(action).to_string(),
         toggle_type: String::new(),
         toggle_state: 0,
         service: SYNTHETIC_SERVICE.to_string(),
@@ -1844,6 +1862,42 @@ mod tests {
         let m = synthetic_menu("");
         assert_eq!(m.label, "App");
         assert_eq!(m.children.len(), 2);
+    }
+
+    #[test]
+    fn niri_action_icon_maps_known_actions_only() {
+        assert_eq!(niri_action_icon("close-window"), "window-close");
+        assert_eq!(niri_action_icon("fullscreen-window"), "view-fullscreen");
+        assert_eq!(niri_action_icon("move-window-to-workspace-down"), "go-down");
+        assert_eq!(niri_action_icon("move-window-to-workspace-up"), "go-up");
+        // Unmapped actions get NO icon — never a misleading one.
+        assert_eq!(niri_action_icon("toggle-window-floating"), "");
+        assert_eq!(niri_action_icon("noop"), "");
+        assert_eq!(niri_action_icon("some-future-action"), "");
+    }
+
+    #[test]
+    fn niri_leaf_carries_action_icon() {
+        assert_eq!(
+            niri_leaf(0, "Close", "close-window").icon_name,
+            "window-close"
+        );
+        assert_eq!(
+            niri_leaf(1, "Toggle Floating", "toggle-window-floating").icon_name,
+            ""
+        );
+    }
+
+    #[test]
+    fn synthetic_window_submenu_leaves_are_iconned_where_standard() {
+        let w = synthetic_window_submenu();
+        // Close + Fullscreen + the two workspace moves have standard icons;
+        // Floating has none.
+        let icons: Vec<&str> = w.children.iter().map(|c| c.icon_name.as_str()).collect();
+        assert_eq!(
+            icons,
+            vec!["window-close", "view-fullscreen", "", "go-down", "go-up"]
+        );
     }
 
     #[test]

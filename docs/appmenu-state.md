@@ -5,6 +5,31 @@ Living status doc for the universal app-menu effort. Updated by the
 
 ---
 
+## 2026-05-29 — synthetic Window/Quit icons (PR #163)
+
+- **Branch:** `163-synth-icons` (PR #163). Completes the #162 icon work.
+- **Slice:** give the niri-synthesised leaves (Window submenu + Quit)
+  standard freedesktop icon names so they theme alongside the
+  `.desktop`-derived action leaves instead of rendering bare.
+- **Changed:** `bridge/src/atspi.rs` — pure `niri_action_icon(action)`
+  map (`close-window`→`window-close`, `fullscreen-window`→`view-fullscreen`,
+  workspace moves→`go-down`/`go-up`; unmapped incl. floating → `""`),
+  wired into `niri_leaf`. Applies to both the enriched fallback and the
+  minimal `synthetic_menu`. 3 new tests.
+- **Source behaviour:** unchanged. Icons additive only; unmapped actions
+  stay iconless (never a misleading icon — `Quickshell.iconPath` also
+  guards a theme miss).
+- **Tests:** fmt + clippy + 94 lib tests (+3) green.
+- **Smoke ✓:** probe `obsidian` — Window leaves carry
+  `window-close`/`view-fullscreen`/`go-down`/`go-up` (Floating iconless),
+  Quit carries `window-close`, New Window keeps the app icon.
+- **Review:** internal adversarial pass (pure static-string mapping, no
+  exec/IO/schema surface). SHIP.
+- **Follow-up:** none for icons. Next ladder rung = `org.gtk.Menus`
+  substrate (item 4) or Noctalia provenance styling (item 6).
+
+---
+
 ## 2026-05-29 — desktop-fallback icons (PR #162)
 
 - **Branch:** `162-fallback-icons` (PR #162). Ladder item 1 extension.
