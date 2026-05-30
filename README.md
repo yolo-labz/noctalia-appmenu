@@ -190,9 +190,17 @@ built from:
 - the app's freedesktop `.desktop` entry — display **Name** and any `[Desktop Action]`s
   (e.g. Chrome's *New Window* / *New Incognito Window*, Firefox's *Profile Manager*),
 - a **New Window** launch item when the entry declares no actions,
-- a **Window** submenu of real niri controls (Close / Toggle Fullscreen / Toggle
-  Floating / Move to Next-or-Previous Workspace),
+- a **Window** submenu of real niri controls, grouped: *Close · Toggle Fullscreen ·
+  Toggle Floating* — *Maximize Column · Center Column · Expand Column to Available
+  Width* — *Move to Previous/Next Workspace · Move to Monitor Left/Right*,
 - **Quit**, mapped to niri *close-window* (never `SIGKILL`).
+
+Menu rows carry **icons** where one is known: `.desktop` actions and the launch item
+use the app's own `Icon` (e.g. `google-chrome`); the window controls use standard
+freedesktop icon names (`window-close`, `view-fullscreen`, `go-down`/`go-up`, …),
+resolved by the widget via `Quickshell.iconPath`. Labels are **locale-aware** — the
+`.desktop` `Name[pt_BR]` → `Name[pt]` → `Name` chain is honoured, so an app's own
+translated action names appear in your language.
 
 Every item maps to a real action — `.desktop` actions launch the app's own `Exec`
 (parsed to argv, **never** via a shell; field codes stripped), window controls call
