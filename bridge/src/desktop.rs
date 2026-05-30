@@ -98,14 +98,64 @@ pub struct DesktopAction {
 
 // ── Parsing ──────────────────────────────────────────────────────────
 
+/// The user's locale preference list, most-specific first, for picking a
+/// `Name[...]` variant. Reads `LC_MESSAGES` → `LC_ALL` → `LANG`, strips
+/// the `.encoding` and `@modifier` suffixes, and expands `lang_COUNTRY`
+/// into `[lang_COUNTRY, lang]`. The neutral `C`/`POSIX` locales (and an
+/// unset env) yield an empty list → the unlocalised `Name` is used.
+fn locale_prefs() -> Vec<String> {
+    let raw = ["LC_MESSAGES", "LC_ALL", "LANG"]
+        .iter()
+        .find_map(|v| std::env::var(v).ok().filter(|s| !s.is_empty()))
+        .unwrap_or_default();
+    parse_locale_prefs(&raw)
+}
+
+/// Pure core of [`locale_prefs`]: turn a raw locale string
+/// (`pt_BR.UTF-8@euro`) into `[pt_BR, pt]`. `C`/`POSIX`/empty → `[]`.
+/// Split out so the locale logic is unit-tested without touching env.
+fn parse_locale_prefs(raw: &str) -> Vec<String> {
+    // Strip encoding (`.UTF-8`) and modifier (`@euro`).
+    let base = raw
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .split('@')
+        .next()
+        .unwrap_or("")
+        .trim();
+    if base.is_empty() || base == "C" || base == "POSIX" {
+        return Vec::new();
+    }
+    let mut prefs = vec![base.to_string()];
+    if let Some((lang, _country)) = base.split_once('_') {
+        prefs.push(lang.to_string());
+    }
+    prefs
+}
+
+/// Pick the best `Name` for `prefs` from a parsed group: the first
+/// non-empty `Name[<pref>]` in preference order, else the unlocalised
+/// `Name`, else `""`. Pure — tests pass explicit `prefs` (no env).
+fn locale_name(group: &HashMap<String, String>, prefs: &[String]) -> String {
+    for p in prefs {
+        if let Some(v) = group.get(&format!("Name[{p}]")) {
+            if !v.is_empty() {
+                return v.clone();
+            }
+        }
+    }
+    group.get("Name").cloned().unwrap_or_default()
+}
+
 /// Parse the textual content of a `.desktop` file into a [`DesktopEntry`].
 ///
 /// `id` is the desktop id (filename without `.desktop`), supplied by the
 /// caller since it is not in the file body. Returns `None` when the file
 /// has no `[Desktop Entry]` group or is not `Type=Application`.
 ///
-/// Only unlocalised keys are read (`Name`, not `Name[de]`) — locale
-/// handling is deferred (see `docs/appmenu-state.md` follow-ups). First
+/// `Name` (entry and per-action) is resolved against the user's locale
+/// via [`locale_name`] — `Name[pt_BR]` → `Name[pt]` → `Name`. First
 /// occurrence of a key within a group wins, matching the freedesktop
 /// recommendation for duplicate keys.
 #[must_use]
@@ -129,10 +179,9 @@ pub fn parse_entry(content: &str, id: &str) -> Option<DesktopEntry> {
             continue;
         };
         let key = key.trim();
-        // Skip localised keys (`Name[de]`) — default locale only.
-        if key.contains('[') {
-            continue;
-        }
+        // Keep localised keys (`Name[pt_BR]`) alongside the unlocalised
+        // one — distinct map keys, so both coexist and `locale_name`
+        // can pick the best match for the user's locale.
         groups[gi]
             .1
             .entry(key.to_string())
@@ -150,7 +199,8 @@ pub fn parse_entry(content: &str, id: &str) -> Option<DesktopEntry> {
         }
     }
 
-    let name = entry_group.get("Name").cloned().unwrap_or_default();
+    let prefs = locale_prefs();
+    let name = locale_name(&entry_group, &prefs);
     let exec = entry_group.get("Exec").cloned().unwrap_or_default();
     let icon = entry_group.get("Icon").cloned().unwrap_or_default();
     let startup_wm_class = entry_group.get("StartupWMClass").cloned();
@@ -173,7 +223,7 @@ pub fn parse_entry(content: &str, id: &str) -> Option<DesktopEntry> {
         let g = &groups.iter().find(|(h, _)| *h == header)?.1;
         Some(DesktopAction {
             id: aid.to_string(),
-            name: g.get("Name").cloned().unwrap_or_default(),
+            name: locale_name(g, &prefs),
             exec: g.get("Exec").cloned().unwrap_or_default(),
             icon: g.get("Icon").cloned().unwrap_or_default(),
         })
@@ -828,18 +878,68 @@ Exec=term --solo
     }
 
     #[test]
-    fn parse_ignores_comments_localised_keys_and_blank_lines() {
+    fn parse_skips_comments_and_blank_lines() {
+        // No localised keys here, so this stays locale-independent — it
+        // only exercises comment + blank-line skipping. Localised Name
+        // selection is covered by `locale_name_*` / `parse_locale_prefs_*`.
         let content = "\
 # a comment
 [Desktop Entry]
 
 Type=Application
 Name=Real
-Name[de]=Unecht
 Exec=real
 ";
         let e = parse_entry(content, "real").unwrap();
-        assert_eq!(e.name, "Real"); // not the [de] value
+        assert_eq!(e.name, "Real");
+        assert_eq!(e.exec, "real");
+    }
+
+    #[test]
+    fn parse_locale_prefs_expands_and_neutralises() {
+        assert_eq!(parse_locale_prefs("pt_BR.UTF-8"), vec!["pt_BR", "pt"]);
+        assert_eq!(parse_locale_prefs("pt_BR.UTF-8@euro"), vec!["pt_BR", "pt"]);
+        assert_eq!(parse_locale_prefs("en_US.UTF-8"), vec!["en_US", "en"]);
+        assert_eq!(parse_locale_prefs("de"), vec!["de"]);
+        // Neutral / unset → no preference (unlocalised Name used).
+        assert!(parse_locale_prefs("C").is_empty());
+        assert!(parse_locale_prefs("POSIX").is_empty());
+        assert!(parse_locale_prefs("").is_empty());
+    }
+
+    #[test]
+    fn locale_name_picks_most_specific_then_falls_back() {
+        let mut g = HashMap::new();
+        g.insert("Name".to_string(), "New Window".to_string());
+        g.insert("Name[pt]".to_string(), "Nova janela (pt)".to_string());
+        g.insert("Name[pt_BR]".to_string(), "Nova janela".to_string());
+
+        // Exact region wins.
+        assert_eq!(
+            locale_name(&g, &["pt_BR".into(), "pt".into()]),
+            "Nova janela"
+        );
+        // Region missing → language base.
+        assert_eq!(
+            locale_name(&g, &["pt_PT".into(), "pt".into()]),
+            "Nova janela (pt)"
+        );
+        // No matching locale → unlocalised Name.
+        assert_eq!(
+            locale_name(&g, &["de_DE".into(), "de".into()]),
+            "New Window"
+        );
+        // Empty prefs (C locale) → unlocalised Name.
+        assert_eq!(locale_name(&g, &[]), "New Window");
+    }
+
+    #[test]
+    fn locale_name_ignores_empty_localized_value() {
+        let mut g = HashMap::new();
+        g.insert("Name".to_string(), "Fallback".to_string());
+        g.insert("Name[pt_BR]".to_string(), String::new());
+        // Empty Name[pt_BR] must not shadow the real unlocalised Name.
+        assert_eq!(locale_name(&g, &["pt_BR".into(), "pt".into()]), "Fallback");
     }
 
     #[test]

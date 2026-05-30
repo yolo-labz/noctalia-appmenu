@@ -5,6 +5,38 @@ Living status doc for the universal app-menu effort. Updated by the
 
 ---
 
+## 2026-05-30 — locale-aware `.desktop` Name (PR #166)
+
+- **Branch:** `166-locale-names` (PR #166). Ladder item 1 extension.
+- **Slice:** the parser was discarding all `Name[xx]` keys, so non-en
+  users got worse labels. Now resolve entry + action `Name` against the
+  user's locale: `Name[pt_BR]` → `Name[pt]` → unlocalised `Name`.
+- **Changed:** `bridge/src/desktop.rs` — stopped skipping localised keys;
+  added pure `parse_locale_prefs(raw)` (`pt_BR.UTF-8@euro` → `[pt_BR,pt]`;
+  `C`/`POSIX`/unset → `[]`) + `locale_name(group, prefs)`; `locale_prefs()`
+  reads `LC_MESSAGES`→`LC_ALL`→`LANG`. Used for entry Name + each action
+  Name. 3 new pure tests; refocused the old comment-skip test to stay
+  locale-independent.
+- **Source behaviour:** unchanged ladder. Only label TEXT changes; ids,
+  paths, icons, structure identical.
+- **Tests:** fmt + clippy + 98 lib tests (+3) green.
+- **Smoke ✓:** `desktop_probe google-chrome` under two locales —
+  en_US → "New Window"/"New Incognito Window"; pt_BR → "Nova janela"/
+  "Nova janela anônima" (straight from chrome's own `.desktop`). en is the
+  ambient default so no regression. `com.google.Chrome.desktop` correctly
+  skipped (`NoDisplay=true`); used the displayable `google-chrome.desktop`.
+- **Review:** internal adversarial — pure parsing, no exec/security/schema
+  surface. SHIP.
+- **Follow-up:** the synthesised strings ("Quit X", "New Window" launch,
+  "Window", "Close", …) are still English — localising the bridge's OWN
+  labels needs a translation table (separate i18n slice).
+- **Project status:** bridge substrate is feature-complete for niri.
+  Remaining: Noctalia QML provenance styling (item 6, hard to verify live)
+  + the runner-chown durable infra fix (~NixOS). Highest user-value next
+  step is a **release** to ship #160–#166 to the live bar (Pedro-gated).
+
+---
+
 ## 2026-05-29 — org.gtk.Menus measured + rejected (PR #165, ADR-0032)
 
 - **Branch:** `165-gtk-menus-adr` (PR #165). Ladder item 4.
