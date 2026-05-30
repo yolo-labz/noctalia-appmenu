@@ -5,6 +5,31 @@ Living status doc for the universal app-menu effort. Updated by the
 
 ---
 
+## 2026-05-29 — desktop-fallback icons (PR #162)
+
+- **Branch:** `162-fallback-icons` (PR #162). Ladder item 1 extension.
+- **Slice:** populate `icon_name` in the desktop fallback from the
+  `.desktop` `Icon=` keys. `MenuRow.qml` already renders `icon_name` via
+  `Quickshell.iconPath` (FR-012) but the fallback always left it empty.
+- **Changed:** `bridge/src/desktop.rs` — `icon` field on `DesktopEntry`
+  + `DesktopAction`; parse `Icon=`; thread into `action_leaf`/`launch_leaf`
+  + the root. Action icon falls back to the entry icon. 3 new tests.
+- **Source behaviour:** unchanged ladder (atspi → desktop-fallback →
+  empty). Icons are additive metadata only.
+- **Tests:** fmt + clippy + 91 lib tests (+3) green.
+- **Smoke ✓:** probe — `google-chrome`/`obsidian`/`com.mitchellh.ghostty`/
+  `firefox-nightly` all carry `icon_name` on action/launch leaves +
+  root, sourced from each app's own `.desktop Icon=`. Quit + separator
+  correctly iconless.
+- **Review:** internal adversarial pass (Codex not invoked —
+  proportionate for an additive icon slice, no new exec/IO/security
+  surface). SHIP.
+- **Follow-up:** standard freedesktop icon names for the synthesised
+  Window-control + Quit items (`window-close`, `view-fullscreen`,
+  `application-exit`) — a separate polish slice.
+
+---
+
 ## 2026-05-29 — desktop fallback wired (ADR-0031)
 
 - **Branch:** `160-desktop-fallback` (PR #160)
