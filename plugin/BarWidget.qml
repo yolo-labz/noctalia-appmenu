@@ -141,8 +141,8 @@ Item {
     ///   - `source: "atspi"`           — the app's real native menubar,
     ///   - `source: "desktop-fallback"` — an identity-derived fallback
     ///     the bridge built (app `.desktop` actions + niri window
-    ///     controls) for apps with no AT-SPI menubar (spec 016 /
-    ///     ADR-0031). This SUPERSEDES the v1.0.2 honest-or-hidden Empty
+    ///     controls) for apps with no AT-SPI menubar (ADR-0031).
+    ///     This SUPERSEDES the v1.0.2 honest-or-hidden Empty
     ///     posture (PR #47); the bridge no longer fakes keystroke items,
     ///     so the fallback is honest and `hasMenu` becomes true for it,
     ///   - `source: "empty"`           — no menu; the bar hides.

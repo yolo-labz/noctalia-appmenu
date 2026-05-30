@@ -52,7 +52,7 @@ pub struct Config {
 
     /// Emit a `source = "desktop-fallback"` menu (app name + `.desktop`
     /// actions + niri window controls) when the focused app exposes no
-    /// AT-SPI menubar. Default `true` (spec 016 / ADR-0031). Set to
+    /// AT-SPI menubar. Default `true` (ADR-0031). Set to
     /// `false` to restore the v1.0.2 honest-or-hidden behaviour where
     /// such apps emit `source = "empty"` and the bar collapses.
     pub desktop_fallback: bool,
@@ -126,7 +126,7 @@ mod tests {
         assert_eq!(cfg.registrar_debounce_ms, REGISTRAR_DEBOUNCE_DEFAULT_MS);
         assert_eq!(cfg.publish_service, PUBLISH_SERVICE_DEFAULT);
         assert_eq!(cfg.publish_path, PUBLISH_PATH_DEFAULT);
-        // Desktop fallback is on by default (spec 016 / ADR-0031).
+        // Desktop fallback is on by default (ADR-0031).
         assert!(cfg.desktop_fallback);
     }
 

@@ -5,7 +5,7 @@ Living status doc for the universal app-menu effort. Updated by the
 
 ---
 
-## 2026-05-29 — desktop fallback wired (spec 016 / ADR-0031)
+## 2026-05-29 — desktop fallback wired (ADR-0031)
 
 - **Branch:** `160-desktop-fallback` (PR #160)
 - **Bridge version:** 1.0.25 (no bump this slice — feature only)

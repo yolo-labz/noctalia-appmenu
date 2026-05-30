@@ -7,7 +7,7 @@
   spec 011) for the no-AT-SPI-menubar case
 - **Related:** ADR-0024 (AT-SPI substrate), ADR-0015 (v0.1 fallback-only),
   ADR-0029 (learned no-menubar skip), ADR-0030 (frame-scoped resolution)
-- **Tracking:** spec 016, PR #160
+- **Tracking:** PR #160 (the `.desktop` fallback slice)
 
 ## Context
 
