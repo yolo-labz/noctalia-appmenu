@@ -49,7 +49,7 @@ no menu.
 | `focus_winid` | integer ≥ 0 | yes | niri window id; `0` when no focused window. Used by the plugin to pre-focus the right window before a click (issue #109). |
 | `app_id` | string | yes | Reverse-DNS app identifier as resolved by the focus sink. Empty when `source = "empty"`. |
 | `title` | string | yes | Window title; may be empty. |
-| `source` | string enum | **new at v1.0.0** | One of `"atspi"`, `"synthetic"` (legacy, unused), `"desktop-fallback"` (spec 016 / ADR-0031), `"empty"`. |
+| `source` | string enum | **new at v1.0.0** | One of `"atspi"`, `"synthetic"` (legacy, unused), `"desktop-fallback"` (ADR-0031), `"empty"`. |
 | `menu_service` / `menu_path` | string | yes | Legacy empty carriers (ADR-0024); always `""`. |
 | `menu` | object (`MenuItem` root) or `null` | yes | Walker output, desktop fallback, or `null` when `source = "empty"`. |
 
@@ -80,7 +80,7 @@ no menu.
 2. `pid == 0` ⇒ `source == "empty"`.
 3. `source == "empty"` ⇒ `menu` is `null` (the producer writes `null`, not an empty `MenuItem`; consumers treat both as "no menu").
 4. `source == "synthetic"` ⇒ `app_id` is non-empty. (Legacy; no live producer — superseded by `desktop-fallback`.)
-5. `source == "desktop-fallback"` ⇒ `app_id` is non-empty AND `menu` is a non-null `MenuItem` with ≥ 1 child. Built only after AT-SPI returns no menubar, so it never co-occurs with `source == "atspi"` (spec 016 / ADR-0031).
+5. `source == "desktop-fallback"` ⇒ `app_id` is non-empty AND `menu` is a non-null `MenuItem` with ≥ 1 child. Built only after AT-SPI returns no menubar, so it never co-occurs with `source == "atspi"` (ADR-0031).
 6. `toggle_state` is meaningful only when `toggle_type` is non-empty (else `0`).
 7. For each `MenuItem` in `menu.children` (recursively): `type == "submenu"` iff `children` is non-empty (separators and standard leaves have `children: []`).
 

@@ -1,4 +1,4 @@
-//! `.desktop` fallback substrate (spec 016).
+//! `.desktop` fallback substrate (ADR-0031).
 //!
 //! AT-SPI (ADR-0024) is the authoritative menu source. It only works
 //! for apps that expose a `MENU_BAR` accessible — Qt6/GTK with the a11y

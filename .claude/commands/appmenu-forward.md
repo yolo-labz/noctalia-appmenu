@@ -6,7 +6,7 @@ description: "Advance the universal app-menu effort one shippable slice. Preserv
 
 The forward-motion loop for noctalia-appmenu. Stops the project stalling in
 analysis: pick the next slice on the ladder, implement it, prove it, record
-it. Inspired by spec 016 / ADR-0031 (the `.desktop` fallback slice).
+it. Inspired by ADR-0031 (the `.desktop` fallback slice).
 
 ## Non-negotiables (read before doing anything)
 
@@ -37,7 +37,7 @@ it. Inspired by spec 016 / ADR-0031 (the `.desktop` fallback slice).
 
 Take the highest unfinished item:
 
-1. **`.desktop` fallback** — DONE (spec 016 / ADR-0031). Extend only:
+1. **`.desktop` fallback** — DONE (ADR-0031). Extend only:
    per-action `icon_name`, locale-aware `Name[xx]`, smarter `app_id`→entry
    resolution for stragglers.
 2. **README / docs correction** — keep docs matching reality. Grep for

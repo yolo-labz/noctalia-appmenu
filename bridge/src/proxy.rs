@@ -83,7 +83,7 @@ enum MenuSource {
     Atspi,
     /// Menu synthesised from `app_id` because the focused app has no
     /// usable AT-SPI menubar. **Deprecated since v1.0.2** — superseded
-    /// by [`Self::DesktopFallback`] (spec 016 / ADR-0031). Variant kept
+    /// by [`Self::DesktopFallback`] (ADR-0031). Variant kept
     /// for API/serde stability; no live producer constructs it.
     #[allow(dead_code)]
     Synthetic,
@@ -495,7 +495,7 @@ pub async fn run(
             }
         };
 
-        // Menu provenance ladder (spec 016 / ADR-0031):
+        // Menu provenance ladder (ADR-0031):
         //
         //   1. AT-SPI walked a real menubar         → source = "atspi".
         //   2. No AT-SPI menubar but a focused app   → source =

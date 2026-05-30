@@ -1,6 +1,6 @@
 //! Manual probe: resolve a Wayland `app_id` to its `.desktop` entry and
 //! print the `source = "desktop-fallback"` menu the bridge would embed
-//! in `active.json` when the app exposes no AT-SPI menubar (spec 016).
+//! in `active.json` when the app exposes no AT-SPI menubar (ADR-0031).
 //! Not part of the production daemon — a live-verification aid.
 //!
 //! Usage:
