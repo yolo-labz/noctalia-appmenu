@@ -509,29 +509,83 @@ Item {
                 visible: modelData && modelData.type !== "separator" &&
                          (modelData.visible !== false)
 
-                color: hover.containsMouse
-                    ? Color.mSurfaceVariant
-                    : "transparent"
-                radius: Style.marginXS !== undefined ? Style.marginXS : 4
+                // PR #169 — bar-integrated menubar styling. The
+                // top-level item is a macOS-style bare-text menubar
+                // entry (no persistent capsule), but matched to the
+                // Noctalia bar's visual language: Medium weight + bar
+                // font size, and a capsule HIGHLIGHT on hover/open using
+                // the shell's own `mHover` capsule treatment (cyan bg +
+                // dark text, radiusM, animationFast). Tokens come from
+                // `qs.Commons` (noctalia-shell); each is guarded with a
+                // `!== undefined` fallback so a token rename in a future
+                // noctalia release degrades gracefully instead of
+                // throwing in the QML binding.
+                //
+                // `active` = hovered OR this is the open menu's anchor —
+                // so the open top-level item stays highlighted like a
+                // real menubar.
+                readonly property bool active: hover.containsMouse
+                    || (popup.isOpen && popup.anchorItem === btn)
+                readonly property bool isEnabled: !(modelData && modelData.enabled === false)
+
+                color: "transparent"            // bare container; highlight is the child below
                 border.width: 0
 
-                // Fill full strip height (= bar height). Eliminates
-                // the click dead-zone the earlier "barHeight - marginS*2"
-                // sizing introduced — MouseArea now covers everything
-                // a user would visually associate with the button.
+                // Fill full strip height (= bar height) for the hit area.
+                // Eliminates the click dead-zone the earlier
+                // "barHeight - marginS*2" sizing introduced — MouseArea
+                // covers everything a user associates with the button.
+                // The VISIBLE highlight is drawn at capsule height
+                // (centered) to match the shell's other bar capsules,
+                // which are shorter than the full bar height.
                 height: strip.height
                 implicitWidth: btnLabel.implicitWidth + Style.marginM * 2
+
+                // Capsule highlight — centered, capsule-height, only
+                // painted when active. Mirrors noctalia BarPill hover.
+                Rectangle {
+                    id: highlight
+                    anchors.centerIn: parent
+                    width: parent.width
+                    height: Style.capsuleHeight !== undefined
+                        ? Style.capsuleHeight
+                        : (Style.barHeight - Style.marginS * 2)
+                    radius: Style.radiusM !== undefined ? Style.radiusM : (height / 2)
+                    color: btn.active && btn.isEnabled
+                        ? (Color.mHover !== undefined ? Color.mHover : Color.mSurfaceVariant)
+                        : "transparent"
+                    Behavior on color {
+                        ColorAnimation {
+                            duration: Style.animationFast !== undefined ? Style.animationFast : 150
+                            easing.type: Easing.InOutQuad
+                        }
+                    }
+                }
 
                 Text {
                     id: btnLabel
                     anchors.centerIn: parent
                     // Strip leading underscore (accelerator marker).
                     text: (modelData ? modelData.label : "").replace(/_/g, "")
-                    color: btn.modelData && btn.modelData.enabled === false
+                    color: !btn.isEnabled
                         ? Color.mOnSurfaceVariant
-                        : Color.mOnSurface
+                        : (btn.active
+                            ? (Color.mOnHover !== undefined ? Color.mOnHover : Color.mOnSurface)
+                            : Color.mOnSurface)
                     font.family: Settings.data.ui.fontDefault || "Inter"
-                    font.pixelSize: Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
+                    // Match the shell's bar widgets: Medium weight + the
+                    // density-aware barFontSize (≡ our prior
+                    // _barBaseFontSize * fontScale; prefer the shell token).
+                    font.weight: Style.fontWeightMedium !== undefined ? Style.fontWeightMedium : Font.Medium
+                    font.pixelSize: Style.barFontSize !== undefined
+                        ? Style.barFontSize
+                        : Math.max(1, Style._barBaseFontSize * (Settings.data.bar.fontScale || 1.0))
+                    Behavior on color {
+                        ColorAnimation {
+                            duration: Style.animationFast !== undefined ? Style.animationFast : 150
+                            easing.type: Easing.InOutQuad
+                        }
+                    }
                 }
 
                 MouseArea {
