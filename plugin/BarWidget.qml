@@ -541,8 +541,14 @@ Item {
                 height: strip.height
                 implicitWidth: btnLabel.implicitWidth + Style.marginM * 2
 
-                // Capsule highlight — centered, capsule-height, only
-                // painted when active. Mirrors noctalia BarPill hover.
+                // PR #170 — each top-level item is now a PERSISTENT
+                // noctalia capsule (not bare text). The capsule chrome
+                // matches every other bar widget: `Style.capsuleColor`
+                // background + `Style.capsuleBorder*`, at rest; flips to
+                // the shell's `Color.mHover` cyan when hovered/open. This
+                // is the v1.0.27 highlight Rectangle with a non-transparent
+                // resting fill, so the menu reads as bar pills (like the
+                // workspace pills / Clock) instead of foreign naked text.
                 Rectangle {
                     id: highlight
                     anchors.centerIn: parent
@@ -553,7 +559,11 @@ Item {
                     radius: Style.radiusM !== undefined ? Style.radiusM : (height / 2)
                     color: btn.active && btn.isEnabled
                         ? (Color.mHover !== undefined ? Color.mHover : Color.mSurfaceVariant)
-                        : "transparent"
+                        : (Style.capsuleColor !== undefined ? Style.capsuleColor : Color.mSurfaceVariant)
+                    border.color: btn.active
+                        ? "transparent"
+                        : (Style.capsuleBorderColor !== undefined ? Style.capsuleBorderColor : "transparent")
+                    border.width: Style.capsuleBorderWidth !== undefined ? Style.capsuleBorderWidth : 0
                     Behavior on color {
                         ColorAnimation {
                             duration: Style.animationFast !== undefined ? Style.animationFast : 150
