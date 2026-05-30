@@ -5,6 +5,36 @@ Living status doc for the universal app-menu effort. Updated by the
 
 ---
 
+## 2026-05-29 — Window submenu enrichment (PR #164)
+
+- **Branch:** `164-niri-window-actions` (PR #164). Ladder item 5.
+- **Slice:** grow the fallback `Window` submenu from 5 flat leaves to a
+  grouped set of niri-native column/monitor ops, so the fallback is a
+  useful window controller, not just Close.
+- **Changed:** `bridge/src/atspi.rs` — `synthetic_window_submenu` now:
+  Close / Toggle Fullscreen / Toggle Floating · **Maximize Column** /
+  **Center Column** / **Expand Column to Available Width** · Move to
+  Prev/Next Workspace / **Move to Monitor Left/Right**, in 3
+  separator-grouped sections. Added `synthetic_separator` helper +
+  monitor-move icons (`go-previous`/`go-next`) to `niri_action_icon`.
+  2 net new tests; layout test locks the exact rows + ids.
+- **Source behaviour:** unchanged ladder. Window menu is part of both the
+  enriched fallback and the minimal `synthetic_menu`.
+- **Tests:** fmt + clippy + 95 lib tests green.
+- **Smoke:** ✓ structure (probe shows the 3-group submenu) + ✓ all 5 new
+  action names dispatch-valid (`niri msg action <name> --help`,
+  non-mutating). ◐ live execution of the new actions NOT fired (would
+  mutate the session layout); they ride the proven `dispatch_niri_action`
+  path identical to the existing Close/Fullscreen actions.
+- **QML:** separators render as dividers (`MenuRow` handles `type ==
+  "separator"`; `SubmenuPopup` skips them) — confirmed, not assumed.
+- **Review:** internal adversarial pass — action strings hardcoded (no
+  injection), no shell, no schema/dep change. SHIP.
+- **Follow-up:** next rung = `org.gtk.Menus` substrate (item 4, needs a
+  spec first) or Noctalia provenance styling (item 6).
+
+---
+
 ## 2026-05-29 — synthetic Window/Quit icons (PR #163)
 
 - **Branch:** `163-synth-icons` (PR #163). Completes the #162 icon work.

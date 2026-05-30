@@ -1551,7 +1551,9 @@ pub(crate) fn niri_action_icon(action: &str) -> &'static str {
         "fullscreen-window" => "view-fullscreen",
         "move-window-to-workspace-down" => "go-down",
         "move-window-to-workspace-up" => "go-up",
-        // No widely-themed standard name for "floating"/noop → no icon.
+        "move-window-to-monitor-left" => "go-previous",
+        "move-window-to-monitor-right" => "go-next",
+        // No widely-themed standard name for floating / column ops / noop.
         _ => "",
     }
 }
@@ -1572,6 +1574,25 @@ pub(crate) fn niri_leaf(id: i32, label: &str, action: &str) -> MenuItem {
         toggle_state: 0,
         service: SYNTHETIC_SERVICE.to_string(),
         path: format!("niri:{action}"),
+        children: Vec::new(),
+    }
+}
+
+/// A non-clickable separator row for grouping synthetic submenu items.
+/// Empty `service`/`path` so the QML click guard (`fireClick` requires
+/// both) treats it as inert.
+pub(crate) fn synthetic_separator(id: i32) -> MenuItem {
+    MenuItem {
+        id,
+        label: String::new(),
+        item_type: "separator".to_string(),
+        enabled: false,
+        visible: true,
+        icon_name: String::new(),
+        toggle_type: String::new(),
+        toggle_state: 0,
+        service: String::new(),
+        path: String::new(),
         children: Vec::new(),
     }
 }
@@ -1606,7 +1627,12 @@ fn synthetic_application_submenu(pretty: &str) -> MenuItem {
     )
 }
 
-/// Window submenu — universal niri-IPC actions.
+/// Window submenu — universal niri-IPC actions, grouped macOS-style:
+/// window state · column layout · placement. Every action name is
+/// verified against `niri msg action` for niri 26.04; an action niri
+/// does not recognise is a logged no-op, never a crash. Column/monitor
+/// ops are niri-native primitives a daily-driver actually uses, so the
+/// fallback Window menu is useful and not just Close.
 pub(crate) fn synthetic_window_submenu() -> MenuItem {
     synthetic_submenu(
         1,
@@ -1615,12 +1641,23 @@ pub(crate) fn synthetic_window_submenu() -> MenuItem {
             niri_leaf(0, "Close", "close-window"),
             niri_leaf(1, "Toggle Fullscreen", "fullscreen-window"),
             niri_leaf(2, "Toggle Floating", "toggle-window-floating"),
-            niri_leaf(3, "Move to Next Workspace", "move-window-to-workspace-down"),
+            synthetic_separator(3),
+            niri_leaf(4, "Maximize Column", "maximize-column"),
+            niri_leaf(5, "Center Column", "center-column"),
             niri_leaf(
-                4,
+                6,
+                "Expand Column to Available Width",
+                "expand-column-to-available-width",
+            ),
+            synthetic_separator(7),
+            niri_leaf(
+                8,
                 "Move to Previous Workspace",
                 "move-window-to-workspace-up",
             ),
+            niri_leaf(9, "Move to Next Workspace", "move-window-to-workspace-down"),
+            niri_leaf(10, "Move to Monitor Left", "move-window-to-monitor-left"),
+            niri_leaf(11, "Move to Monitor Right", "move-window-to-monitor-right"),
         ],
     )
 }
@@ -1820,14 +1857,19 @@ mod tests {
         assert_eq!(m.children[0].children.len(), 1);
         assert_eq!(m.children[0].children[0].label, "Quit Ghostty");
         assert_eq!(m.children[0].children[0].path, "niri:close-window");
-        // Window leaves all carry niri:<action> paths — never wtype.
-        for leaf in &m.children[1].children {
+        // Window: clickable leaves carry niri:<action> + the synthetic
+        // service; separators are inert (empty service/path) groupers.
+        for item in &m.children[1].children {
+            if item.item_type == "separator" {
+                assert!(item.service.is_empty() && item.path.is_empty());
+                continue;
+            }
             assert!(
-                leaf.path.starts_with("niri:"),
+                item.path.starts_with("niri:"),
                 "Window leaf must use niri dispatcher; got {}",
-                leaf.path
+                item.path
             );
-            assert_eq!(leaf.service, SYNTHETIC_SERVICE);
+            assert_eq!(item.service, SYNTHETIC_SERVICE);
         }
         // Wire-compat: same JSON shape as AT-SPI items.
         let json = serde_json::to_value(&m).unwrap();
@@ -1889,15 +1931,47 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_window_submenu_leaves_are_iconned_where_standard() {
+    fn synthetic_window_submenu_layout_and_icons() {
         let w = synthetic_window_submenu();
-        // Close + Fullscreen + the two workspace moves have standard icons;
-        // Floating has none.
-        let icons: Vec<&str> = w.children.iter().map(|c| c.icon_name.as_str()).collect();
+        // (label, type, icon) for every row — locks the grouped layout.
+        let rows: Vec<(&str, &str, &str)> = w
+            .children
+            .iter()
+            .map(|c| (c.label.as_str(), c.item_type.as_str(), c.icon_name.as_str()))
+            .collect();
         assert_eq!(
-            icons,
-            vec!["window-close", "view-fullscreen", "", "go-down", "go-up"]
+            rows,
+            vec![
+                ("Close", "standard", "window-close"),
+                ("Toggle Fullscreen", "standard", "view-fullscreen"),
+                ("Toggle Floating", "standard", ""),
+                ("", "separator", ""),
+                ("Maximize Column", "standard", ""),
+                ("Center Column", "standard", ""),
+                ("Expand Column to Available Width", "standard", ""),
+                ("", "separator", ""),
+                ("Move to Previous Workspace", "standard", "go-up"),
+                ("Move to Next Workspace", "standard", "go-down"),
+                ("Move to Monitor Left", "standard", "go-previous"),
+                ("Move to Monitor Right", "standard", "go-next"),
+            ]
         );
+        // child ids are sequential (the QML Repeater keys on them).
+        for (i, c) in w.children.iter().enumerate() {
+            assert_eq!(c.id, i as i32);
+        }
+    }
+
+    #[test]
+    fn niri_action_icon_maps_monitor_moves() {
+        assert_eq!(
+            niri_action_icon("move-window-to-monitor-left"),
+            "go-previous"
+        );
+        assert_eq!(niri_action_icon("move-window-to-monitor-right"), "go-next");
+        // Column ops have no clean standard icon.
+        assert_eq!(niri_action_icon("maximize-column"), "");
+        assert_eq!(niri_action_icon("center-column"), "");
     }
 
     #[test]
