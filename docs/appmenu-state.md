@@ -5,6 +5,35 @@ Living status doc for the universal app-menu effort. Updated by the
 
 ---
 
+## 2026-05-29 — org.gtk.Menus measured + rejected (PR #165, ADR-0032)
+
+- **Branch:** `165-gtk-menus-adr` (PR #165). Ladder item 4.
+- **Slice:** decide the `org.gtk.Menus` substrate by **measuring** it,
+  not building blind. Outcome: rejected — documented in **ADR-0032**.
+- **Measurement (live, niri 26.04):** deep `busctl tree` introspection of
+  every GTK app on the session bus (baobab, seahorse, gnome-connections,
+  font-manager, polari) → **0/5 export `org.gtk.Menus`**; all 5 export
+  `org.gtk.Actions` (action group only, no menubar model). GTK4 apps use
+  in-window header-bar menus; nothing is exported to subscribe to. Plus a
+  Wayland path-discovery gap (no `_GTK_MENUBAR_OBJECT_PATH` equivalent off
+  X11) — same compositor wall as ADR-0024.
+- **Decision:** do NOT implement the substrate (zero coverage for a
+  stateful multi-hundred-LoC D-Bus reader). Menu-source ladder unchanged:
+  AT-SPI → desktop-fallback → empty. Revisit only if apps Pedro runs start
+  exporting a menubar model AND it is path-discoverable (XWayland via
+  `xprop`, or a future niri protocol).
+- **Files:** `docs/adr/ADR-0032-gtk-menus-not-viable-on-niri.md`,
+  `docs/adr/README.md` index. Docs only — no code, ladder unchanged.
+- **Tests:** n/a (no code). Reproduce via the `busctl` scan in the ADR.
+- **Review:** internal — the decision is evidence-backed + reproducible;
+  no code surface to attack.
+- **Follow-up:** remaining rungs are item 6 (Noctalia provenance styling —
+  QML, hard to verify without a live shell) and the runner-chown durable
+  infra fix (job hook / docker `--user`; ~NixOS scope). The Rust/bridge
+  substrate work is now feature-complete for niri's reality.
+
+---
+
 ## 2026-05-29 — Window submenu enrichment (PR #164)
 
 - **Branch:** `164-niri-window-actions` (PR #164). Ladder item 5.
