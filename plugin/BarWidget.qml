@@ -489,10 +489,36 @@ Item {
     // dead-zones above and below where MouseArea wouldn't fire. Pedro
     // hovered "File" but the click silently dropped because the cursor
     // landed in the dead-zone above the rectangle.
+    // PR #172 — ONE grouping capsule wraps the whole menu strip. The
+    // app-menu is a single bar widget, so it gets a single noctalia
+    // capsule (like the ActiveWindow widget) rather than N per-item
+    // pills — which looked busy and dark-on-dark for real multi-item
+    // menus (File/View/Playback/Help…). Subtle `capsuleColor` group pill
+    // (matches Clock / the other bar widgets); the ACTIVE item gets the
+    // bright `mHover` cyan highlight INSET inside it (readable,
+    // macOS-menubar feel). Drawn at `capsuleHeight`, vertically centred;
+    // the strip itself still fills bar height so the click area has no
+    // dead-zone. All shell tokens `!== undefined`-guarded.
+    Rectangle {
+        id: menuCapsule
+        visible: strip.visible
+        anchors.left: parent.left
+        anchors.leftMargin: Style.marginS
+        anchors.verticalCenter: parent.verticalCenter
+        width: strip.implicitWidth + Style.marginS * 2
+        height: Style.capsuleHeight !== undefined
+            ? Style.capsuleHeight
+            : (Style.barHeight - Style.marginS * 2)
+        radius: Style.radiusM !== undefined ? Style.radiusM : (height / 2)
+        color: Style.capsuleColor !== undefined ? Style.capsuleColor : Color.mSurfaceVariant
+        border.color: Style.capsuleBorderColor !== undefined ? Style.capsuleBorderColor : "transparent"
+        border.width: Style.capsuleBorderWidth !== undefined ? Style.capsuleBorderWidth : 0
+    }
+
     Row {
         id: strip
         visible: root.topLevel.length > 0
-        anchors.left: parent.left
+        anchors.left: menuCapsule.left
         anchors.leftMargin: Style.marginS
         anchors.top: parent.top
         anchors.bottom: parent.bottom
@@ -541,29 +567,27 @@ Item {
                 height: strip.height
                 implicitWidth: btnLabel.implicitWidth + Style.marginM * 2
 
-                // PR #170 — each top-level item is now a PERSISTENT
-                // noctalia capsule (not bare text). The capsule chrome
-                // matches every other bar widget: `Style.capsuleColor`
-                // background + `Style.capsuleBorder*`, at rest; flips to
-                // the shell's `Color.mHover` cyan when hovered/open. This
-                // is the v1.0.27 highlight Rectangle with a non-transparent
-                // resting fill, so the menu reads as bar pills (like the
-                // workspace pills / Clock) instead of foreign naked text.
+                // PR #172 — per-item highlight is now an INSET selected
+                // segment WITHIN the grouping capsule: transparent at
+                // rest (the item is bare text on the group pill), and the
+                // shell's bright `Color.mHover` cyan when hovered/open.
+                // Inset by `marginXS` on the height + a smaller `radiusS`
+                // so it nests visibly inside the outer `menuCapsule`
+                // rather than covering it — the macOS-menubar
+                // "highlighted item" look. No per-item border (the group
+                // capsule owns the chrome).
                 Rectangle {
                     id: highlight
                     anchors.centerIn: parent
                     width: parent.width
-                    height: Style.capsuleHeight !== undefined
+                    height: (Style.capsuleHeight !== undefined
                         ? Style.capsuleHeight
-                        : (Style.barHeight - Style.marginS * 2)
-                    radius: Style.radiusM !== undefined ? Style.radiusM : (height / 2)
+                        : (Style.barHeight - Style.marginS * 2))
+                        - (Style.marginXS !== undefined ? Style.marginXS * 2 : 8)
+                    radius: Style.radiusS !== undefined ? Style.radiusS : (height / 2)
                     color: btn.active && btn.isEnabled
                         ? (Color.mHover !== undefined ? Color.mHover : Color.mSurfaceVariant)
-                        : (Style.capsuleColor !== undefined ? Style.capsuleColor : Color.mSurfaceVariant)
-                    border.color: btn.active
-                        ? "transparent"
-                        : (Style.capsuleBorderColor !== undefined ? Style.capsuleBorderColor : "transparent")
-                    border.width: Style.capsuleBorderWidth !== undefined ? Style.capsuleBorderWidth : 0
+                        : "transparent"
                     Behavior on color {
                         ColorAnimation {
                             duration: Style.animationFast !== undefined ? Style.animationFast : 150
