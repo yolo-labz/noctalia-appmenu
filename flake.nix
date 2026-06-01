@@ -35,7 +35,19 @@
 
         craneLib = (inputs.crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-        bridgeSrc = craneLib.cleanCargoSource ./bridge;
+        # Keep insta `.snap` golden fixtures (bridge/tests/snapshots/*.snap)
+        # in the build source. `cleanCargoSource` keeps only the Cargo/.rs
+        # set and strips `.snap`, which makes the headless snapshot tests
+        # (bridge/tests/atspi_integration.rs) fail in the Nix sandbox with
+        # "no snapshot found" (all-`+` diff). `filterCargoSources` is the
+        # filter `cleanCargoSource` wraps; the suffix clause re-adds goldens.
+        bridgeSrc = pkgs.lib.cleanSourceWith {
+          src = ./bridge;
+          name = "bridge-src";
+          filter = path: type:
+            (craneLib.filterCargoSources path type)
+            || (pkgs.lib.hasSuffix ".snap" path);
+        };
 
         # FR-018: single source-of-truth for the package version. Read
         # once from bridge/Cargo.toml; both bridge + plugin derivations

@@ -54,3 +54,4 @@
 - [ADR-0030 — Frame-scoped menu resolution](adr/ADR-0030-frame-scoped-menu-resolution.md)
 - [ADR-0031 — `.desktop` fallback menu](adr/ADR-0031-desktop-fallback.md)
 - [ADR-0032 — `org.gtk.Menus` not viable on niri](adr/ADR-0032-gtk-menus-not-viable-on-niri.md)
+- [ADR-0033 — Liveness-keyed caches self-heal](adr/ADR-0033-liveness-cache-self-heal.md)

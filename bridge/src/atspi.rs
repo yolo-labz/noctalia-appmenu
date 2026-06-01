@@ -130,9 +130,14 @@ const MAX_FIND_DEPTH: u32 = 8;
 /// The learned mechanism reproduces the list's protection from the
 /// *outcome* of the walk, not a name:
 ///   - A walk that returns no menubar *expensively* (≥ `EXPENSIVE_WALK`)
-///     is the not-on-bus case (terminals, xwayland). Re-walking
-///     re-freezes the bar, so the verdict is permanent for the life
-///     of the process.
+///     is the not-on-bus case (terminals, xwayland, or an app whose a11y
+///     is currently disabled). Re-walking re-freezes the bar, so the
+///     verdict is held for a long `EXPENSIVE_RECHECK_TTL` — but NOT
+///     permanently: an off-bus condition is recoverable (Firefox's
+///     `accessibility.force_disabled` 1→0, a late-starting AT, an
+///     a11y-bus restart), and a permanent verdict strands the app on the
+///     desktop fallback forever (issue #174). It also clears immediately
+///     when the a11y bus is observed restarting (`watch_a11y_status`).
 ///   - A walk that returns no menubar *cheaply* is the on-bus
 ///     no-`MENU_BAR` case (Chrome's hamburger menu, GTK4 popover-only
 ///     apps). Cheap to re-confirm, so the verdict expires after
@@ -157,8 +162,17 @@ mod learned_skip {
     const EXPENSIVE_WALK: Duration = Duration::from_millis(750);
 
     /// How long a *cheap* no-menubar verdict suppresses re-walks before
-    /// the next focus re-walks once and re-learns.
+    /// the next focus re-walks once and re-learns (on-bus app, lazily
+    /// built menu — GTK4 popover, Chrome hamburger).
     const RECHECK_TTL: Duration = Duration::from_secs(300);
+
+    /// How long an *expensive* (not-on-bus) verdict suppresses re-walks.
+    /// Long, because re-walking an off-bus app drains `FETCH_BUDGET` and
+    /// briefly stalls the bar — but FINITE, because off-bus is recoverable
+    /// (issue #174: a permanent verdict stranded Firefox on the desktop
+    /// fallback after its a11y was enabled, until a bridge restart). 30 min
+    /// bounds the worst-case re-stall to ~twice an hour per off-bus app.
+    const EXPENSIVE_RECHECK_TTL: Duration = Duration::from_secs(1800);
 
     struct Verdict {
         learned_at: Instant,
@@ -168,10 +182,23 @@ mod learned_skip {
     static SKIP: LazyLock<Mutex<HashMap<String, Verdict>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
+    /// Recheck cadence for a verdict by cost class. Pure fn so
+    /// [`skip_decision`] stays a trivial age compare and the boundary is
+    /// unit-testable without sleeping either TTL.
+    const fn ttl_for(expensive: bool) -> Duration {
+        if expensive {
+            EXPENSIVE_RECHECK_TTL
+        } else {
+            RECHECK_TTL
+        }
+    }
+
     /// Pure verdict-currency decision, split out so tests can probe the
-    /// TTL boundary without sleeping `RECHECK_TTL`.
+    /// TTL boundary without sleeping. A verdict is honoured only while it
+    /// is younger than its cost-class TTL — NEVER permanently (issue #174;
+    /// see the constitution's liveness-cache self-heal invariant).
     fn skip_decision(expensive: bool, age: Duration) -> bool {
-        expensive || age < RECHECK_TTL
+        age < ttl_for(expensive)
     }
 
     /// Pure cost classifier, split out for the same reason.
@@ -211,6 +238,16 @@ mod learned_skip {
         }
     }
 
+    /// Drop every *expensive* (not-on-bus) verdict. Called when the a11y
+    /// bus is observed restarting ([`watch_a11y_status`]): off-bus apps may
+    /// have re-registered, so their stale verdicts must not suppress the
+    /// next walk. Cheap verdicts keep their own short TTL.
+    pub fn clear_expensive() {
+        if let Ok(mut map) = SKIP.lock() {
+            map.retain(|_, v| !v.expensive);
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -223,10 +260,26 @@ mod learned_skip {
             assert!(!classify_expensive(Duration::from_millis(749)));
         }
 
+        // Serializes the tests that mutate the global SKIP map across the
+        // expensive class (clear_expensive is global), preventing flakes
+        // under cargo's parallel test runner.
+        static SKIP_GUARD: Mutex<()> = Mutex::new(());
+
         #[test]
-        fn expensive_verdict_never_expires() {
-            // Even a verdict aged far past the recheck window still skips.
-            assert!(skip_decision(true, Duration::from_secs(86_400)));
+        fn expensive_verdict_is_bounded_not_permanent() {
+            // Issue #174: an expensive verdict must self-heal, never strand.
+            assert!(skip_decision(true, Duration::from_secs(10)));
+            assert!(skip_decision(
+                true,
+                EXPENSIVE_RECHECK_TTL - Duration::from_secs(1)
+            ));
+            assert!(!skip_decision(true, EXPENSIVE_RECHECK_TTL));
+            assert!(!skip_decision(true, Duration::from_secs(86_400)));
+        }
+
+        #[test]
+        fn expensive_ttl_is_finite_and_outlives_cheap() {
+            assert!(ttl_for(true) > ttl_for(false));
         }
 
         #[test]
@@ -252,17 +305,36 @@ mod learned_skip {
 
         #[test]
         fn expensive_negative_skips_immediately() {
+            let _g = SKIP_GUARD.lock().unwrap();
             let app = "org.test.expensive-app";
             record_negative(app, Duration::from_millis(2400));
             assert!(should_skip(app));
             forget(app);
         }
+
+        #[test]
+        fn clear_expensive_drops_only_expensive_verdicts() {
+            let _g = SKIP_GUARD.lock().unwrap();
+            let cheap = "org.test.cheap-survives-clear";
+            let pricey = "org.test.expensive-cleared";
+            record_negative(cheap, Duration::from_millis(40));
+            record_negative(pricey, Duration::from_millis(2400));
+            assert!(should_skip(cheap));
+            assert!(should_skip(pricey));
+            clear_expensive();
+            assert!(should_skip(cheap), "cheap verdict survives clear_expensive");
+            assert!(
+                !should_skip(pricey),
+                "expensive verdict cleared (issue #174 self-heal)"
+            );
+            forget(cheap);
+        }
     }
 }
 
 pub use learned_skip::{
-    forget as forget_menubar, record_negative as record_negative_walk,
-    should_skip as should_skip_walk,
+    clear_expensive as clear_expensive_skips, forget as forget_menubar,
+    record_negative as record_negative_walk, should_skip as should_skip_walk,
 };
 
 /// v1.0.6 — TTL-bounded cache of AT-SPI menu walks. v1.0.25 widened
@@ -1348,9 +1420,11 @@ pub async fn watch_a11y_status(client: AtspiClient) -> Result<()> {
             Ok(true) => {}
             Ok(false) => {
                 tracing::info!(
-                    "a11y IsEnabled observed false; re-enabling + invalidating AT-SPI cache"
+                    "a11y IsEnabled observed false; re-enabling, invalidating AT-SPI cache, \
+                     clearing expensive learned-skips (off-bus apps may re-register on restart)"
                 );
                 client.invalidate().await;
+                clear_expensive_skips();
                 if let Err(e) = enable_a11y().await {
                     tracing::warn!(error = ?e, "re-enable a11y after IsEnabled flip failed");
                 }
