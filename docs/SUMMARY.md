@@ -52,3 +52,5 @@
 - [ADR-0028 — FR-003 accelerator dispatch deferred](adr/ADR-0028-fr-003-accelerator-deferred.md)
 - [ADR-0029 — Learned no-menubar skip](adr/ADR-0029-learned-no-menubar-skip.md)
 - [ADR-0030 — Frame-scoped menu resolution](adr/ADR-0030-frame-scoped-menu-resolution.md)
+- [ADR-0031 — `.desktop` fallback menu](adr/ADR-0031-desktop-fallback.md)
+- [ADR-0032 — `org.gtk.Menus` not viable on niri](adr/ADR-0032-gtk-menus-not-viable-on-niri.md)

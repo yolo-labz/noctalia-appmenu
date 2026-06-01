@@ -112,6 +112,10 @@ This is the load-bearing rulebook for the project. Every PR's `plan.md` must inc
 - **AT-SPI menubar walker** is the v1 substrate ([ADR-0024](../../docs/adr/ADR-0024-atspi-substrate.md)). The bridge connects to the a11y bus via `org.a11y.Bus.GetAddress()`, walks `org.a11y.atspi.Registry` root children, PID-matches against niri's `WindowFocusChanged.pid`, and exports the walked menu tree at `org.noctalia.AppMenu /org/noctalia/AppMenu/Active`.
 - The pre-v1 `com.canonical.AppMenu.Registrar` / DBusMenu pipeline is preserved in [`docs/architecture/dbusmenu.md`](../../docs/architecture/dbusmenu.md) for historical context. The bridge no longer talks to the registrar daemon.
 
+### Liveness-keyed caches self-heal (invariant)
+
+Any cache or verdict keyed on **app/connection liveness** MUST self-heal: a finite TTL, or `forget()` on positive re-observation. **Never a permanent verdict on a recoverable condition** — an off-bus app (a terminal, an app with a11y disabled) can come on-bus at any time, and a permanent "skip" strands it forever (issue #174: Firefox stranded on the desktop fallback after its a11y was enabled, until a bridge restart). Split the staleness decision into a **pure function** so a regression test probes the boundary by passing an age, without sleeping the TTL — `learned_skip::{skip_decision, ttl_for, classify_expensive}` is the reference ([ADR-0033](../../docs/adr/ADR-0033-liveness-cache-self-heal.md)). This is the connected-but-dead class shared with the `wa` daemon.
+
 ### Versioning
 
 - Semantic Versioning 2.0.0.

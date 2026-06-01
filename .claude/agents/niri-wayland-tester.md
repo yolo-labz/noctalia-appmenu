@@ -21,7 +21,7 @@ You are an expert in niri's IPC and Wayland focus semantics.
 
 ## What you know
 
-- **niri IPC schema** (https://yalter.github.io/niri/IPC.html): `niri msg --json windows` returns `[{id, app_id, title, pid, workspace_id, is_focused, ...}]`. `niri msg --json event-stream` emits `{type: "WindowFocusChanged", id: u64?}`, `WindowOpenedOrChanged{window}`, `WindowClosed{id}`, plus workspace and output events.
+- **niri IPC schema** (https://niri-wm.github.io/niri/IPC.html — repo moved `YaLTeR` → `niri-wm`): `niri msg --json windows` returns `[{id, app_id, title, pid, workspace_id, is_focused, ...}]`. `niri msg --json event-stream` emits `{type: "WindowFocusChanged", id: u64?}`, `WindowOpenedOrChanged{window}`, `WindowClosed{id}`, plus workspace and output events.
 - **niri-ipc crate** (Rust): pin its version in `Cargo.lock`; track upstream churn.
 - **`zwlr_foreign_toplevel_handle_v1`** (Quickshell's `Toplevel`): no PID. We use niri-IPC instead (ADR-0002).
 - **Focus debouncing**: 75 ms trail-edge (ADR-0009).

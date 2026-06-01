@@ -32,6 +32,60 @@ If you do not understand the constraint above, **read `docs/adr/` from 0001 to 0
 9. **No introducing a second compositor's focus tracker before niri's is shipping in production.**
 10. **No `~` in Nix paths.** Use `config.home.homeDirectory` or `XDG_CONFIG_HOME` resolution.
 
+## Toolkit menu matrix (VERIFIED — re-confirm before you cite it)
+
+**Hard rule: before citing ANY toolkit's menu mechanism, confirm (a) the
+toolkit *version* and (b) by *runtime introspection on niri* — not the
+canonical spec.** A mechanism that exists upstream is often **inert** on niri
+(no global-menu host, no registrar, no `org_kde_kwin_appmenu_manager`).
+Firefox's menu path changed at **138** — citing the pre-138 story ships the
+wrong fix. Quote the interface you actually introspect (`busctl`,
+`gdbus introspect`, `Interface::introspect_to_writer`), never the XML the spec
+claims (this generalises the registrar persona's introspect-the-actual rule to
+*every* toolkit).
+
+| Toolkit | Upstream menu export | noctalia-appmenu path **on niri** |
+|---|---|---|
+| Qt6 (KDE apps, Anki, Okular, Kate) | AT-SPI `MENU_BAR`; DBusMenu only under a registrar | **AT-SPI** — works (`QT_ACCESSIBILITY=1`) |
+| GTK3 (+`appmenu-gtk-module`) | `org.gtk.Menus` (helloSystem's `gmenudbusmenuproxy` → `com.canonical.dbusmenu`) | AT-SPI if the a11y bridge is live; else **desktop fallback** |
+| GTK4 / libadwaita | popover-only; `GMenuModel` consumed in-window, never exported (ADR-0032) | **desktop fallback** — cheap-negative, self-heals |
+| libcosmic / Iced | none (no AT-SPI, no GMenu) — issue #157 | **desktop fallback** — expensive-negative |
+| **Firefox ≥ 138** | native **`com.canonical.dbusmenu`** (libdbusmenu, **not** GMenuModel). Opt-in: `widget.gtk.global-menu.enabled` + `…wayland.enabled` + `widget.gtk.native-context-menus` **all default `false`**; Wayland also needs `org_kde_kwin_appmenu_manager` + a registrar owner. **niri has none → no-op.** | **AT-SPI** via `accessibility.force_disabled = 0` — *all* FF versions on niri |
+| Firefox < 138 | no native global menu | **AT-SPI** via `accessibility.force_disabled = 0` |
+
+Verified 01/06/2026 against `mozilla-firefox/cedar` `widget/gtk/{NativeMenuGtk,DBusMenu}.cpp` + Bugzilla 1883184/1956707, and live on niri (FF 153 puts neither `org.gtk.Menus` nor `com.canonical.dbusmenu` on the bus; AT-SPI menubar present with `force_disabled=0`). **On niri the Firefox substrate is AT-SPI, not the native dbusmenu path** — see [ADR-0032](docs/adr/ADR-0032-gtk-menus-not-viable-on-niri.md) + [ADR-0024](docs/adr/ADR-0024-atspi-substrate.md). The FF≥138 native path matters only if the bridge ever hosts a registrar / `org_kde_kwin_appmenu_manager` — it does not (ADR-0024 retired the registrar).
+
+**Liveness self-heal (constitution invariant).** Any cache/verdict keyed on
+app/connection liveness MUST self-heal — a finite TTL or `forget()` on positive
+re-observation, **never** a permanent verdict on a *recoverable* condition (an
+off-bus app can come on-bus). Split the staleness decision into a pure function
+so a test probes the boundary without sleeping the TTL —
+`learned_skip::{skip_decision, ttl_for, classify_expensive}`
+([ADR-0033](docs/adr/ADR-0033-liveness-cache-self-heal.md), issue #174). Same
+connected-but-dead class as the `wa` daemon.
+
+**Testing the bridge: zbus has NO mock crate.** Do not burn a loop hunting one.
+Integrate against a **real session-bus peer** (`tools/fake-registrar` is the
+template — `docs/how-to/fake-registrar.md`), and snapshot at the **model layer**
+with `insta`, never the bus layer. `bridge/tests/atspi_integration.rs` is the
+pattern (golden `MenuItem` JSON + `org.noctalia.AppMenu` interface XML via
+`Interface::introspect_to_writer`, no bus).
+
+## Merge ownership (done = MERGED, not PR-opened)
+
+A green, review-clean, in-class PR is **yours to merge** — opening it is not
+"done". Self-merge when ALL hold: CI green (`gh pr checks <n>` — poll to green
+first; `--auto` is **not** enabled on yolo-labz repos), no unresolved review,
+and the change is **in-class**: code / docs / config, ≤ 1 service, revertible by
+a single PR. Merge with `gh pr merge <n> --squash --delete-branch`.
+
+**Escalate to Pedro ONLY for:** a prod deploy / `nixos-rebuild` / `nh os switch`;
+changes to `.github/workflows/**`, `CODEOWNERS`, or release tags; anything
+irreversible; blast-radius > 1 service; an action needing MFA / secret /
+hardware; or a required approval you cannot self-satisfy. **NEVER** `--admin`,
+`--no-verify`, or force-push to satisfy a gate — fix the gate. Stop parking
+"PR awaits your merge".
+
 ## Git workflow (the canonical recipe)
 
 ```bash
@@ -130,7 +184,7 @@ Do not duplicate sub-agent work in the parent context.
 |---|---|
 | Quickshell DBusMenu | https://quickshell.org/docs/v0.3.0/types/Quickshell.DBusMenu/ |
 | Quickshell Toplevel | https://quickshell.org/docs/v0.3.0/types/Quickshell.Wayland/ToplevelManager |
-| niri IPC | https://yalter.github.io/niri/IPC.html |
+| niri IPC | https://niri-wm.github.io/niri/IPC.html |
 | AppMenu.Registrar XML | https://github.com/KDE/plasma-workspace/blob/master/appmenu/com.canonical.AppMenu.Registrar.xml |
 | dbusmenu spec | https://github.com/AyatanaIndicators/libdbusmenu/blob/master/libdbusmenu-glib/dbus-menu.xml |
 | zbus | https://docs.rs/zbus/latest/zbus/ |

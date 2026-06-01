@@ -107,6 +107,36 @@ explicitly **not** scheduled.
   exported menubar later stay on the desktop fallback until the revisit
   conditions are met. Acceptable — the fallback is honest and useful.
 
+## Update (2026-06-01) — Firefox ≥ 138 native menu does NOT reopen this
+
+The original rationale (§Why, §Measurement) said Firefox "is not a
+GTK-menu-model app". That is now stale and is corrected here, **without
+changing the decision**. Verified against the Firefox source tree
+(`mozilla-firefox/cedar` `widget/gtk/NativeMenuGtk.cpp` + `DBusMenu.cpp`,
+Bugzilla 1883184 → `125 Branch`, 1956707 → `138 Branch`):
+
+- Firefox ≥ 138 ships a *native* global menu, but it exports
+  **`com.canonical.dbusmenu`** directly (built via `libdbusmenu-glib`) —
+  **not** `org.gtk.Menus` / `GMenuModel`. So it never touches the
+  `org.gtk.Menus` substrate this ADR rejected; the rejection stands.
+- It is **opt-in** — `widget.gtk.global-menu.enabled`,
+  `widget.gtk.global-menu.wayland.enabled`,
+  `widget.gtk.native-context-menus` all default **`false`** in every
+  version (138 only made the Wayland *path* functional, not default-on).
+- On Wayland it activates **only** with a compositor binding
+  `org_kde_kwin_appmenu_manager` **and** a `com.canonical.AppMenu.Registrar`
+  owner present. **niri provides neither** → the native path is a no-op;
+  Firefox advertises nothing on the session bus (confirmed live, FF 153).
+- helloSystem's `gmenudbusmenuproxy` translates the GTK-*module*
+  `org.gtk.Menus` export (generic GTK apps / LibreOffice) → dbusmenu;
+  Firefox's *own* native path bypasses it and speaks dbusmenu directly.
+
+**Net:** on niri, Firefox's menu substrate remains **AT-SPI**
+(`accessibility.force_disabled = 0`, ADR-0024) at every version. The
+revisit conditions (§Revisit) are unchanged — and would point at a future
+**dbusmenu/registrar** reader (which ADR-0024 retired), not an
+`org.gtk.Menus` reader. See the verified per-toolkit matrix in `CLAUDE.md`.
+
 ## References
 
 - ADR-0024 — AT-SPI substrate (the original measure-first pivot)
