@@ -51,13 +51,7 @@
 - [ADR-0027 — Drop osConfig from HM module](adr/ADR-0027-no-osconfig-in-hm-module.md)
 - [ADR-0028 — FR-003 accelerator dispatch deferred](adr/ADR-0028-fr-003-accelerator-deferred.md)
 - [ADR-0029 — Learned no-menubar skip](adr/ADR-0029-learned-no-menubar-skip.md)
-- [ADR-0030 — Frame-scoped menu resolution](adr/ADR-0030-frame-scoped-menu-resolution.md)<<<<<<< ours
-- [ADR-0031 — `.desktop` fallback menu](adr/ADR-0031-desktop-fallback.md)
-- [ADR-0032 — `org.gtk.Menus` not viable on niri](adr/ADR-0032-gtk-menus-not-viable-on-niri.md)
-||||||| original
-
-=======
+- [ADR-0030 — Frame-scoped menu resolution](adr/ADR-0030-frame-scoped-menu-resolution.md)
 - [ADR-0031 — `.desktop` fallback menu](adr/ADR-0031-desktop-fallback.md)
 - [ADR-0032 — `org.gtk.Menus` not viable on niri](adr/ADR-0032-gtk-menus-not-viable-on-niri.md)
 - [ADR-0033 — Liveness-keyed caches self-heal](adr/ADR-0033-liveness-cache-self-heal.md)
->>>>>>> theirs
