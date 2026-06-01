@@ -5,7 +5,7 @@
 //!    `active.json` — a Firefox-shaped menubar tree. Guards the wire
 //!    shape (serde field names, the `type` rename, `#[serde(default)]`
 //!    fields) the QML widget parses. Drift = the plugin silently
-//!    mis-renders; CI fails first.
+//!    misrenders; CI fails first.
 //! 2. The `org.noctalia.AppMenu.Active` D-Bus interface XML — the
 //!    bridge↔plugin IPC contract. Drift without an ADR is exactly drift
 //!    triggers G/I (a deploy whose surface changed under the plugin).
