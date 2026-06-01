@@ -47,6 +47,12 @@ divan = "0.1"
 # Always compiled in dev to keep the configuration simple — Cargo
 # does not allow `optional = true` on dev-deps.
 iai-callgrind = "0.16"
+# insta: headless golden snapshots (the serialized MenuItem model + the
+# org.noctalia.AppMenu interface XML). `json` feature reuses serde_json
+# (already a runtime dep). Per the repo rule, mock at the MODEL layer with
+# insta — zbus ships no mock crate; the live-bus path is the `just
+# integration` lane.
+insta = { version = "1", features = ["json"] }
 
 [[bench]]
 name = "hotpath"

@@ -1,0 +1,122 @@
+---
+source: tests/atspi_integration.rs
+expression: menu
+---
+{
+  "id": 0,
+  "label": "Application",
+  "type": "submenu",
+  "enabled": true,
+  "visible": true,
+  "icon_name": "",
+  "toggle_type": "",
+  "toggle_state": 0,
+  "service": ":1.84",
+  "path": "/org/a11y/atspi/accessible/root",
+  "children": [
+    {
+      "id": 1,
+      "label": "File",
+      "type": "submenu",
+      "enabled": true,
+      "visible": true,
+      "icon_name": "",
+      "toggle_type": "",
+      "toggle_state": 0,
+      "service": ":1.84",
+      "path": "/org/a11y/atspi/accessible/101",
+      "children": []
+    },
+    {
+      "id": 2,
+      "label": "Edit",
+      "type": "submenu",
+      "enabled": true,
+      "visible": true,
+      "icon_name": "",
+      "toggle_type": "",
+      "toggle_state": 0,
+      "service": ":1.84",
+      "path": "/org/a11y/atspi/accessible/102",
+      "children": []
+    },
+    {
+      "id": 3,
+      "label": "View",
+      "type": "submenu",
+      "enabled": true,
+      "visible": true,
+      "icon_name": "",
+      "toggle_type": "",
+      "toggle_state": 0,
+      "service": ":1.84",
+      "path": "/org/a11y/atspi/accessible/103",
+      "children": []
+    },
+    {
+      "id": 4,
+      "label": "History",
+      "type": "submenu",
+      "enabled": true,
+      "visible": true,
+      "icon_name": "",
+      "toggle_type": "",
+      "toggle_state": 0,
+      "service": ":1.84",
+      "path": "/org/a11y/atspi/accessible/104",
+      "children": []
+    },
+    {
+      "id": 5,
+      "label": "Bookmarks",
+      "type": "submenu",
+      "enabled": true,
+      "visible": true,
+      "icon_name": "",
+      "toggle_type": "",
+      "toggle_state": 0,
+      "service": ":1.84",
+      "path": "/org/a11y/atspi/accessible/105",
+      "children": []
+    },
+    {
+      "id": 6,
+      "label": "Profiles",
+      "type": "submenu",
+      "enabled": true,
+      "visible": true,
+      "icon_name": "",
+      "toggle_type": "",
+      "toggle_state": 0,
+      "service": ":1.84",
+      "path": "/org/a11y/atspi/accessible/106",
+      "children": []
+    },
+    {
+      "id": 7,
+      "label": "Tools",
+      "type": "submenu",
+      "enabled": true,
+      "visible": true,
+      "icon_name": "",
+      "toggle_type": "",
+      "toggle_state": 0,
+      "service": ":1.84",
+      "path": "/org/a11y/atspi/accessible/107",
+      "children": []
+    },
+    {
+      "id": 8,
+      "label": "Help",
+      "type": "submenu",
+      "enabled": true,
+      "visible": true,
+      "icon_name": "",
+      "toggle_type": "",
+      "toggle_state": 0,
+      "service": ":1.84",
+      "path": "/org/a11y/atspi/accessible/108",
+      "children": []
+    }
+  ]
+}

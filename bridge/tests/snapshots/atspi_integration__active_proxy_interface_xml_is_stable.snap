@@ -1,0 +1,20 @@
+---
+source: tests/atspi_integration.rs
+expression: xml
+---
+<interface name="org.noctalia.AppMenu.Active">
+  <!--
+   FR-007 refresh trigger. The `atspi-click` CLI invokes this
+   after `do_action` returns `MenuError::Stale` so the bridge
+   re-walks the focused app's AT-SPI tree before the QML widget
+   re-renders. Idempotent and best-effort: a notification is
+   coalesced with any concurrent one (`tokio::Notify::notify_one`
+   semantics), so a click storm cannot pile up walks.
+   -->
+  <method name="RefreshActive">
+  </method>
+  <property name="AppId" type="s" access="read"/>
+  <property name="BusName" type="s" access="read"/>
+  <property name="ObjectPath" type="s" access="read"/>
+  <property name="Title" type="s" access="read"/>
+</interface>

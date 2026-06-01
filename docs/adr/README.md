@@ -38,6 +38,7 @@ Each ADR captures a decision with its **reason** — the part not derivable from
 | [0030](ADR-0030-frame-scoped-menu-resolution.md) | Frame-scoped menu resolution by focused-window title | Accepted |
 | [0031](ADR-0031-desktop-fallback.md) | `.desktop` fallback menu for apps without an AT-SPI menubar | Accepted (supersedes honest-or-hidden Empty) |
 | [0032](ADR-0032-gtk-menus-not-viable-on-niri.md) | `org.gtk.Menus` is not a viable menu substrate on niri (measured) | Accepted (closes the gtk.Menus ladder item) |
+| [0033](ADR-0033-liveness-cache-self-heal.md) | Liveness-keyed caches must self-heal (no permanent verdict on a recoverable condition) | Accepted (fixes #174) |
 
 ## Format
 
