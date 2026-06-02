@@ -1561,6 +1561,83 @@ pub async fn do_action(service: &str, path: &str) -> Result<()> {
     Ok(())
 }
 
+/// Realization settle: how long to wait after `DoAction(0)`-expanding a
+/// lazily-built menu before walking its now-realized children. Firefox
+/// (and GTK) populate submenu items asynchronously when the menu opens;
+/// 150 ms is comfortably above the observed realize latency (~tens of ms,
+/// measured live on niri) while keeping the on-click flash brief.
+/// ADR-0034.
+const EXPAND_REALIZE_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// Expand-on-demand for lazily-realized menus (ADR-0034). Firefox and GTK
+/// expose a top-level menu (File/Edit/…) over AT-SPI with **zero
+/// children** until it is actually opened, so a passive walk sees an
+/// empty submenu and the plugin renders nothing ("click does nothing").
+/// This fires the menu's `"click"` action to expand it, walks the
+/// now-realized subtree, then fires `"click"` again to collapse it.
+///
+/// Verified live (2026-06-02, Firefox 153 on niri): `File` goes 0 → 17
+/// children on expand, and the realized children **and their object
+/// paths persist after collapse** — so the returned tree's leaves stay
+/// click-safe (a later `do_action` on a leaf resolves), and the expand is
+/// effectively one-time per menu.
+///
+/// Mirrors [`do_action`]'s stale probe: a `GetRole` round-trip first, so a
+/// torn-down path surfaces [`MenuError::Stale`] (exit-2 in the subcommand)
+/// instead of an untyped D-Bus error.
+pub async fn expand_and_fetch(service: &str, path: &str) -> Result<MenuItem> {
+    if service == SYNTHETIC_SERVICE {
+        anyhow::bail!("synthetic node {path} has no lazy subtree to expand");
+    }
+    let a11y = connect_a11y().await?;
+    let proxy_path: ObjectPath<'_> = path
+        .try_into()
+        .with_context(|| format!("parsing AT-SPI path {path}"))?;
+
+    let accessible = AccessibleProxy::builder(&a11y)
+        .destination(service.to_owned())?
+        .path(proxy_path.clone())?
+        .cache_properties(zbus::CacheProperties::No)
+        .build()
+        .await
+        .context("re-fetching accessible before expand")?;
+    if accessible.get_role().await.is_err() {
+        return Err(MenuError::Stale {
+            service: service.to_string(),
+            path: path.to_string(),
+        }
+        .into());
+    }
+
+    let action = ActionProxy::builder(&a11y)
+        .destination(service.to_owned())?
+        .path(proxy_path.clone())?
+        .build()
+        .await
+        .context("building Action proxy for expand")?;
+
+    // Expand to realize the lazy children. A `false` return just means
+    // "not separately actionable" — keep going and walk it anyway (it may
+    // already be populated); don't hard-fail.
+    let _ = action.do_action(0).await.context("DoAction(0) expand")?;
+    tokio::time::sleep(EXPAND_REALIZE_DELAY).await;
+
+    let tree = fetch_menu_tree(&a11y, service, &proxy_path, 0)
+        .await
+        .context("walking expanded menu subtree")?;
+
+    // Collapse (best-effort). The "click" action toggles, so this closes
+    // the menu we just opened; realized children persist regardless
+    // (verified), so the returned tree stays click-safe. Only toggle when
+    // the walk actually saw children — an empty walk may mean the menu
+    // already auto-closed, and a second toggle would re-open it.
+    if !tree.children.is_empty() {
+        let _ = action.do_action(0).await;
+    }
+
+    Ok(tree)
+}
+
 /// Sentinel `service` value that the bridge writes for synthetic
 /// menu items. The QML widget passes this back unchanged on click;
 /// `do_action` recognises it and dispatches to a non-AT-SPI handler.

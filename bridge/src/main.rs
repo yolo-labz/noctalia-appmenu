@@ -72,6 +72,29 @@ enum Cmd {
         #[arg(long, default_value_t = 150)]
         focus_settle_ms: u64,
     },
+    /// Expand-on-demand for lazily-realized menus (ADR-0034). Firefox/GTK
+    /// expose a top-level menu's items over AT-SPI only once the menu is
+    /// opened, so a passive walk sees zero children. This
+    /// `DoAction(0)`-expands the accessible at `(service, path)`, walks
+    /// the now-realized subtree, collapses it again, and prints the walked
+    /// node's `children` as a JSON array to stdout. The QML widget spawns
+    /// this for an empty top-level and renders the returned children in
+    /// its popup. Same stale handling as `atspi-click` (exit 2 +
+    /// `MenuError::Stale` on stderr).
+    AtspiExpand {
+        /// AT-SPI bus name of the menu node to expand.
+        service: String,
+        /// AT-SPI object path of the menu node to expand.
+        path: String,
+        /// niri window id to focus before expanding (same rationale as
+        /// `atspi-click --winid`: the menu must realize in the right
+        /// Firefox window). 0 = no pre-focus.
+        #[arg(long, default_value_t = 0)]
+        winid: u64,
+        /// Settle ms after the focus IPC before expanding.
+        #[arg(long, default_value_t = 150)]
+        focus_settle_ms: u64,
+    },
 }
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
@@ -98,6 +121,16 @@ async fn main() -> Result<()> {
     }) = cli.cmd.as_ref()
     {
         return run_atspi_click(service, path, *winid, *focus_settle_ms).await;
+    }
+
+    if let Some(Cmd::AtspiExpand {
+        service,
+        path,
+        winid,
+        focus_settle_ms,
+    }) = cli.cmd.as_ref()
+    {
+        return run_atspi_expand(service, path, *winid, *focus_settle_ms).await;
     }
 
     init_tracing(cli.foreground);
@@ -249,6 +282,60 @@ async fn run_atspi_click(
                     // the exit-2 still tells the widget to give up
                     // on this click; the next focus event will
                     // naturally refresh the menu tree.
+                    eprintln!(
+                        "warning: RefreshActive signal failed: {e:#}; bridge will refresh on next focus event"
+                    );
+                }
+                eprintln!("{stale}");
+                std::process::exit(2);
+            }
+            Err(err)
+        }
+    }
+}
+
+/// CLI `atspi-expand` subcommand (ADR-0034): expand a lazily-realized
+/// menu node, walk its now-realized subtree, collapse it, and print the
+/// realized children as a JSON array to stdout for the QML widget to
+/// render. Pre-focuses the captured niri window first (same reason as
+/// [`run_atspi_click`]). On a stale path: signal the daemon to refresh
+/// and exit 2 (the widget then falls back), mirroring the click path.
+async fn run_atspi_expand(
+    service: &str,
+    path: &str,
+    winid: u64,
+    focus_settle_ms: u64,
+) -> Result<()> {
+    let mut niri_focus_result = "skipped";
+    if winid > 0 {
+        match niri_focus_window(winid).await {
+            Ok(()) => {
+                niri_focus_result = "ok";
+                tokio::time::sleep(std::time::Duration::from_millis(focus_settle_ms)).await;
+            }
+            Err(e) => {
+                niri_focus_result = "err";
+                eprintln!(
+                    "warning: niri focus-window {winid} failed: {e:#}; continuing with expand"
+                );
+            }
+        }
+    }
+
+    eprintln!(
+        "[appmenu] atspi-expand service={service} path={path} winid={winid} settle_ms={focus_settle_ms} niri_focus={niri_focus_result}"
+    );
+
+    match atspi::expand_and_fetch(service, path).await {
+        Ok(tree) => {
+            // Emit the realized children (not the wrapper node) so the
+            // widget can drop them straight into the popup model.
+            println!("{}", serde_json::to_string(&tree.children)?);
+            Ok(())
+        }
+        Err(err) => {
+            if let Some(stale) = err.downcast_ref::<atspi::MenuError>() {
+                if let Err(e) = signal_refresh_active().await {
                     eprintln!(
                         "warning: RefreshActive signal failed: {e:#}; bridge will refresh on next focus event"
                     );
