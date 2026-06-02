@@ -1432,9 +1432,16 @@ pub async fn watch_a11y_status(client: AtspiClient) -> Result<()> {
             Err(e) => {
                 tracing::debug!(
                     error = ?e,
-                    "a11y IsEnabled probe failed (bus restart in flight?); invalidating cache"
+                    "a11y IsEnabled probe failed (bus restart in flight?); invalidating cache \
+                     + clearing expensive learned-skips (apps re-register after the restart)"
                 );
                 client.invalidate().await;
+                // A probe failure is the actual a11y-bus-restart signal
+                // (an IsEnabled poll that errors, not one that returns
+                // false). Clear here too, else an off-bus app that
+                // re-registers on restart stays skipped until the
+                // EXPENSIVE_RECHECK_TTL backstop (ADR-0033).
+                clear_expensive_skips();
             }
         }
     }

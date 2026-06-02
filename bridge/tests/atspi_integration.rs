@@ -41,9 +41,12 @@ fn top_menu(id: i32, label: &str) -> MenuItem {
 /// (root "Application" → File/Edit/View/History/Bookmarks/Profiles/
 /// Tools/Help — the exact shape verified live on niri at v1.0.29). This
 /// is the JSON the bridge writes into `active.json` and the QML plugin
-/// parses. If serde output drifts — a renamed field, a dropped
-/// `#[serde(default)]`, the `type` rename lost — the snapshot fails and
-/// the change must be intentional and reviewed before it can ship.
+/// parses. It pins what the *serialiser* emits: the field set, their
+/// order, and the `item_type` → `type` rename. (It cannot exercise the
+/// `#[serde(default)]` attributes — `MenuItem` derives `Serialize` but
+/// not `Deserialize`, and serialisation never applies a default; those
+/// attrs are wire-compat hints for the QML reader, not the bridge.) A
+/// renamed or dropped field flips this snapshot and must be reviewed.
 #[test]
 fn firefox_menubar_serializes_to_stable_json() {
     let labels = [

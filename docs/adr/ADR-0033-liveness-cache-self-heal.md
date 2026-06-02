@@ -60,9 +60,14 @@ unit-tested at the boundary.
   ~twice-an-hour re-stall per genuinely-off-bus app (a terminal), which is
   acceptable; the previous permanent verdict was not.
 - Additional positive-re-observation vector: `clear_expensive()` drops all
-  expensive verdicts when the a11y bus is observed restarting
-  (`watch_a11y_status` `IsEnabled` flip), so a bus restart self-heals
-  immediately rather than waiting out the TTL.
+  expensive verdicts when the a11y bus is observed restarting in
+  `watch_a11y_status` — on **both** an `IsEnabled` poll returning `false`
+  (a11y toggled off then back) **and** an `IsEnabled` probe that *errors*
+  (the actual bus-restart signal: the bus is unreachable, not merely
+  reporting `false`). Either way a bus restart self-heals immediately
+  rather than waiting out the TTL. (v1.0.31: the probe-error path was
+  added after a pre-release review found it cleared only on the `false`
+  path, so a restart seen as `Err → Ok(true)` had stranded verdicts.)
 - The Firefox `force_disabled` flip case is invisible to the bridge (a
   Firefox-internal pref, no bus signal), so it self-heals via the TTL
   backstop (≤ 30 min) or an explicit bridge restart — both now documented
