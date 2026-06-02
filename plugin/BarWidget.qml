@@ -656,34 +656,39 @@ Item {
                             // a sibling window before clicking a leaf.
                             root._capturedWinid = root.focusWinid;
                             popup.openAt(btn, btn.modelData);
-                        } else if (root._isLikelyTopLevelGroup(btn.modelData)) {
-                            // v1.0.21 self-heal — a top-level entry that
-                            // claims zero children almost always means the
-                            // bridge raced an AT-SPI lazy-realisation window
-                            // (typically right after a cold-start focus or a
-                            // Firefox profile that just realised its
-                            // menubar). Pedro's image #5 — bar shows the
-                            // strip, popup never opens.
-                            //
-                            // Trigger a bridge RefreshActive + retry-open
-                            // after a short settle window. If the re-walk
-                            // also returns zero children, the second click
-                            // will hit the leaf-fallback branch below and
-                            // fire DoAction(0) on the bar item.
-                            // Spec 015 FR-005 ceiling — single-shot per
-                            // popup-open session. Existing retry already
-                            // in flight = drop the click silently.
+                        } else if (root._isLikelyTopLevelGroup(btn.modelData)
+                                   && btn.modelData.service
+                                   && btn.modelData.path
+                                   && btn.modelData.service !== "::synthetic") {
+                            // ADR-0034 — Firefox/GTK lazy-menu expand on
+                            // demand. A top-level that claims zero children
+                            // is a lazily-realised menu: Firefox/GTK only
+                            // populate items over AT-SPI once the menu is
+                            // actually opened, so the bridge's passive walk
+                            // (and the old RefreshActive re-walk) both saw
+                            // zero → "click does nothing". Spawn the bridge
+                            // `atspi-expand` subcommand: it DoAction-expands
+                            // the menu, walks the now-realised items,
+                            // collapses, and prints them as JSON. We open the
+                            // popup with those items — bar-anchored and
+                            // click-safe (realised paths persist, verified).
+                            // Single-shot per open: an in-flight expand drops
+                            // the duplicate click.
                             if (root._pendingRetryButton !== null) {
-                                console.log("[appmenu] retry already in flight — ignoring duplicate click:",
+                                console.log("[appmenu] expand already in flight — ignoring duplicate click:",
                                             btn.modelData.label);
                                 return;
                             }
-                            console.log("[appmenu] empty top-level — triggering RefreshActive retry:",
+                            console.log("[appmenu] empty top-level — atspi-expand:",
                                         btn.modelData.label);
                             root._pendingRetryButton = btn;
                             root._selfHealCount++;
-                            refreshActiveProcess.running = true;
-                            retryTimer.restart();
+                            const xcmd = [root.bridgeBin, "atspi-expand",
+                                          btn.modelData.service, btn.modelData.path];
+                            if (root.focusWinid > 0)
+                                xcmd.push("--winid", String(root.focusWinid));
+                            expandProcess.command = xcmd;
+                            expandProcess.running = true;
                         } else {
                             // Leaf at top level OR submenu the bridge
                             // could not walk (Firefox lazy AT-SPI realises
@@ -825,43 +830,49 @@ Item {
         return known.indexOf(label) !== -1;
     }
 
-    /// Send `org.noctalia.AppMenu.Active.RefreshActive` to the bridge
-    /// over D-Bus via `gdbus`. Bridge already exposes the method (see
-    /// bridge/src/proxy.rs:278) and re-walks the focused app's AT-SPI
-    /// tree on receipt. Idempotent; safe to call rapidly.
+    /// ADR-0034 — Firefox/GTK lazy-menu expand-on-demand. Spawned by the
+    /// top-level click handler for an empty group: the bridge
+    /// `atspi-expand` subcommand DoAction-expands the menu, walks the
+    /// now-realised items, collapses it, and prints them as a JSON array
+    /// on stdout. `StdioCollector` captures that; on finish we open the
+    /// popup with the realised children (bar-anchored, click-safe — the
+    /// realised paths persist). On empty / parse-failure we fall through
+    /// to a native `DoAction` so the click still does *something*.
     Process {
-        id: refreshActiveProcess
-        command: [
-            "gdbus", "call", "--session",
-            "--dest", "org.noctalia.AppMenu",
-            "--object-path", "/org/noctalia/AppMenu/Active",
-            "--method", "org.noctalia.AppMenu.Active.RefreshActive"
-        ]
-    }
-
-    /// Re-attempt opening the pending button's popup after the bridge
-    /// has had a moment to re-walk. 250 ms is generous — Firefox
-    /// menubar walks well under that in steady state per v1.0.8
-    /// parallel-walk telemetry.
-    Timer {
-        id: retryTimer
-        interval: 250
-        repeat: false
-        onTriggered: {
-            const btn = root._pendingRetryButton;
-            root._pendingRetryButton = null;
-            if (!btn || !btn.modelData) return;
-            const md = btn.modelData;
-            if (md.children && md.children.length > 0) {
-                console.log("[appmenu] RefreshActive retry succeeded:",
-                            md.label, "children:", md.children.length);
-                root._capturedWinid = root.focusWinid;
-                popup.openAt(btn, md);
-            } else {
-                console.log("[appmenu] RefreshActive retry STILL empty for:",
-                            md.label, "— falling through to native click");
-                if (popup.isOpen) popup.close();
-                root.fireClick(md);
+        id: expandProcess
+        // command set per-call in the top-level click handler.
+        stdout: StdioCollector {
+            id: expandCollector
+            onStreamFinished: {
+                const btn = root._pendingRetryButton;
+                root._pendingRetryButton = null;
+                if (!btn || !btn.modelData) return;
+                const md = btn.modelData;
+                let kids = [];
+                try {
+                    kids = JSON.parse(expandCollector.text || "[]");
+                } catch (e) {
+                    console.log("[appmenu] atspi-expand JSON parse failed:", e);
+                }
+                if (kids && kids.length > 0) {
+                    console.log("[appmenu] expand-on-demand realised",
+                                kids.length, "items for:", md.label);
+                    // Clone the node with realised children — `modelData`
+                    // from the active.json model is read-only.
+                    const realised = {
+                        id: md.id, label: md.label, type: md.type,
+                        enabled: md.enabled, visible: md.visible,
+                        icon_name: md.icon_name, service: md.service,
+                        path: md.path, children: kids
+                    };
+                    root._capturedWinid = root.focusWinid;
+                    popup.openAt(btn, realised);
+                } else {
+                    console.log("[appmenu] expand-on-demand empty for:",
+                                md.label, "— native click fallback");
+                    if (popup.isOpen) popup.close();
+                    root.fireClick(md);
+                }
             }
         }
     }
