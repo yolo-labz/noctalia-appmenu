@@ -31,5 +31,8 @@
   },
   "env": {
     "RUST_LOG": "noctalia_appmenu_bridge=debug,zbus=info"
+  },
+  "enabledPlugins": {
+    "claude-mac-chrome@claude-mac-chrome": false
   }
 }
