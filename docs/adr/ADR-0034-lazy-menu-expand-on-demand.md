@@ -95,3 +95,38 @@ empty top-levels (it was passive and could not realize lazy children).
 - Plugin: `qmllint` clean; `StdioCollector` is the API noctalia-shell
   itself uses.
 - End-to-end on the live desktop is gated behind the release Pedro runs.
+
+## Update (2026-06-03, v1.0.34) — flash is now first-click-per-menu, not every click
+
+Pedro reported on live 1.0.33: "as soon as I click File or some other
+option, the Firefox menu bar shows up then vanishes and our dropdown
+appears" — i.e. the flash on **every** click, not just the first.
+
+Cause: 1.0.33 returned the realized children to the popup but never told
+the daemon to re-walk, so `active.json` stayed at zero children for that
+top-level. The plugin's snapshot model therefore still saw an empty menu
+on the next click → it re-ran `atspi-expand` → re-flashed, every time.
+
+Fix (v1.0.34): `run_atspi_expand` now calls `signal_refresh_active()`
+after a successful expand. The realized children persist in the app's
+AT-SPI tree (the core finding above), so the daemon's re-walk picks them
+up and writes them into `active.json`. The plugin's next click on that
+menu sees `children > 0` and opens the popup **directly from the
+snapshot** — no `atspi-expand`, no flash. Net: the flash is now
+**first-click-per-menu per Firefox session**; after each menu has been
+opened once, the bar is flash-free.
+
+The remaining first-open flash is **intrinsic and was confirmed
+irreducible** (do not re-attempt the rejected paths below):
+
+- **Collapse-before-walk** (close the menu immediately, walk the persisted
+  children off-screen) — TESTED, fails. Realization needs the menu
+  *visibly open* long enough to populate; closing early aborts it
+  (View@40ms, History@70ms, Profiles@150ms all came back with 0 children;
+  only a full open-held expand reliably realizes, then persists).
+- **Non-visual realize** — there is no AT-SPI action other than `"click"`
+  (`NActions = 1`), and `"click"` opens the menu visibly. No invisible
+  realize exists.
+- **Eager pre-warm all menus on focus** — would flash all 8 menus every
+  time Firefox gains focus (constant), far worse than one flash on the
+  first click of a menu the user actually opens.

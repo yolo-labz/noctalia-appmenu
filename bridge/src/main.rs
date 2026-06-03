@@ -331,6 +331,18 @@ async fn run_atspi_expand(
             // Emit the realized children (not the wrapper node) so the
             // widget can drop them straight into the popup model.
             println!("{}", serde_json::to_string(&tree.children)?);
+            // ADR-0034: the realized children PERSIST in the app's AT-SPI
+            // tree after collapse. Signal the daemon to re-walk so they
+            // land in active.json — then subsequent clicks of this menu
+            // open directly from the snapshot (children > 0) with NO
+            // re-expand, so the Firefox-menu flash is first-click-per-menu
+            // only, not every click. Best-effort: a failure just means the
+            // next click re-expands (re-flashes), no correctness impact.
+            if let Err(e) = signal_refresh_active().await {
+                eprintln!(
+                    "warning: post-expand RefreshActive failed: {e:#}; next click of this menu will re-expand"
+                );
+            }
             Ok(())
         }
         Err(err) => {
