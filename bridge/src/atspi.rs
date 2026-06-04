@@ -147,7 +147,7 @@ const MAX_FIND_DEPTH: u32 = 8;
 ///
 /// Transient `Err` walks record nothing (not a "no menubar" signal).
 mod learned_skip {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
     use std::sync::{LazyLock, Mutex};
     use std::time::{Duration, Instant};
 
@@ -174,6 +174,17 @@ mod learned_skip {
     /// bounds the worst-case re-stall to ~twice an hour per off-bus app.
     const EXPENSIVE_RECHECK_TTL: Duration = Duration::from_secs(1800);
 
+    /// How long an *expensive* verdict suppresses re-walks for an app that
+    /// has resolved a real menubar before this process (`RESOLVED_ONCE`).
+    /// Short: a known-GUI app whose menu is momentarily missing is almost
+    /// always a cold-start a11y race (Firefox after a restart instantiates
+    /// its AT-SPI tree a beat late; the bridge focuses it in that window,
+    /// learns an expensive skip, and the menu "vanishes" until the TTL).
+    /// 30 s lets such an app recover fast once it re-registers, while a
+    /// terminal — which never resolved a menubar — keeps the long
+    /// `EXPENSIVE_RECHECK_TTL` and never re-stalls the bar.
+    const EXPENSIVE_RESOLVED_TTL: Duration = Duration::from_secs(30);
+
     struct Verdict {
         learned_at: Instant,
         expensive: bool,
@@ -182,23 +193,42 @@ mod learned_skip {
     static SKIP: LazyLock<Mutex<HashMap<String, Verdict>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
+    /// App-ids that have resolved a real menubar at least once this
+    /// process. Lets [`should_skip`] tell a known-GUI app whose menu is
+    /// temporarily missing (cold-start race) from a terminal that never
+    /// had one: the former recovers from an expensive skip in
+    /// `EXPENSIVE_RESOLVED_TTL`, the latter in `EXPENSIVE_RECHECK_TTL`.
+    static RESOLVED_ONCE: LazyLock<Mutex<HashSet<String>>> =
+        LazyLock::new(|| Mutex::new(HashSet::new()));
+
+    fn resolved_once(app_id: &str) -> bool {
+        RESOLVED_ONCE
+            .lock()
+            .map(|s| s.contains(app_id))
+            .unwrap_or(false)
+    }
+
     /// Recheck cadence for a verdict by cost class. Pure fn so
     /// [`skip_decision`] stays a trivial age compare and the boundary is
-    /// unit-testable without sleeping either TTL.
-    const fn ttl_for(expensive: bool) -> Duration {
-        if expensive {
-            EXPENSIVE_RECHECK_TTL
-        } else {
+    /// unit-testable without sleeping any TTL.
+    const fn ttl_for(expensive: bool, resolved_once: bool) -> Duration {
+        if !expensive {
             RECHECK_TTL
+        } else if resolved_once {
+            EXPENSIVE_RESOLVED_TTL
+        } else {
+            EXPENSIVE_RECHECK_TTL
         }
     }
 
     /// Pure verdict-currency decision, split out so tests can probe the
     /// TTL boundary without sleeping. A verdict is honoured only while it
     /// is younger than its cost-class TTL — NEVER permanently (issue #174;
-    /// see the constitution's liveness-cache self-heal invariant).
-    fn skip_decision(expensive: bool, age: Duration) -> bool {
-        age < ttl_for(expensive)
+    /// see the constitution's liveness-cache self-heal invariant). An app
+    /// that has resolved a menubar before uses the short
+    /// `EXPENSIVE_RESOLVED_TTL`, so a cold-start race self-heals in seconds.
+    fn skip_decision(expensive: bool, resolved_once: bool, age: Duration) -> bool {
+        age < ttl_for(expensive, resolved_once)
     }
 
     /// Pure cost classifier, split out for the same reason.
@@ -209,11 +239,30 @@ mod learned_skip {
     /// Tier-1 fast reject: has this `app_id` been learned to have no
     /// usable menubar, and is that verdict still current?
     pub fn should_skip(app_id: &str) -> bool {
+        let resolved = resolved_once(app_id);
         let Ok(map) = SKIP.lock() else {
             return false;
         };
-        map.get(app_id)
-            .is_some_and(|v| skip_decision(v.expensive, v.learned_at.elapsed()))
+        let Some(v) = map.get(app_id) else {
+            return false;
+        };
+        let age = v.learned_at.elapsed();
+        let skip = skip_decision(v.expensive, resolved, age);
+        if skip && resolved {
+            // A known-menubar app being skipped is the surprising case
+            // worth surfacing ("Firefox menu vanished"); terminals being
+            // skipped is normal and stays quiet. Logs which app + how long,
+            // so a recurrence is diagnosable from the journal.
+            tracing::info!(
+                app_id,
+                expensive = v.expensive,
+                age_s = age.as_secs(),
+                ttl_s = ttl_for(v.expensive, resolved).as_secs(),
+                "learned-skip honoured for a known-menubar app — serving \
+                 desktop fallback; self-heals at ttl (cold-start race?)"
+            );
+        }
+        skip
     }
 
     /// Record that a walk for `app_id` found no menubar. `walk` is the
@@ -231,10 +280,15 @@ mod learned_skip {
     }
 
     /// A walk found a real menubar for `app_id` — drop any verdict so
-    /// the app is never skipped again.
+    /// the app is never skipped again, and remember it as a known-menubar
+    /// app so a future cold-start expensive skip recovers in
+    /// `EXPENSIVE_RESOLVED_TTL` rather than the full terminal TTL.
     pub fn forget(app_id: &str) {
         if let Ok(mut map) = SKIP.lock() {
             map.remove(app_id);
+        }
+        if let Ok(mut set) = RESOLVED_ONCE.lock() {
+            set.insert(app_id.to_string());
         }
     }
 
@@ -267,26 +321,43 @@ mod learned_skip {
 
         #[test]
         fn expensive_verdict_is_bounded_not_permanent() {
-            // Issue #174: an expensive verdict must self-heal, never strand.
-            assert!(skip_decision(true, Duration::from_secs(10)));
+            // Issue #174: a never-resolved (terminal) expensive verdict must
+            // self-heal, never strand.
+            assert!(skip_decision(true, false, Duration::from_secs(10)));
             assert!(skip_decision(
                 true,
+                false,
                 EXPENSIVE_RECHECK_TTL - Duration::from_secs(1)
             ));
-            assert!(!skip_decision(true, EXPENSIVE_RECHECK_TTL));
-            assert!(!skip_decision(true, Duration::from_secs(86_400)));
+            assert!(!skip_decision(true, false, EXPENSIVE_RECHECK_TTL));
+            assert!(!skip_decision(true, false, Duration::from_secs(86_400)));
         }
 
         #[test]
         fn expensive_ttl_is_finite_and_outlives_cheap() {
-            assert!(ttl_for(true) > ttl_for(false));
+            assert!(ttl_for(true, false) > ttl_for(false, false));
+        }
+
+        #[test]
+        fn resolved_app_recovers_from_expensive_skip_fast() {
+            // A known-menubar app (Firefox after a restart) uses the short
+            // resolved TTL, so a cold-start expensive skip clears in seconds
+            // instead of the full terminal TTL.
+            assert!(ttl_for(true, true) < ttl_for(true, false));
+            assert_eq!(ttl_for(true, true), EXPENSIVE_RESOLVED_TTL);
+            assert!(skip_decision(true, true, Duration::from_secs(5)));
+            assert!(!skip_decision(true, true, EXPENSIVE_RESOLVED_TTL));
         }
 
         #[test]
         fn cheap_verdict_expires_after_ttl() {
-            assert!(skip_decision(false, Duration::from_secs(10)));
-            assert!(!skip_decision(false, RECHECK_TTL));
-            assert!(!skip_decision(false, RECHECK_TTL + Duration::from_secs(1)));
+            assert!(skip_decision(false, false, Duration::from_secs(10)));
+            assert!(!skip_decision(false, false, RECHECK_TTL));
+            assert!(!skip_decision(
+                false,
+                false,
+                RECHECK_TTL + Duration::from_secs(1)
+            ));
         }
 
         #[test]
