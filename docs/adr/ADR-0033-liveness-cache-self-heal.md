@@ -112,3 +112,28 @@ menu surface for Firefox on niri, at every version. This does **not** reopen
 ADR-0032's `org.gtk.Menus` rejection (Firefox's native path is dbusmenu, not
 GMenuModel, and is inert on niri regardless). It is recorded so a future
 agent does not "discover" the FF-138 prefs and wrongly swap the substrate.
+
+## Update (2026-06-04, v1.0.35) — resolved-once apps recover from expensive skips fast
+
+Pedro reported "Firefox menu bar vanished again" on live 1.0.33. Verified:
+Firefox was on the a11y bus with a full menubar, yet the bar served the
+desktop fallback; a bridge restart fixed it instantly — i.e. a stale
+**expensive `learned_skip`**. Mechanism: Firefox restarted (new day),
+its AT-SPI tree instantiated a beat late, the bridge focused it in that
+cold-start window (off-bus) and learned an *expensive* skip. The 30-min
+`EXPENSIVE_RECHECK_TTL` is the right protection for a *terminal* (never
+on bus) but far too slow for a *GUI app that merely cold-start-raced*.
+
+Refinement: a `RESOLVED_ONCE` set records every app-id that has ever
+resolved a real menubar (`forget` adds to it). An expensive verdict for
+such an app uses a short `EXPENSIVE_RESOLVED_TTL` (30 s) instead of the
+30-min terminal TTL, so Firefox recovers within seconds of re-registering
+— while terminals, which never resolved a menubar, keep the long TTL and
+never re-stall the bar. `ttl_for(expensive, resolved_once)` stays a pure,
+boundary-tested fn. `should_skip` also logs at INFO when it skips a
+*known-menubar* app (the surprising case), so a recurrence is diagnosable
+straight from the journal instead of needing a live AT-SPI walk.
+
+This keeps the invariant intact (no permanent verdict on a recoverable
+condition) and tightens the recovery latency for the class of app that
+actually regresses under it.
