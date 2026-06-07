@@ -39,7 +39,8 @@ Each ADR captures a decision with its **reason** — the part not derivable from
 | [0031](ADR-0031-desktop-fallback.md) | `.desktop` fallback menu for apps without an AT-SPI menubar | Accepted (supersedes honest-or-hidden Empty) |
 | [0032](ADR-0032-gtk-menus-not-viable-on-niri.md) | `org.gtk.Menus` is not a viable menu substrate on niri (measured) | Accepted (closes the gtk.Menus ladder item) |
 | [0033](ADR-0033-liveness-cache-self-heal.md) | Liveness-keyed caches must self-heal (no permanent verdict on a recoverable condition) | Accepted (fixes #174) |
-| [0034](ADR-0034-lazy-menu-expand-on-demand.md) | Expand-on-demand for lazily-realized menus (Firefox/GTK) | Accepted (closes FR-003/SC-003) |
+| [0034](ADR-0034-lazy-menu-expand-on-demand.md) | Expand-on-demand for lazily-realized menus (Firefox/GTK) | Superseded by 0035 (all-childless case) |
+| [0035](ADR-0035-lazy-reveal-locked-menubar-fallback.md) | Lazy/reveal-locked menubars serve the desktop fallback (Firefox on niri) | Accepted (supersedes 0034) |
 
 ## Format
 

@@ -28,8 +28,18 @@ of how correct the bridge's registrar implementation is.
 We considered three paths forward:
 
 1. **Wait for cross-compositor `org_kde_kwin_appmenu_manager` adoption.**
-   Open-ended, no upstream timeline. niri's maintainer has explicitly
-   declined adopting KWin-specific Wayland protocols.
+   Open-ended, no upstream timeline.
+
+   > **Correction (2026-06-06, ADR-0035):** the original text here claimed
+   > "niri's maintainer has explicitly declined adopting KWin-specific
+   > Wayland protocols." A 2026-06-06 research pass found **no such
+   > statement** — the maintainer has never commented on app-menu support
+   > at all, and the protocol is in fact ~150 LoC with a working niri fork
+   > implementation (Naxdy/niri PR #46) + a maintainer-approved quickshell
+   > PR #484. niri appmenu support is therefore **unknown, not declined**;
+   > the upstream path is open. This does not change the v1 substrate
+   > decision (AT-SPI shipped and works for Qt/KDE), but it reopens the
+   > clean-Firefox path as a real future option — see ADR-0035.
 2. **Fork Qt** to remove the gate. Untenable maintenance burden — Qt
    binary updates would require rebuilding the patched fork.
 3. **Switch substrate to AT-SPI.** AT-SPI is the cross-toolkit
