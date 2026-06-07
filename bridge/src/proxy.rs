@@ -111,6 +111,25 @@ impl MenuSource {
     }
 }
 
+/// A walked menubar is *lazy/reveal-locked* when it has top-level menus
+/// but every one of them is childless. Firefox (and GTK) only realise a
+/// menu's items over AT-SPI when the menu is **visibly opened**, and on
+/// niri that reveal cannot be undone — AT-SPI's only action is `"click"`,
+/// and Escape / Alt / focus-out / a second `DoAction` were all verified
+/// (2026-06-06) NOT to re-hide Firefox's revealed menubar. So expanding
+/// such a menu to read it pins a duplicate menubar on screen (the chaos
+/// reported across v1.0.33..v1.0.35). [ADR-0035] treats this as "no
+/// readable menu" → the honest desktop fallback, exactly like libcosmic
+/// (#157). A genuinely clean Firefox global menu needs niri to advertise
+/// `org_kde_kwin_appmenu_manager` (the niri-protocol path) — unreachable
+/// from the bridge alone.
+///
+/// Eagerly-populated menubars (Qt6 / KDE — Anki, Okular, Kate) have
+/// non-empty top-levels and are unaffected: they keep `source = "atspi"`.
+fn is_lazy_unreadable(menu: &atspi::MenuItem) -> bool {
+    !menu.children.is_empty() && menu.children.iter().all(|c| c.children.is_empty())
+}
+
 /// Build + write the active-snapshot JSON, with **producer-side
 /// dedup** — when the serialised payload is byte-identical to the
 /// previous successful write, skip both the file write and the IPC
@@ -512,11 +531,15 @@ pub async fn run(
         // own `.desktop` Exec/actions) — no faked keystrokes. Users who
         // still prefer blank-when-no-native-menu set
         // `desktop_fallback = false` in the bridge config.
+        // ADR-0035: drop a lazy/reveal-locked menubar (Firefox — all
+        // top-levels childless) so it falls through to the honest desktop
+        // fallback instead of pinning a duplicate menubar on every click.
+        let usable = menu.filter(|m| !is_lazy_unreadable(m));
         let (final_menu, final_source): (Option<atspi::MenuItem>, MenuSource) =
             if snapshot.focus_pid == 0 {
                 (None, MenuSource::Empty)
             } else {
-                match menu {
+                match usable {
                     Some(m) => (Some(m), MenuSource::Atspi),
                     None if cfg.desktop_fallback => {
                         match crate::desktop::fallback_menu(&snapshot.app_id) {
@@ -580,4 +603,77 @@ async fn publish_props(
     iface.app_id_changed(iface_ref.signal_context()).await?;
     iface.title_changed(iface_ref.signal_context()).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod lazy_unreadable_tests {
+    use super::is_lazy_unreadable;
+    use crate::atspi::MenuItem;
+
+    fn item(label: &str, children: Vec<MenuItem>) -> MenuItem {
+        MenuItem {
+            id: 0,
+            label: label.to_string(),
+            item_type: "submenu".to_string(),
+            enabled: true,
+            visible: true,
+            icon_name: String::new(),
+            toggle_type: String::new(),
+            toggle_state: 0,
+            service: ":1.0".to_string(),
+            path: "/x".to_string(),
+            children,
+        }
+    }
+
+    #[test]
+    fn firefox_all_childless_top_levels_is_lazy_unreadable() {
+        // Firefox: menu bar with File/Edit/View, every top-level childless
+        // until visibly opened → reveal-locked → must NOT be served.
+        let menu = item(
+            "Application",
+            vec![
+                item("File", vec![]),
+                item("Edit", vec![]),
+                item("View", vec![]),
+            ],
+        );
+        assert!(is_lazy_unreadable(&menu));
+    }
+
+    #[test]
+    fn eager_menubar_with_populated_top_levels_is_readable() {
+        // Qt6/KDE (Anki, Okular): top-levels already carry items.
+        let menu = item(
+            "Application",
+            vec![
+                item("File", vec![item("New", vec![]), item("Open", vec![])]),
+                item("Edit", vec![item("Copy", vec![])]),
+            ],
+        );
+        assert!(!is_lazy_unreadable(&menu));
+    }
+
+    #[test]
+    fn partially_lazy_menubar_is_readable() {
+        // Mixed: at least one top-level has items → not all-childless, so
+        // serve it (the populated menus work; empty ones fall to the
+        // plugin's per-menu handling). Only ALL-childless triggers fallback.
+        let menu = item(
+            "Application",
+            vec![
+                item("File", vec![item("New", vec![])]),
+                item("Help", vec![]),
+            ],
+        );
+        assert!(!is_lazy_unreadable(&menu));
+    }
+
+    #[test]
+    fn empty_menubar_no_top_levels_is_not_flagged() {
+        // No top-levels at all is the "no menu" case handled elsewhere
+        // (desktop fallback via the None branch), not lazy-unreadable.
+        let menu = item("Application", vec![]);
+        assert!(!is_lazy_unreadable(&menu));
+    }
 }
