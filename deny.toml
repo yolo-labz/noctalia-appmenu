@@ -26,6 +26,12 @@ ignore = [
   # by iai-callgrind 0.14.2 (benches/iai.rs). NOT in the production
   # release closure. Track upstream iai-callgrind for a v2 migration.
   "RUSTSEC-2025-0141",
+  # RUSTSEC-2026-0173 — proc-macro-error2 unmaintained (fork of the
+  # already-unmaintained proc-macro-error). Pulled in transitively as a
+  # dev-only dep by iai-callgrind-macros (benches/iai.rs). NOT in the
+  # production release closure. Track upstream iai-callgrind for a
+  # replacement, same as RUSTSEC-2025-0141 above.
+  "RUSTSEC-2026-0173",
 ]
 
 [licenses]
