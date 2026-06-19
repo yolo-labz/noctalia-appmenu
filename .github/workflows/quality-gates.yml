@@ -1,0 +1,45 @@
+# Fleet quality gates (code-slop + alignment) on the PR diff — the CI layer of the
+# Quality & Alignment Enforcement standard. Deterministic, runtime-LLM-free. The same
+# two gates run as Claude Code / opencode / Codex hooks + git pre-commit (NixOS #974);
+# this gates the diff server-side, independent of any host hook.
+#   - code-slop-gate (aislop + jscpd): swallowed exceptions, as-any, narrative comments,
+#     dead code, oversized functions, copy-paste.
+#   - alignment-gate (zero-dep): TODO/stub/NotImplemented in "done" code, skipped/.only
+#     tests, added lint-suppressions, debug artifacts, blast-radius.
+# Source: github.com/yolo-labz/quality-gates (composite action, SHA-pinned below).
+
+name: quality-gates
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  gates:
+    name: code-slop + alignment
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Harden runner
+        uses: step-security/harden-runner@f808768d1510423e83855289c910610ca9b43176 # v2.17.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0          # full history so the gates can diff the PR
+          persist-credentials: false
+
+      # wa PRs target main; the action diffs the PR against origin/main (its default).
+      - name: Quality gates on the PR diff
+        uses: yolo-labz/quality-gates@ee170b7ba5bcda421182196472b52f8a10dab332 # v1
+        with:
+          base-ref: origin/main
