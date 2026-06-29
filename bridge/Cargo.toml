@@ -39,7 +39,7 @@ niri-ipc = "26.4"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 
 [dev-dependencies]
-mockall = "0.14"
+mockall = "0.15"
 tokio-test = "0.4"
 tempfile = "3.27"
 divan = "0.1"
