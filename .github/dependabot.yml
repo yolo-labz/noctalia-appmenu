@@ -61,3 +61,13 @@ updates:
       # and re-breaks main. Re-evaluate quarterly.
       - dependency-name: "EmbarkStudios/cargo-deny-action"
         update-types: ["version-update:semver-patch", "version-update:semver-minor"]
+    # Group all minor/patch action bumps into ONE PR. Without this,
+    # Dependabot splits github/codeql-action/{init,analyze,upload-sarif}
+    # into separate PRs; the three subactions share one version, so
+    # merging one at a time skews CodeQL ("Loaded config for version X,
+    # running version Y") and breaks analysis on main. Majors stay
+    # separate for deliberate review.
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
