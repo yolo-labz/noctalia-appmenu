@@ -1,0 +1,5 @@
+ INFO Book building has started
+ INFO Running the html backend
+ WARN unclosed HTML tag `<commit-sha>` found in `adr/ADR-0025-cognitive-complexity-waiver.md` while exiting Item
+HTML tags must be closed before exiting a markdown element.
+ INFO HTML book written to `/var/tmp/pi-agent-1000/851d00a1499c15eb.3515945.239135207adb/book`

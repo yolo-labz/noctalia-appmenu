@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-227-popup-capture/docs/evidence/popup-capture-2026-09-21/capture-private.py", line 166, in <module>
+    main()
+    ~~~~^^
+  File "/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-227-popup-capture/docs/evidence/popup-capture-2026-09-21/capture-private.py", line 119, in main
+    assert active['source'] == 'atspi' and active['focus_pid'] == window['pid']
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError
+
+exit=1 (expected nonzero)

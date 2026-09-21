@@ -1,0 +1,11 @@
+Estimating resolution as 128
+Traceback (most recent call last):
+  File "/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-227-popup-capture/docs/evidence/popup-capture-2026-09-21/capture-private.py", line 166, in <module>
+    main()
+    ~~~~^^
+  File "/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-227-popup-capture/docs/evidence/popup-capture-2026-09-21/capture-private.py", line 140, in main
+    assert len(matches) == 1, f'visible topbar popup row missing: {label}: {lines}'
+           ^^^^^^^^^^^^^^^^^
+AssertionError: visible topbar popup row missing: About Okular: [('N i 4', 564, 56, 620, 66), ('elp', 374, 79, 392, 92), ('o »', 538, 110, 624, 120), ('X', 607, 139, 616, 148), ('|', 637, 280, 648, 294), ('uments <', 375, 301, 449, 313)]
+
+exit=1 (expected nonzero)
