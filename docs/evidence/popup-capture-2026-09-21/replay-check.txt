@@ -1,0 +1,4 @@
+Estimating resolution as 128
+okular PASS: real topbar -> visible row -> new same-PID About Okular
+Estimating resolution as 130
+dolphin PASS: real topbar -> visible row -> new same-PID About Dolphin

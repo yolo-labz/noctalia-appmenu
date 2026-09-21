@@ -1,0 +1,16 @@
+Traceback (most recent call last):
+  File "/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-227-popup-capture/docs/evidence/popup-capture-2026-09-21/capture-private.py", line 166, in <module>
+    main()
+    ~~~~^^
+  File "/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-227-popup-capture/docs/evidence/popup-capture-2026-09-21/capture-private.py", line 40, in main
+    assert b'/Xvfb\0-displayfd\0' in (proc / 'cmdline').read_bytes()
+                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/nix/store/rn276df5mc505wjiwha1fhl42fr5cx4l-python3-3.13.13-env/lib/python3.13/pathlib/_abc.py", line 625, in read_bytes
+    with self.open(mode='rb') as f:
+         ~~~~~~~~~^^^^^^^^^^^
+  File "/nix/store/rn276df5mc505wjiwha1fhl42fr5cx4l-python3-3.13.13-env/lib/python3.13/pathlib/_local.py", line 537, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/proc/3688290/cmdline'
+
+exit=1 (expected nonzero)

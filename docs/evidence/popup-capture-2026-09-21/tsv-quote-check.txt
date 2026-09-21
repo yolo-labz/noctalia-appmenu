@@ -1,0 +1,11 @@
+Estimating resolution as 129
+okular PASS: real topbar -> visible row -> new same-PID About Okular
+Estimating resolution as 130
+Traceback (most recent call last):
+  File "/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-227-popup-capture/docs/evidence/popup-capture-2026-09-21/capture-private.py", line 166, in <module>
+    main()
+    ~~~~^^
+  File "/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-227-popup-capture/docs/evidence/popup-capture-2026-09-21/capture-private.py", line 140, in main
+    assert len(matches) == 1, f'visible topbar popup row missing: {label}: {lines}'
+           ^^^^^^^^^^^^^^^^^
+AssertionError: visible topbar popup row missing: About Dolphin: [("y\n5\t1\t1\t1\t1\t2\t199\t43\t6\t6\t63.535004\t.\n4\t1\t1\t1\t2\t0\t73\t45\t380\t39\t-1\t\n5\t1\t1\t1\t2\t1\t73\t45\t162\t39\t90.732712\tDolphin\n5\t1\t1\t1\t2\t2\t265\t45\t188\t30\t92.513275\tHandbook\n4\t1\t1\t1\t3\t0\t70\t127\t285\t32\t-1\t\n5\t1\t1\t1\t3\t1\t70\t129\t141\t30\t92.479332\tWhat's\n5\t1\t1\t1\t3\t2\t240\t127\t115\t32\t92.533051\tThis?\n4\t1\t1\t1\t4\t0\t75\t211\t282\t32\t-1\t\n5\t1\t1\t1\t4\t1\t75\t211\t88\t32\t90.936287\tFind\n5\t1\t1\t1\t4\t2\t191\t211\t166\t32\t89.677559\tAction..\n4\t1\t1\t1\t5\t0\t73\t326\t260\t37\t-1\t\n5\t1\t1\t1\t5\t1\t73\t326\t138\t37\t91.980888\tReport\n5\t1\t1\t1\t5\t2\t241\t326\t92\t37\t78.415840\tBug..\n4\t1\t1\t1\t6\t0\t73\t437\t139\t28\t-1\t\n5\t1\t1\t1\t6\t1\t73\t437\t139\t28\t91.475548\tDonate\n4\t1\t1\t1\t7\t0\t71\t544\t308\t41\t-1\t\n5\t1\t1\t1\t7\t1\t71\t546\t116\t31\t88.210556\tAbout\n5\t1\t1\t1\t7\t2\t217\t544\t162\t41\t91.809097\tDolphin\n4\t1\t1\t1\t8\t0\t71\t630\t213\t31\t-1\t\n5\t1\t1\t1\t8\t1\t71\t630\t116\t31\t91.904724\tAbout\n5\t1\t1\t1\t8\t2\t218\t632\t66\t28\t89.998283\tKDE\n3\t1\t1\t2\t0\t0\t3\t807\t411\t36\t-1\t\n4\t1\t1\t2\t1\t0\t3\t807\t411\t36\t-1\t\n5\t1\t1\t2\t1\t1\t3\t809\t131\t34\t91.503693\tecent\n5\t1\t1\t2\t1\t2\t153\t807\t261\t36\t89.899132\tdocuments\n", 318, 32, 337, 44)]

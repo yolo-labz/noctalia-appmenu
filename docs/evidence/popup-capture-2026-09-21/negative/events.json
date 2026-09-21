@@ -1,0 +1,14 @@
+[
+  {
+    "seconds": 4.103,
+    "kind": "setup",
+    "note": "Dolphin Places hidden and menubar enabled before recording"
+  },
+  {
+    "seconds": 7.035,
+    "kind": "mouse-click",
+    "role": "okular topbar Help",
+    "x": 1100,
+    "y": 16
+  }
+]
