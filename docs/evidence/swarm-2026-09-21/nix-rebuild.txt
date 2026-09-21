@@ -1,0 +1,6 @@
+Compact original output: compilation chatter omitted.
+warning: Git tree '/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-226-repro-build' is dirty
+warning: input 'crane' has an override for a non-existent input 'nixpkgs'
+building '/nix/store/mbp2bkzn08izyj1nz5wxqkl3wz4c7yy6-noctalia-appmenu-bridge-deps-1.0.36.drv'...
+building '/nix/store/id7h8acxjv0ndfgrzhj8nbldm4wdca58-noctalia-appmenu-bridge-1.0.36.drv'...
+Initial command timed out at 360 seconds before completing the first build.
