@@ -6,7 +6,7 @@ When the focused application exposes a readable AT-SPI menubar (`File`, `Edit`, 
 
 > **Status:** [v1.0.36 released](https://github.com/yolo-labz/noctalia-appmenu/releases/tag/v1.0.36). The AT-SPI bridge ([ADR-0024](docs/adr/ADR-0024-atspi-substrate.md)) targets niri and the **Quickshell/QML noctalia-shell plugin host**, not the separate Rust Noctalia desktop shell. Qt menubars are the primary documented path; Firefox and GTK4 popover-only apps use the [desktop fallback](#app-menu-fallback), not a full native menu. See [Compatibility](#compatibility) and [Caveats](#caveats).
 
-A fresh two-app recording is not yet available. The [isolated demo procedure](docs/how-to/isolated-demo.md) records the runtime gate and how to capture real plugin behavior without touching an active desktop.
+A complete popup-driven demonstration is not yet available. The [partial isolated recording](docs/how-to/isolated-demo.md) shows two native app menus and a CLI-triggered About Okular action on the legacy QML host; the topbar dropdown remains invisible. It does not demonstrate a popup-row click or current Rust-host compatibility, and does not touch the active desktop.
 
 ## How it works
 
