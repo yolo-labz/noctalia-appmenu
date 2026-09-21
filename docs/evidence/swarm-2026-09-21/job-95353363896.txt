@@ -1,0 +1,3 @@
+17: 2026-08-17T10:16:26.3283747Z Getting action download info
+18: 2026-08-17T10:16:26.5115595Z Download action repository 'actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd' (SHA:ed597411d8f924073f98dfc5c65a23a2325f34cd)
+19: 2026-08-17T10:16:28.6033005Z ##[error]No space left on device

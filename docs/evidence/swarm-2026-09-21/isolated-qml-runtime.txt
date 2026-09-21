@@ -1,0 +1,24 @@
+Private X display: allocated; no daily display inherited
+niri exit: -15
+2026-09-21T12:40:24.787892Z  INFO niri: starting version unstable 2026-08-02 (commit feb3e43f1475e0865bb89cbd1e898b34d1d2ccf6)
+2026-09-21T12:40:24.788636Z DEBUG niri_config: loaded config from "/tmp/r5-vs8072on/config/niri/config.kdl"
+2026-09-21T12:40:25.363462Z DEBUG niri::backend::winit: failed building default dmabuf feedback, falling back to v3: error getting EGL device render node
+
+Caused by:
+    None of the following EGL extensions is supported by the underlying EGL implementation, at least one is required: ["EGL_EXT_device_drm"]
+2026-09-21T12:40:25.363651Z DEBUG niri::niri: putting output winit at x=0 y=0
+2026-09-21T12:40:25.363719Z  INFO niri: listening on Wayland socket: wayland-1
+2026-09-21T12:40:25.363726Z  INFO niri: IPC listening on: /tmp/r5-vs8072on/runtime/niri.wayland-1.3844022.sock
+2026-09-21T12:40:25.371914Z  INFO niri: listening on X11 socket: :2
+2026-09-21T12:40:25.372822Z  WARN niri::dbus: error starting login1 watcher: I/O error: No such file or directory (os error 2)
+
+Caused by:
+    No such file or directory (os error 2)
+2026-09-21T12:40:25.373407Z  WARN niri::dbus: error starting locale1 watcher: I/O error: No such file or directory (os error 2)
+
+Caused by:
+    No such file or directory (os error 2)
+2026-09-21T12:40:25.382285Z  WARN niri::cursor: error loading xcursor default@24: no default icon
+2026-09-21T12:40:36.744592Z  INFO niri::utils::signals::platform: quitting due to receiving signal SIGTERM
+
+Scratch logs: /tmp/r5-vs8072on

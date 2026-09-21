@@ -1,0 +1,18 @@
+Owned runtime: /tmp/r5-qmpe58ga
+Private X display: allocated; no daily display inherited
+niri exit: -15
+2026-09-21T13:14:38.218885Z  INFO niri: starting version unstable 2026-08-02 (commit feb3e43f1475e0865bb89cbd1e898b34d1d2ccf6)
+dbus-daemon[1168222]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=1000 pid=1168119 comm="dolphin /tmp/r5-qmpe58ga/home")
+dbus-daemon[1168222]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+{"timestamp":"2026-09-21T13:14:38.975905Z","level":"INFO","fields":{"message":"atspi a11y bus enabled"},"target":"noctalia_appmenu_bridge"}
+{"timestamp":"2026-09-21T13:14:38.977683Z","level":"INFO","fields":{"message":"owning active proxy","service":"org.noctalia.AppMenu","path":"/org/noctalia/AppMenu/Active"},"target":"noctalia_appmenu_bridge::proxy"}
+{"timestamp":"2026-09-21T13:14:39.227676Z","level":"INFO","fields":{"message":"subscribed to niri event stream"},"target":"noctalia_appmenu_bridge::niri"}
+  INFO qml: [20260921-101448] PluginRegistry Loaded plugin: noctalia-appmenu - AppMenu
+  INFO qml: [20260921-101448] PluginRegistry All plugin manifests loaded. Total plugins: 1
+2026-09-21 10:14:44.775  INFO qml: [20260921-101444] PluginRegistry Loaded plugin states from: /tmp/r5-qmpe58ga/config/noctalia/plugins.json
+2026-09-21 10:14:44.775  INFO qml: [20260921-101444] PluginRegistry Migrating plugin data to v2 (adding sourceUrl)
+2026-09-21 10:14:44.781  INFO qml: [20260921-101444] PluginRegistry Migration complete
+2026-09-21 10:14:44.781  INFO qml: [20260921-101444] PluginRegistry Scanning plugin folder: /tmp/r5-qmpe58ga/config/noctalia/plugins
+2026-09-21 10:14:48.847  INFO qml: [20260921-101448] PluginRegistry Loaded plugin: noctalia-appmenu - AppMenu
+2026-09-21 10:14:48.847  INFO qml: [20260921-101448] PluginRegistry All plugin manifests loaded. Total plugins: 1

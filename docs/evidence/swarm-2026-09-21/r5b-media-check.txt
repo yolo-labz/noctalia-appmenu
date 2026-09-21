@@ -1,0 +1,3 @@
+[appmenu] atspi-click service=:1.2 path=/org/a11y/atspi/accessible/2147483811 winid=2 settle_ms=150 niri_focus=ok
+dolphin native menu verified: 1338091 ['File', 'Edit', 'View', 'Go', 'Tools', 'Settings', '', 'Help']
+okular native menu verified: 1338089 ['File', 'View', 'Edit', 'Go', 'Bookmarks', 'Tools', 'Settings', '', 'Help']

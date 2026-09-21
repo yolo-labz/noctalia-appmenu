@@ -1,0 +1,7 @@
+20: 2026-08-17T10:08:02.7968103Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+21: 2026-08-17T10:08:02.7969501Z ##[endgroup]
+22: 2026-08-17T10:16:07.7450752Z ##[error]vm103 has 2G free (hard floor 5G) after 360s of GC and waiting. Refusing to start this job rather than let it fail mid-build with ENOSPC. Free space on the runner host, then re-run.
+23: 2026-08-17T10:16:07.7476263Z ##[error]Process completed with exit code 1.
+24: 2026-08-17T10:16:07.7829346Z ##[group]Run step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920
+25: 2026-08-17T10:16:07.7829935Z with:
+26: 2026-08-17T10:16:07.7830205Z   egress-policy: audit

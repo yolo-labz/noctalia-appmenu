@@ -1,0 +1,27 @@
+Private X display: allocated; no daily display inherited
+niri exit: -15
+2026-09-21T12:39:38.057276Z  INFO niri: starting version unstable 2026-08-02 (commit feb3e43f1475e0865bb89cbd1e898b34d1d2ccf6)
+2026-09-21T12:39:38.057973Z DEBUG niri_config: loaded config from "/var/tmp/pi-agent-1000/0e75daaa172dd4dc.2864360.fd4defc29ec6/r5-display-p9sdz_dr/config/niri/config.kdl"
+2026-09-21T12:39:38.516942Z  WARN niri::niri: error starting IPC server: error binding socket
+
+Caused by:
+    path must be shorter than SUN_LEN
+2026-09-21T12:39:38.738304Z DEBUG niri::backend::winit: failed building default dmabuf feedback, falling back to v3: error getting EGL device render node
+
+Caused by:
+    None of the following EGL extensions is supported by the underlying EGL implementation, at least one is required: ["EGL_EXT_device_drm"]
+2026-09-21T12:39:38.738536Z DEBUG niri::niri: putting output winit at x=0 y=0
+2026-09-21T12:39:38.738628Z  INFO niri: listening on Wayland socket: wayland-1
+2026-09-21T12:39:38.753494Z  INFO niri: listening on X11 socket: :2
+2026-09-21T12:39:38.753936Z  WARN niri::dbus: error starting login1 watcher: I/O error: No such file or directory (os error 2)
+
+Caused by:
+    No such file or directory (os error 2)
+2026-09-21T12:39:38.754026Z  WARN niri::dbus: error starting locale1 watcher: I/O error: No such file or directory (os error 2)
+
+Caused by:
+    No such file or directory (os error 2)
+2026-09-21T12:39:38.754577Z  WARN niri::cursor: error loading xcursor default@24: no default icon
+2026-09-21T12:39:50.011837Z  INFO niri::utils::signals::platform: quitting due to receiving signal SIGTERM
+
+Scratch logs: /var/tmp/pi-agent-1000/0e75daaa172dd4dc.2864360.fd4defc29ec6/r5-display-p9sdz_dr
