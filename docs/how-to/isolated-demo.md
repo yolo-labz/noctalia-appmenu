@@ -66,7 +66,7 @@ window receipts and SHA256SUMS accompany actual pixels. Empty-profile frames
 were visually inspected; sampled OCR is in `../evidence/swarm-2026-09-21/r5b-ocr.txt`.
 This is not an exhaustive per-frame OCR certification.
 
-Versions: actual repository plugin at base ba16b777; bridge 1.0.36;
+Versions: actual repository plugin at base `ba16b777c3ad20dbd7f7dd510d3dd8fc1d0c7986`; bridge 1.0.36;
 QML shell v4.7.8-git (June closure), Quickshell June f308426; Okular 26.08.0;
 niri August feb3e43. Installed Rust Noctalia v5.0.1 is NOT the demonstrated host.
 No mocks, account profiles, documents, microphone, music or desktop screenshot.
