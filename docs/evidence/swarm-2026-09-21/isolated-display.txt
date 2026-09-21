@@ -1,0 +1,20 @@
+Private X display: allocated; no daily display inherited
+niri exit: 101
+2026-09-21T12:29:56.901871Z  INFO niri: starting version unstable 2026-08-02 (commit feb3e43f1475e0865bb89cbd1e898b34d1d2ccf6)
+2026-09-21T12:29:56.902540Z DEBUG niri_config: loaded config from "/var/tmp/pi-agent-1000/0e75daaa172dd4dc.2864360.fd4defc29ec6/r5-display-w05qi3fo/config/niri/config.kdl"
+
+thread 'main' (3410782) panicked at src/main.rs:186:6:
+called `Result::unwrap()` on an `Err` value: EventLoopCreation(Os(OsError { line: 788, file: "/cargo-vendor-dir/winit-0.30.13/src/platform_impl/linux/mod.rs", error: XNotSupported(LibraryOpenError(OpenError { kind: Library, detail: "opening library failed (libXcursor.so.1: cannot open shared object file: No such file or directory); opening library failed (libXcursor.so: cannot open shared object file: No such file or directory)" })) }))
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: core::result::unwrap_failed
+   3: unwrap<niri::niri::State, alloc::boxed::Box<dyn core::error::Error, alloc::alloc::Global>>
+             at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library/core/src/result.rs:1233:23
+   4: main
+             at ./src/main.rs:186:6
+   5: call_once<fn() -> core::result::Result<(), alloc::boxed::Box<dyn core::error::Error, alloc::alloc::Global>>, ()>
+             at /rustc/8bab26f4f68e0e26f0bb7960be334d5b520ea452/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+Scratch logs: /var/tmp/pi-agent-1000/0e75daaa172dd4dc.2864360.fd4defc29ec6/r5-display-w05qi3fo

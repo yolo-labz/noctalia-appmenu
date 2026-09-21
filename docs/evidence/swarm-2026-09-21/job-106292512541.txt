@@ -1,0 +1,10 @@
+920: 2026-09-21T10:10:40.6408340Z 10:10:40.640 INFO  Load/download plugins (done) | time=41ms
+921: 2026-09-21T10:10:41.1183586Z 10:10:41.117 INFO  Process project properties
+922: 2026-09-21T10:10:41.1413043Z 10:10:41.140 ERROR Invalid value of sonar.tests for yolo-labz_noctalia-appmenu
+923: 2026-09-21T10:10:41.2198146Z 10:10:41.218 ERROR The folder 'tests' does not exist for 'yolo-labz_noctalia-appmenu' (base directory = /home/notroot/actions-runner-noctalia-appmenu-vm103/_work/noctalia-appmenu/noctalia-appmenu)
+924: 2026-09-21T10:10:41.5668797Z 10:10:41.566 INFO  EXECUTION FAILURE
+925: 2026-09-21T10:10:41.5675415Z 10:10:41.567 INFO  Total time: 25.929s
+926: 2026-09-21T10:10:41.9071452Z ##[error]Action failed: The process '/home/notroot/actions-runner-noctalia-appmenu-vm103/_work/_tool/sonar-scanner-cli/8.1.0-build.6389/linux-x64/bin/sonar-scanner' failed with exit code 3
+927: 2026-09-21T10:10:41.9333796Z Post job cleanup.
+928: 2026-09-21T10:10:42.0637350Z [command]/usr/bin/git version
+929: 2026-09-21T10:10:42.0725232Z git version 2.43.0
