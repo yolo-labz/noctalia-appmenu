@@ -1,5 +1,7 @@
-import os, pathlib, subprocess, tempfile, time
+import os, pathlib, subprocess, tempfile, time, sys
+capture = '--capture' in sys.argv
 root=pathlib.Path(tempfile.mkdtemp(prefix='r5-', dir='/tmp'))
+print('Owned runtime:', root, flush=True)
 for d in ('home','runtime','config','cache','data'): (root/d).mkdir(mode=0o700)
 (root/'config/niri').mkdir()
 (root/'config/niri/config.kdl').write_text('input { keyboard { xkb { layout "us"; }; }; }\n')
@@ -9,14 +11,21 @@ shell='/nix/store/xqjhgfb7cl2gidv3b4nnlbsvqgzam56a-noctalia-shell-2026-06-07_531
 qs='/nix/store/crsydf85zdgki13arrpqa57kx61ix8a3-quickshell-2026-06-07_f308426/bin/qs'
 bridge='/nix/store/33ngl01k5a6rbggh205jq2aadhnhp2n4-noctalia-appmenu-bridge-1.0.36/bin'
 env['PATH']=bridge+':'+env['PATH']; env['QT_ACCESSIBILITY']='1'; env['QT_QPA_PLATFORM']='wayland'
+# The broker launcher uses systemd activation; the nested bus has no user manager.
+env['ATSPI_DBUS_IMPLEMENTATION']='dbus-daemon'
+env['GSETTINGS_BACKEND']='memory'
+env['PULSE_SERVER']='unix:'+str(root/'no-audio')
+env['LANG']='C.UTF-8'
 config=root/'config/noctalia'; (config/'plugins').mkdir(parents=True)
 (config/'plugins/noctalia-appmenu').symlink_to(pathlib.Path.cwd()/'plugin', target_is_directory=True)
 (config/'plugins.json').write_text(json.dumps({'version':2,'states':{'noctalia-appmenu':{'enabled':True}},'sources':[]}))
 settings=json.loads(pathlib.Path(shell+'/Assets/settings-default.json').read_text())
 settings['bar']['widgets']={'left':[{'id':'plugin:noctalia-appmenu'}],'center':[],'right':[]}
 (config/'settings.json').write_text(json.dumps(settings))
+(root/'cache/noctalia').mkdir()
+(root/'cache/noctalia/shell-state.json').write_text(json.dumps({'changelogState':{'lastSeenVersion':'v4.7.8'}}))
 launch=root/'launch.sh'
-launch.write_text(f'#!/usr/bin/env bash\nnoctalia-appmenu-bridge >{root}/bridge.log 2>&1 &\nokular >{root}/okular.log 2>&1 &\ndolphin "$HOME" >{root}/dolphin.log 2>&1 &\nexec {qs} -p {shell}\n')
+launch.write_text(f'#!/usr/bin/env bash\nnoctalia-appmenu-bridge >{root}/bridge.log 2>&1 &\nokular >{root}/okular.log 2>&1 &\ndolphin "$HOME" >{root}/dolphin.log 2>&1 &\n{qs} -p {shell} >{root}/shell.log 2>&1 &\npython3 -c \'import os,json; json.dump(dict(os.environ),open("{root}/environment.json","w"))\'\nwait\n')
 env['LD_LIBRARY_PATH']=':'.join(sorted({str(pathlib.Path(p).parent) for pattern in ('libXcursor.so.1','libXrandr.so.2','libXi.so.6') for p in glob.glob('/nix/store/*/lib/'+pattern)}))
 r,w=os.pipe()
 log=open(root/'xvfb.log','w')
@@ -26,9 +35,11 @@ try:
  import select
  if not select.select([r],[],[],10)[0]: raise RuntimeError('Xvfb did not allocate display')
  display=os.read(r,40).decode().strip(); env['DISPLAY']=':'+display
+ env['R5_X_DISPLAY']=env['DISPLAY']; env['R5_XVFB_PID']=str(x.pid)
+ (root/'display.json').write_text(json.dumps({'display':env['DISPLAY'],'pid':x.pid}))
  with open(root/'niri.log','w') as out:
   p=subprocess.Popen(['dbus-run-session','--','niri','-c',str(root/'config/niri/config.kdl'),'--','bash',str(launch)],env=env,stdout=out,stderr=out,start_new_session=True)
-  try: p.wait(timeout=25)
+  try: p.wait(timeout=90 if capture else 25)
   except subprocess.TimeoutExpired:
    import signal
    os.killpg(p.pid,signal.SIGTERM); p.wait(timeout=5)
@@ -37,7 +48,7 @@ try:
  print((root/'niri.log').read_text())
 finally:
  x.terminate(); x.wait(timeout=5); os.close(r); log.close()
-for name in ('bridge.log','okular.log','dolphin.log'):
+for name in ('bridge.log','okular.log','dolphin.log','shell.log'):
  if (root/name).exists(): print(name, (root/name).read_text()[-8000:])
 for log in (root/'runtime/quickshell/by-id').glob('*/log.log'):
  print('QML log:',log.read_text()[-18000:])

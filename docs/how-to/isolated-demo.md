@@ -1,99 +1,80 @@
-# Capture a real two-app demo without touching the daily desktop
+# Isolated legacy demonstration — 21/09/2026
 
-## Current gate — 21/09/2026
+This is **partial evidence**, not current Rust-host support or a completed
+mouse-driven demo. Actual native Okular/Dolphin topbar menus and a real
+`About Okular` action through the bridge CLI were observed. The topbar Help
+button logged its click but no dropdown was visible; that remains unfulfilled.
 
-**No demo asset is published by this pass.** A real private Xvfb → niri →
-Quickshell/QML noctalia-shell session loaded this repository's AppMenu widget;
-the bridge acquired `org.noctalia.AppMenu` and followed the private niri socket.
-Okular and Dolphin were launched with fresh HOME/config/cache directories.
-However, the private accessibility bus could not activate
-`org.a11y.atspi.Registry` (`NameHasNoOwner: unit failed`), so native menu/action
-behavior was not verified. A fallback-only recording would not satisfy the demo.
+## Root cause and repair
 
-Evidence: [isolated-plugin.txt](../evidence/swarm-2026-09-21/isolated-plugin.txt).
-Noctalia's installed `noctalia v5.0.1` binary is a different shell from the QML
-host this plugin requires. The probe instead used already-present, immutable
-June 2026 Nix-store QML/Quickshell/bridge closures. This is **not** certification
-of the Rust shell or a fresh verification of toolkit support.
+The original private probe reproduces `NameHasNoOwner: unit failed` for
+`org.a11y.atspi.Registry`. Installed at-spi2-core 2.60.6's launcher chooses a
+broker/systemd activation path by default. Setting only
+`ATSPI_DBUS_IMPLEMENTATION=dbus-daemon` makes the same probe activate Registry
+successfully. The immutable accessibility.conf names its store-local
+accessibility-services directory; Registry's service Exec points at
+`libexec/at-spi2-registryd --use-gnome-session`. The session service for
+`org.a11y.Bus` includes `SystemdService=at-spi-dbus-bus.service`, but our
+`dbus-run-session` is not a systemd user bus. No live service/config was changed.
+Do not infer that the failed broker successfully modified the live user bus.
 
-## Reproduce the bounded runtime probe
+## Recreate
 
-From the repository root on the measured host:
+From this worktree, on the measured host with the pinned installed closures:
 
 ```bash
-python3 docs/evidence/swarm-2026-09-21/probe-isolated.py
+python3 -u docs/evidence/swarm-2026-09-21/probe-isolated.py --capture
+# In another terminal, use ONLY the printed /tmp/r5-* owned runtime, after
+# the private shell loads (~20 seconds):
+python3 docs/evidence/swarm-2026-09-21/capture-private.py /tmp/r5-PRINTED \
+  docs/assets/isolated-legacy-demo --prepare --app okular --demo
 ```
 
-This is a host-local forensic reproducer, not a portable launcher: exact store
-paths in the script are part of its provenance. It requires those closures,
-`niri`, `dbus-run-session`, Okular and Dolphin. It creates a short `/tmp/r5-*`
-root, a private X server allocated via `-displayfd`, a new session bus and
-HOME/XDG directories, and stops its own process group after 25 seconds. It
-captures logs, **not pixels**. Store paths must be substituted with verified
-matching packages on another machine. Never substitute the daily display/bus.
+The first helper allocates Xvfb with `-displayfd`, launches private niri/session
+bus/HOME/config/cache, enables accessibility and disables audio access. It
+stops its process group and Xvfb after 90 seconds (25 without `--capture`).
+The second checks the owned Xvfb PID and display receipt, uses **R5_X_DISPLAY**,
+not niri's rewritten DISPLAY (its nested Xwayland), and asserts `source=atspi`,
+PID match and nonempty children before recording. It resizes/focuses only the
+private X11 niri window, hides Dolphin Places (host mount names must not be
+filmed), enables Dolphin's menubar, and uses empty profiles/no documents.
+The cache seeds the legacy changelog acknowledgement; telemetry remains false.
 
-Two setup failures were distinguished and fixed in the probe:
+The recorded run predates this acknowledgement seed: its private first-run
+notice was dismissed with the checkbox left OFF, then Dolphin F9/Ctrl+M and
+Okular focus were applied. The final replay check is separately logged; do not
+confuse the observed recording with a claim that all launcher paths are tested.
 
-- niri's X11 backend needed `libXcursor`, `libXi`, `libXrandr` on its private
-  `LD_LIBRARY_PATH`;
-- a long scratch path exceeded Unix socket `SUN_LEN`; a short private runtime
-  directory allowed niri IPC to start. Do not reuse the daily runtime directory.
+`--demo` records 16 seconds, calls the same bridge `atspi-click` used by QML
+on the observed About Okular accessible, asserts that its real dialog appears,
+then switches to Dolphin and reasserts its native menu. It does **not** claim
+that a popup row was clicked. Dialog focus briefly produces fallback labels.
+The general system FFmpeg lacks x11grab; the helper pins installed FFmpeg-full
+9.0.1. Software Xvfb frames use CPU x264, eight threads, no audio or speed edit.
 
-## Finish the capture (not yet executed)
+```bash
+ffmpeg -i docs/assets/isolated-legacy-demo/demo.mp4 -filter_complex \
+ '[0:v]fps=5,scale=768:-1,split[a][b];[a]palettegen[p];[b][p]paletteuse' \
+ -filter_complex_threads 4 docs/assets/isolated-legacy-demo/demo.gif
+```
 
-1. Provision a **disposable VM/test login** with the QML noctalia-shell host,
-   matching Quickshell, niri, this plugin/bridge, `at-spi2-core`, Qt6 Okular and
-   Kate (or Dolphin), FFmpeg and a private-display recorder. No account sign-in,
-   synced folders, notification sources, personal files or shared session bus.
-   A VM's ordinary isolated user session can supply the AT-SPI activation that
-   the nested `dbus-run-session` probe lacks. Alternatively provision the registry
-   daemon explicitly on the private accessibility bus; do not use the host's.
-2. Enable `QT_ACCESSIBILITY=1`; install the plugin in that disposable user's
-   `~/.config/noctalia/plugins/noctalia-appmenu`. Set
-   `plugins.json` → `states.noctalia-appmenu.enabled=true` and
-   `settings.json` → `bar.widgets.left=[{"id":"plugin:noctalia-appmenu"}]`.
-   Start the bridge and QML shell **inside that session only**.
-3. Record tool versions, plugin revision, and real bus introspection before
-   filming. In the isolated session:
+## Evidence and cleanup
 
-   ```bash
-   niri msg version
-   qs --version
-   noctalia-appmenu-bridge --version
-   okular --version
-   dolphin --version  # or kate --version
-   busctl --user call org.a11y.Bus /org/a11y/bus org.a11y.Bus GetAddress
-   # Use the returned address, never the host's address:
-   busctl --address="$PRIVATE_A11Y_ADDRESS" list
-   busctl --user introspect org.noctalia.AppMenu /org/noctalia/AppMenu/Active
-   ```
+[Assets](../assets/isolated-legacy-demo/): MP4 1280×720, 10 fps, 16 s;
+GIF 768×432, 5 fps; poster 1280×720; no audio. `*-active.json`, `action.json`,
+window receipts and SHA256SUMS accompany actual pixels. Empty-profile frames
+were visually inspected; sampled OCR is in `../evidence/swarm-2026-09-21/r5b-ocr.txt`.
+This is not an exhaustive per-frame OCR certification.
 
-   Require a live `org.a11y.atspi.Registry`, then focus each app and inspect
-   `$XDG_CACHE_HOME/noctalia-appmenu/active.json`: `source=atspi`, the correct
-   app PID and populated menu children. `desktop-fallback` is not a pass.
-4. Open only a synthetic one-page PDF and an empty demo directory/text file.
-   Film app A focus → topbar File/View popup → harmless visible action (e.g.
-   zoom); then app B focus → its changed menu → harmless action (e.g. toggle a
-   panel). Keep the actual topbar and action result visible; do not render a
-   mock bar or use the app's in-window menu as a substitute.
-5. For an Xvfb-backed session, record the **allocated private X display only**:
+Versions: actual repository plugin at base ba16b777; bridge 1.0.36;
+QML shell v4.7.8-git (June closure), Quickshell June f308426; Okular 26.08.0;
+niri August feb3e43. Installed Rust Noctalia v5.0.1 is NOT the demonstrated host.
+No mocks, account profiles, documents, microphone, music or desktop screenshot.
+KDE/Noctalia artwork remains upstream-owned; captured pixels are demonstration
+material, not a relicensing of upstream assets.
 
-   ```bash
-   # PRIVATE_DISPLAY must come from the owned Xvfb -displayfd result.
-   ffmpeg -f x11grab -video_size 1280x720 -framerate 30 \
-     -i "$PRIVATE_DISPLAY" -t 25 -an -c:v libx264 -preset veryfast \
-     -threads 8 -pix_fmt yuv420p docs/assets/demo-isolated.mp4
-   ffprobe -v error -show_streams -show_format docs/assets/demo-isolated.mp4
-   sha256sum docs/assets/demo-isolated.mp4
-   ```
-
-   This software-rendered Xvfb source has no DMA-BUF device; CPU encoding is
-   intentional. Use a supported hardware encoder in a GPU-backed VM. No music
-   or microphone/system audio. Label synthetic documents and any speed edits.
-6. Review every frame for private content and verify two actual native menus
-   and actions before adding a README link. Save source commands, versions,
-   dimensions, duration, checksum and bus evidence next to the asset. Stop only
-   owned processes; never restart desktop services or globally clean caches.
-
-The recipe is a continuation procedure, **not a claim it passed**. The nested
-probe proves plugin loading, not a completed two-app visual/action test.
+Helpers stop only owned processes. Runtime roots contain disposable profiles;
+remove only the exact printed root after process exit if desired. No global
+cache cleanup, service restart, deploy or merge. Remaining work: diagnose the
+legacy popup mapping failure under this private stack, then record a real
+popup-row action. No runtime plugin fix was attempted in this bounded pass.

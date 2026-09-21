@@ -1,0 +1,22 @@
+Owned runtime: /tmp/r5-g9i5kslt
+Private X display: allocated; no daily display inherited
+niri exit: -15
+2026-09-21T13:18:27.479736Z  INFO niri: starting version unstable 2026-08-02 (commit feb3e43f1475e0865bb89cbd1e898b34d1d2ccf6)
+dbus-daemon[1338374]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=1000 pid=1338091 comm="dolphin /tmp/r5-g9i5kslt/home")
+dbus-daemon[1338374]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+{"timestamp":"2026-09-21T13:18:28.353171Z","level":"INFO","fields":{"message":"atspi a11y bus enabled"},"target":"noctalia_appmenu_bridge"}
+{"timestamp":"2026-09-21T13:18:28.358205Z","level":"INFO","fields":{"message":"owning active proxy","service":"org.noctalia.AppMenu","path":"/org/noctalia/AppMenu/Active"},"target":"noctalia_appmenu_bridge::proxy"}
+{"timestamp":"2026-09-21T13:18:28.613712Z","level":"INFO","fields":{"message":"subscribed to niri event stream"},"target":"noctalia_appmenu_bridge::niri"}
+{"timestamp":"2026-09-21T13:21:14.028414Z","level":"INFO","fields":{"message":"learned-skip honoured for a known-menubar app — serving desktop fallback; self-heals at ttl (cold-start race?)","app_id":"org.kde.okular","expensive":false,"age_s":4,"ttl_s":300},"target":"noctalia_appmenu_bridge::atspi::learned_skip"}
+{"timestamp":"2026-09-21T13:21:14.029469Z","level":"INFO","fields":{"message":"learned-skip honoured for a known-menubar app — serving desktop fallback; self-heals at ttl (cold-start race?)","app_id":"org.kde.okular","expensive":false,"age_s":4,"ttl_s":300},"target":"noctalia_appmenu_bridge::atspi::learned_skip"}
+  INFO qml: [20260921-101839] PluginRegistry Loaded plugin: noctalia-appmenu - AppMenu
+  INFO qml: [20260921-101839] PluginRegistry All plugin manifests loaded. Total plugins: 1
+ DEBUG qml: [appmenu] click on top-level: Help children: 11
+2026-09-21 10:18:34.856  INFO qml: [20260921-101834] PluginRegistry Loaded plugin states from: /tmp/r5-g9i5kslt/config/noctalia/plugins.json
+2026-09-21 10:18:34.856  INFO qml: [20260921-101834] PluginRegistry Migrating plugin data to v2 (adding sourceUrl)
+2026-09-21 10:18:34.856  INFO qml: [20260921-101834] PluginRegistry Migration complete
+2026-09-21 10:18:34.856  INFO qml: [20260921-101834] PluginRegistry Scanning plugin folder: /tmp/r5-g9i5kslt/config/noctalia/plugins
+2026-09-21 10:18:39.157  INFO qml: [20260921-101839] PluginRegistry Loaded plugin: noctalia-appmenu - AppMenu
+2026-09-21 10:18:39.158  INFO qml: [20260921-101839] PluginRegistry All plugin manifests loaded. Total plugins: 1
+2026-09-21 10:19:12.040 DEBUG qml: [appmenu] click on top-level: Help children: 11
