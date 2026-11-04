@@ -1,0 +1,7 @@
+2991: 2026-09-21T10:17:43.4954517Z ##[endgroup]
+2992: 2026-09-21T10:17:43.7114870Z warning: input 'crane' has an override for a non-existent input 'nixpkgs'
+2993: 2026-09-21T10:17:54.9467676Z error: path '/nix/store/07cizx58q7v2dgqwydx0g25s0zgkj9hp-cargo-llvm-cov-0.8.5.drv' is not valid
+2994: 2026-09-21T10:17:55.0089006Z ##[error]Process completed with exit code 1.
+2995: 2026-09-21T10:17:55.0294383Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2996: 2026-09-21T10:17:55.0295071Z with:
+2997: 2026-09-21T10:17:55.0295317Z   name: repro-debug

@@ -2,9 +2,11 @@
 
 macOS-style global menu for [noctalia-shell](https://github.com/noctalia-dev/noctalia-shell) on [niri](https://github.com/YaLTeR/niri).
 
-When you focus a Qt or GTK application, its menubar (`File`, `Edit`, `View`, …) appears in noctalia's topbar instead of inside the window. The behaviour mirrors macOS and Plasma's `appmenu` applet.
+When the focused application exposes a readable AT-SPI menubar (`File`, `Edit`, `View`, …), the plugin mirrors it in noctalia's topbar. It does not hide the application's own menubar. Apps without a readable menu receive clearly identified desktop actions and window controls instead.
 
-> **Status:** v1.0.0 release candidate. AT-SPI substrate ([ADR-0024](docs/adr/ADR-0024-atspi-substrate.md)) replaces the v0.1 DBusMenu/Registrar pipeline. Qt6 primary; GTK4 secondary. Firefox/Electron supported via documented toolkit flags — see [Caveats](#caveats). niri only by design ([ADR-0005](docs/adr/ADR-0005-niri-only-v1.md)); compositor-abstraction door is open but unwired ([spec 004 FR-003](specs/004-project-completion/spec.md)).
+> **Status:** [v1.0.36 released](https://github.com/yolo-labz/noctalia-appmenu/releases/tag/v1.0.36). The AT-SPI bridge ([ADR-0024](docs/adr/ADR-0024-atspi-substrate.md)) targets niri and the **Quickshell/QML noctalia-shell plugin host**, not the separate Rust Noctalia desktop shell. Qt menubars are the primary documented path; Firefox and GTK4 popover-only apps use the [desktop fallback](#app-menu-fallback), not a full native menu. See [Compatibility](#compatibility) and [Caveats](#caveats).
+
+A complete popup-driven demonstration is not yet available. The [partial isolated recording](docs/how-to/isolated-demo.md) shows two native app menus and a CLI-triggered About Okular action on the legacy QML host; the topbar dropdown remains invisible. It does not demonstrate a popup-row click or current Rust-host compatibility, and does not touch the active desktop.
 
 ## How it works
 
@@ -30,6 +32,9 @@ The bridge exists because Quickshell's `DBusMenuHandle` is `QML_UNCREATABLE` —
       modules = [
         noctalia-appmenu.homeManagerModules.default
         {
+          programs.noctalia-shell.plugins.states.noctalia-appmenu.enabled = true;
+          # Add to your existing bar.widgets.left list (do not replace other widgets):
+          # { id = "plugin:noctalia-appmenu"; }
           programs.noctalia.plugins.appmenu = {
             enable = true;
             # `registrar` is deprecated in v1.0.0 — the AT-SPI substrate
@@ -47,13 +52,20 @@ The Home-Manager module installs the bridge binary, the QML plugin payload, the 
 
 ## Compatibility
 
+This is the documented behavior of v1.0.36, based on the runtime observations
+recorded in ADR-0024, ADR-0032 and ADR-0035 (May–June 2026), not a fresh
+certification of every current toolkit release. Verify the installed versions
+and their actual AT-SPI tree before claiming additional support.
+
 | Toolkit | Status | Notes |
 |---|---|---|
 | Qt6 (KDE Frameworks apps, Anki, Telegram, Krita, qutebrowser) | Works | Requires `QT_ACCESSIBILITY=1` in session env (set automatically by the HM module). |
-| GTK3 / GTK4 | Works | GTK4 `GtkPopoverMenuBar` (Nautilus 45+) exposes `MENU_BAR` with zero children when the menu is closed; the bridge then serves the [desktop fallback](#app-menu-fallback) (`source = "desktop-fallback"`). |
+| GTK3 | Conditional native menu | Requires a populated AT-SPI menubar; otherwise [desktop fallback](#app-menu-fallback). |
+| GTK4 / libadwaita popover-only apps | Fallback | An absent or unreadable menubar yields `source = "desktop-fallback"`; this is not the app's in-window menu ([ADR-0032](docs/adr/ADR-0032-gtk-menus-not-viable-on-niri.md)). |
 | XWayland Qt5/GTK | Works | AT-SPI walker is toolkit-agnostic; X11 windowing does not interfere. |
-| Electron / Chromium | Fallback (full menu via flag) | No native menubar by default → the bridge serves the [desktop fallback](#app-menu-fallback) (app actions + window controls). Launch with `--force-accessibility` to expose the real menubar. |
-| Firefox / Thunderbird | Fallback only (on niri) | Firefox's AT-SPI menubar is **lazy + reveal-locked**: its items realise only when the menu is *visibly opened*, and on niri that reveal cannot be undone ([ADR-0035](docs/adr/ADR-0035-lazy-reveal-locked-menubar-fallback.md)). The bridge serves the honest [desktop fallback](#app-menu-fallback) instead of pinning a duplicate menubar. A clean Firefox global menu needs niri to advertise `org_kde_kwin_appmenu_manager` (the [niri-protocol path](#firefox--thunderbird)) — a compositor change, not reachable from the bridge. |
+| Electron | Conditional native menu | `--force-accessibility` can expose an app's menubar; without a readable menubar, desktop fallback applies. |
+| Chromium / Chrome hamburger menu | Fallback | Accessibility flags do not turn a hamburger menu into a native menubar. |
+| Firefox / Thunderbird | Fallback only (on niri) | Firefox's AT-SPI menubar is **lazy + reveal-locked**: its items realise only when the menu is *visibly opened*, and on niri that reveal cannot be undone ([ADR-0035](docs/adr/ADR-0035-lazy-reveal-locked-menubar-fallback.md)). The bridge serves the honest [desktop fallback](#app-menu-fallback) instead of pinning a duplicate menubar. A clean Firefox global menu needs niri to advertise `org_kde_kwin_appmenu_manager` (see [Caveats](#caveats)) — a compositor change, not reachable from the bridge. |
 | libcosmic / Iced (`cosmic-files`, …) | Fallback only | No upstream AT-SPI export → [desktop fallback](#app-menu-fallback) always. Tracked at [#157](https://github.com/yolo-labz/noctalia-appmenu/issues/157). |
 
 ## Verify the install
@@ -117,7 +129,7 @@ The rebuild output should mention:
 - Systemd user unit `noctalia-appmenu-bridge.service` enabled.
 - `QT_ACCESSIBILITY=1` exported in your session env.
 
-If you forgot to enable `services.gnome.at-spi2-core` system-wide, the HM module emits an assertion error (or `lib.warn` at evaluation) telling you which knob to set.
+The plugin module does not provision the system accessibility bus. Verify that prerequisite separately; a successful Home-Manager evaluation is not proof the bus is available.
 
 ### 3. Start the bridge + reload noctalia
 
@@ -156,25 +168,25 @@ journalctl --user -u noctalia-appmenu-bridge.service -n 100 --no-pager
 
 ### 5. Verify the release artefact (optional, recommended)
 
-After upgrading to `v1.0.0` (or installing from a release tarball):
+For the v1.0.36 Linux x86-64 release, in a fresh download directory:
 
 ```bash
-gh release download v1.0.0 --repo yolo-labz/noctalia-appmenu --pattern 'noctalia-appmenu-bridge*'
-gh attestation verify ./noctalia-appmenu-bridge --owner yolo-labz
+gh release download v1.0.36 --repo yolo-labz/noctalia-appmenu --pattern 'noctalia-appmenu-bridge-linux-x86_64'
+gh attestation verify ./noctalia-appmenu-bridge-linux-x86_64 --owner yolo-labz
 # expect: Loaded digest sha256:...
 # expect: ✓ Verification succeeded!
 
-gh release download v1.0.0 --repo yolo-labz/noctalia-appmenu --pattern 'sbom.cdx.json'
+gh release download v1.0.36 --repo yolo-labz/noctalia-appmenu --pattern 'sbom.cdx.json'
 jq '.bomFormat, .specVersion' sbom.cdx.json
 # expect: "CycloneDX"
-# expect: "1.7"
+# expect: "1.6"
 ```
 
-A second build from source should produce a byte-identical binary:
+To compare a source build against the published binary (a mismatch requires investigation, not an assumed pass):
 
 ```bash
-nix build github:yolo-labz/noctalia-appmenu/v1.0.0#noctalia-appmenu-bridge
-sha256sum result/bin/noctalia-appmenu-bridge ./noctalia-appmenu-bridge
+nix build github:yolo-labz/noctalia-appmenu/v1.0.36#noctalia-appmenu-bridge
+sha256sum result/bin/noctalia-appmenu-bridge ./noctalia-appmenu-bridge-linux-x86_64
 # expect: identical hashes
 ```
 
@@ -222,8 +234,9 @@ Known limitations. Each item is tracked against a follow-up spec or ADR.
 
 - **The fallback is not the app's real menu.** `desktop-fallback` surfaces launch
   actions + window controls, not the app's File/Edit/View tree. For the real menubar
-  on Electron/Chromium/Firefox, use the per-app flags below. Native, machine-readable
-  menus are an upstream-toolkit responsibility the bridge cannot synthesise.
+  on supported Electron apps, see the flags below; those flags do not remove
+  Firefox's reveal-lock or Chrome's hamburger-menu limitation. Native menus
+  are an upstream-toolkit responsibility the bridge cannot synthesise.
 - **Firefox / Thunderbird — desktop fallback on niri (by design, [ADR-0035](docs/adr/ADR-0035-lazy-reveal-locked-menubar-fallback.md)).** With `accessibility.force_disabled = 0` Firefox *does* expose a menubar over AT-SPI (`frame → tool bar "Menu Bar" → menu bar → File/Edit/View/…`), but its top-level menus are **lazy**: the items exist only after the menu is **visibly opened**, and AT-SPI's only action is `"click"`, which opens — and on niri **pins** — Firefox's own menubar. Verified 2026-06-06: a revealed menubar does not re-hide via a second `DoAction`, Escape, Alt, or focus-out. Reading the menu therefore leaves a duplicate menubar on screen, so the bridge **deliberately serves the desktop fallback for Firefox** (all-top-levels-childless ⇒ "no readable menu", like libcosmic #157) rather than the reveal-pinning real menu.
 
   **The clean fix is a compositor change, not a bridge change.** Firefox ≥138 can export its menu as `com.canonical.dbusmenu` *data* (no visual reveal) — but only when the compositor advertises the `org_kde_kwin_appmenu_manager` Wayland global, which niri does not (yet). It is ~150 LoC in niri (Smithay bindings exist) and already implemented in a fork ([Naxdy/niri#46](https://github.com/Naxdy/niri/pull/46)) plus a maintainer-approved [quickshell#484](https://github.com/quickshell-mirror/quickshell/pull/484). Until niri advertises that global, **Firefox-on-niri is a documented limitation**, not a bug. (The `force_disabled = 0` pref + bridge-restart notes below still matter for the day niri gains the protocol, and for Qt/GTK apps.)
@@ -243,19 +256,19 @@ Known limitations. Each item is tracked against a follow-up spec or ADR.
 
 ```bash
 nix develop                       # devShell: rust, cargo, alejandra, lefthook, gitleaks, qmllint
-just bridge.test                  # cargo test --all-features --locked
-just plugin.lint                  # qmllint (SARIF emit + upload runs in CI — FR-024)
-just integration                  # niri --headless + AT-SPI fixture end-to-end (Lane A)
+just bridge-test                  # Rust unit + integration tests
+just plugin-lint                  # qmllint (not a runtime load test)
+python3 scripts/verify-sonar-roots.py # analysis roots and Rust test inventory
 ```
 
-The bridge integration test (`bridge/tests/atspi_integration.rs`, FR-022) walks a fake AT-SPI registry stub and asserts the JSON snapshot shape end-to-end. CI runs it on every PR; locally you can run `cargo test --test atspi_integration` from `bridge/`.
+The bridge integration test (`bridge/tests/atspi_integration.rs`, FR-022) snapshots the menu model and D-Bus interface XML without a live bus or compositor. CI runs it on every PR; locally run `cargo test --test atspi_integration` from `bridge/` inside the devShell. These model tests are not proof of a working visual demo.
 
 ## Verification (release artefacts)
 
 Every tagged release ships:
 
 - Rust bridge binary built reproducibly with `SOURCE_DATE_EPOCH`, attested via [`actions/attest-build-provenance`](https://github.com/actions/attest-build-provenance) (v4 family).
-- CycloneDX 1.7 + SPDX 2.3 SBOMs (via `syft` + [`cyclonedx-rust-cargo`](https://github.com/CycloneDX/cyclonedx-rust-cargo)).
+- CycloneDX 1.6 + SPDX 2.3 SBOMs (via `syft` + [`cyclonedx-rust-cargo`](https://github.com/CycloneDX/cyclonedx-rust-cargo); [ADR-0026](docs/adr/ADR-0026-cyclonedx-1.6-syft-constraint.md)).
 - GitHub-native build-provenance attestation. Verify with a single command:
 
 ```bash

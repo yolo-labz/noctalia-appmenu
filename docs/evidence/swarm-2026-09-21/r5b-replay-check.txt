@@ -1,0 +1,1 @@
+okular native menu verified: 1510362 ['File', 'View', 'Edit', 'Go', 'Bookmarks', 'Tools', 'Settings', '', 'Help']

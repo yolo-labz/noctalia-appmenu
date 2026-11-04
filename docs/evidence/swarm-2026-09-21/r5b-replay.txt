@@ -1,0 +1,218 @@
+Owned runtime: /tmp/r5-w1gb6d1c
+Private X display: allocated; no daily display inherited
+niri exit: -15
+[2m2026-09-21T13:23:54.369267Z[0m [32m INFO[0m [2mniri[0m[2m:[0m starting version unstable 2026-08-02 (commit feb3e43f1475e0865bb89cbd1e898b34d1d2ccf6)
+[2m2026-09-21T13:23:54.369928Z[0m [34mDEBUG[0m [2mniri_config[0m[2m:[0m loaded config from "/tmp/r5-w1gb6d1c/config/niri/config.kdl"
+[2m2026-09-21T13:23:54.920253Z[0m [34mDEBUG[0m [2mniri::backend::winit[0m[2m:[0m failed building default dmabuf feedback, falling back to v3: error getting EGL device render node
+
+Caused by:
+    None of the following EGL extensions is supported by the underlying EGL implementation, at least one is required: ["EGL_EXT_device_drm"]
+[2m2026-09-21T13:23:54.920482Z[0m [34mDEBUG[0m [2mniri::niri[0m[2m:[0m putting output winit at x=0 y=0
+[2m2026-09-21T13:23:54.920567Z[0m [32m INFO[0m [2mniri[0m[2m:[0m listening on Wayland socket: wayland-1
+[2m2026-09-21T13:23:54.920573Z[0m [32m INFO[0m [2mniri[0m[2m:[0m IPC listening on: /tmp/r5-w1gb6d1c/runtime/niri.wayland-1.1509920.sock
+[2m2026-09-21T13:23:54.932354Z[0m [32m INFO[0m [2mniri[0m[2m:[0m listening on X11 socket: :5
+[2m2026-09-21T13:23:54.932817Z[0m [33m WARN[0m [2mniri::dbus[0m[2m:[0m error starting login1 watcher: I/O error: No such file or directory (os error 2)
+
+Caused by:
+    No such file or directory (os error 2)
+[2m2026-09-21T13:23:54.932917Z[0m [33m WARN[0m [2mniri::dbus[0m[2m:[0m error starting locale1 watcher: I/O error: No such file or directory (os error 2)
+
+Caused by:
+    No such file or directory (os error 2)
+[2m2026-09-21T13:23:54.938829Z[0m [33m WARN[0m [2mniri::cursor[0m[2m:[0m error loading xcursor default@24: no default icon
+dbus-daemon[1509916]: [session uid=1000 pid=1509916 pidfd=5] Activating service name='org.a11y.Bus' requested by ':1.0' (uid=1000 pid=1510361 comm="noctalia-appmenu-bridge")
+dbus-daemon[1509916]: [session uid=1000 pid=1509916 pidfd=5] Successfully activated service 'org.a11y.Bus'
+dbus-daemon[1510581]: Activating service name='org.a11y.atspi.Registry' requested by ':1.0' (uid=1000 pid=1510363 comm="dolphin /tmp/r5-w1gb6d1c/home")
+dbus-daemon[1510581]: Successfully activated service 'org.a11y.atspi.Registry'
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+[2m2026-09-21T13:25:24.327234Z[0m [32m INFO[0m [2mniri::utils::signals::platform[0m[2m:[0m quitting due to receiving signal SIGTERM
+
+bridge.log {"timestamp":"2026-09-21T13:23:54.959171Z","level":"INFO","fields":{"message":"starting noctalia-appmenu-bridge","cfg":"Config { focus_debounce_ms: 75, registrar_debounce_ms: 250, niri_binary: \"niri\", publish_service: \"org.noctalia.AppMenu\", publish_path: \"/org/noctalia/AppMenu/Active\", desktop_fallback: true }"},"target":"noctalia_appmenu_bridge"}
+{"timestamp":"2026-09-21T13:23:55.015639Z","level":"INFO","fields":{"message":"atspi a11y bus enabled"},"target":"noctalia_appmenu_bridge"}
+{"timestamp":"2026-09-21T13:23:55.018307Z","level":"INFO","fields":{"message":"owning active proxy","service":"org.noctalia.AppMenu","path":"/org/noctalia/AppMenu/Active"},"target":"noctalia_appmenu_bridge::proxy"}
+{"timestamp":"2026-09-21T13:23:55.368575Z","level":"INFO","fields":{"message":"subscribed to niri event stream"},"target":"noctalia_appmenu_bridge::niri"}
+{"timestamp":"2026-09-21T13:25:24.327302Z","level":"WARN","fields":{"message":"SIGTERM — shutting down"},"target":"noctalia_appmenu_bridge"}
+
+okular.log 
+dolphin.log 
+shell.log ts/conf.d/48-guessfamily.conf", line 144: invalid attribute 'xsi:nil'
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 145: invalid constant used : 
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 148: invalid constant used : fantasy
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 156: invalid attribute 'xsi:nil'
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 157: invalid constant used : 
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 160: invalid constant used : ui-sans-serif
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 168: invalid attribute 'xsi:nil'
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 169: invalid constant used : 
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 172: invalid constant used : ui-serif
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 180: invalid attribute 'xsi:nil'
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 181: invalid constant used : 
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 184: invalid constant used : ui-monospace
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 192: invalid attribute 'xsi:nil'
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 193: invalid constant used : 
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 196: invalid constant used : ui-rounded
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 204: invalid attribute 'xsi:nil'
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 205: invalid constant used : 
+Fontconfig warning: "/etc/fonts/conf.d/48-guessfamily.conf", line 208: invalid constant used : fangsong
+Fontconfig warning: "/etc/fonts/conf.d/48-spacing.conf", line 14: invalid constant used : monospace
+Fontconfig warning: "/etc/fonts/conf.d/49-sansserif.conf", line 10: invalid constant used : serif
+Fontconfig warning: "/etc/fonts/conf.d/49-sansserif.conf", line 18: invalid constant used : sans-serif
+Fontconfig warning: "/etc/fonts/conf.d/49-sansserif.conf", line 26: invalid constant used : monospace
+Fontconfig warning: "/etc/fonts/conf.d/49-sansserif.conf", line 34: invalid constant used : emoji
+Fontconfig warning: "/etc/fonts/conf.d/49-sansserif.conf", line 42: invalid constant used : math
+[32m  INFO[97m qml[0m: [36m[20260921-102405][0m [35m    Brightness[0m Service started
+[31m ERROR[97m quickshell.service.pipewire.loop[0m: Failed to connect pipewire context. Errno: 112
+[32m  INFO[97m qml[0m: [36m[20260921-102405][0m [35mDesktopWidgetR[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102405][0m [35m    BarService[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m    SystemStat[0m Service started (polling deferred until a consumer registers).
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m         Shell[0m ---------------------------
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m     Wallpaper[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m    ImageCache[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35mAppThemeServic[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m   ColorScheme[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35mDarkModeServic[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m      Location[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m IdleInhibitor[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m   IdleService[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m   HostService[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m        GitHub[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m     Supporter[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35mCustomButtonIP[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m    IPCService[0m Service started
+[33m  WARN[97m qml[0m: [36m[20260921-102406][0m [35m      Location[0m Cannot fetch weather without coordinates
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m   HostService[0m Detected NixOS 26.11 (Zokor)
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m   HostService[0m Looking for logo icon: nix-snowflake
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35mPluginRegistry[0m Loaded plugin: noctalia-appmenu - AppMenu
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35mPluginRegistry[0m All plugin manifests loaded. Total plugins: 1
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m PluginService[0m Initializing plugin system
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m PluginService[0m Found 1 enabled plugins: ["noctalia-appmenu"]
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m PluginService[0m Loading plugin: noctalia-appmenu
+[33m  WARN[97m quickshell.io.fileview[0m: got operation finished from dropped operation qs::io::FileViewOperation(0x71475a131520)
+[33m  WARN[97m quickshell.io.fileview[0m: got operation finished from dropped operation qs::io::FileViewOperation(0x71475a131ca0)
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m          Time[0m Time jump detected (6s) - likely system resume
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m    SystemStat[0m System resumed - resetting differential state
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35mDarkModeServic[0m System resumed - re-evaluating dark mode
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m    NightLight[0m System resumed - re-applying night light
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m    ImageCache[0m ImageMagick available
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m   HostService[0m resolved hostname desktop
+[33m  WARN[97m qml[0m: [36m[20260921-102406][0m [35m     Wallpaper[0m Empty directory for winit
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m   ColorScheme[0m Applying color scheme: Noctalia (default)
+[32m  INFO[97m qml[0m: [36m[20260921-102406][0m [35m    SystemStat[0m Found coretemp CPU thermal sensor at /sys/class/hwmon/hwmon2
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35m  HooksService[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35m          Font[0m Service started
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35m UpdateService[0m Version: v4.7.8-git
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35mBarWidgetRegis[0m Registered plugin widget: plugin:noctalia-appmenu
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35m PluginService[0m Loaded bar widget for plugin: noctalia-appmenu
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35m PluginService[0m Plugin loaded: noctalia-appmenu
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35m PluginService[0m All plugins loaded
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35m PluginService[0m Refreshing available plugins
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35mDarkModeServic[0m Resume retry - re-evaluating dark mode again
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35m    NightLight[0m Resume retry - re-applying night light again
+[32m  INFO[97m qml[0m: [36m[20260921-102408][0m [35m      Location[0m Geolocated to Recife, Brazil: -8.0009,-34.8687
+[32m  INFO[97m qml[0m: [36m[20260921-102409][0m [35m          Font[0m Loaded 365 fonts, 75 monospace
+[32m  INFO[97m qml[0m: [36m[20260921-102410][0m [35m PluginService[0m Parsed 132 plugins manifest from 'Noctalia Plugins'
+[32m  INFO[97m qml[0m: [36m[20260921-102410][0m [35m PluginService[0m All installed plugins are up to date
+
+QML log: 2026-09-21 10:23:55.069No running instances for "/nix/store/xqjhgfb7cl2gidv3b4nnlbsvqgzam56a-noctalia-shell-2026-06-07_5311e14/share/noctalia-shell/shell.qml"
+2026-09-21 10:23:55.069  INFO: Launching config: "/nix/store/xqjhgfb7cl2gidv3b4nnlbsvqgzam56a-noctalia-shell-2026-06-07_5311e14/share/noctalia-shell/shell.qml"
+2026-09-21 10:23:55.069  INFO: Shell ID: "d16d3fd09449304d1f5896d234accaa3" Path ID "d16d3fd09449304d1f5896d234accaa3"
+2026-09-21 10:23:55.074  INFO: Saving logs to "/tmp/r5-w1gb6d1c/runtime/quickshell/by-id/kedwvjuplt/log.qslog"
+2026-09-21 10:24:00.759  INFO qml: [36m[20260921-102400][0m [35m   NiriService[0m Service started
+2026-09-21 10:24:00.838  INFO qml: [36m[20260921-102400][0m [35m          I18n[0m Service started
+2026-09-21 10:24:00.841  INFO qml: [36m[20260921-102400][0m [35m          I18n[0m Loading "en" (locale: "en")
+2026-09-21 10:24:00.843  INFO qml: [36m[20260921-102400][0m [35m         Shell[0m ---------------------------
+2026-09-21 10:24:00.843  INFO qml: [36m[20260921-102400][0m [35m         Shell[0m Noctalia Hello!
+2026-09-21 10:24:00.855  INFO: Configuration Loaded
+2026-09-21 10:24:00.875  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Settings loaded
+2026-09-21 10:24:00.877  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m adapter.settingsVersion: 0
+2026-09-21 10:24:00.877  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v27
+2026-09-21 10:24:00.878  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v28
+2026-09-21 10:24:00.878  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v32
+2026-09-21 10:24:00.878  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v33
+2026-09-21 10:24:00.878  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Set default wallpaperChangeMode=random
+2026-09-21 10:24:00.878  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v35
+2026-09-21 10:24:00.878  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v36
+2026-09-21 10:24:00.881  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Cleared legacy emoji usage file at: /tmp/r5-w1gb6d1c/cache/noctalia/emoji_usage.json
+2026-09-21 10:24:00.882  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v37 (WiFi → Network)
+2026-09-21 10:24:00.887  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m No WiFi widget IDs found to migrate; leaving settings unchanged
+2026-09-21 10:24:00.889  INFO qml: [36m[20260921-102400][0m [35m   Migration38[0m Migrating bar margins from percentages to integers
+2026-09-21 10:24:00.889  INFO qml: [36m[20260921-102400][0m [35m   Migration39[0m Migrating templates from boolean format to activeTemplates array
+2026-09-21 10:24:00.889  INFO qml: [36m[20260921-102400][0m [35m   Migration42[0m Migrating randomEnabled to automationEnabled
+2026-09-21 10:24:00.889  INFO qml: [36m[20260921-102400][0m [35m   Migration43[0m Migrating recursiveSearch to viewMode
+2026-09-21 10:24:00.889  INFO qml: [36m[20260921-102400][0m [35m   Migration44[0m Updating PAM pam/password.conf
+2026-09-21 10:24:00.911  INFO qml: [36m[20260921-102400][0m [35m   Migration45[0m Migrating bar settings...
+2026-09-21 10:24:00.911  INFO qml: [36m[20260921-102400][0m [35m   Migration46[0m Removing legacy PAM configuration file
+2026-09-21 10:24:00.915  INFO qml: [36m[20260921-102400][0m [35m   Migration47[0m Removing network_stats.json cache
+2026-09-21 10:24:00.919  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v48
+2026-09-21 10:24:00.919  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v49
+2026-09-21 10:24:00.921  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Removed old launcher_app_usage.json
+2026-09-21 10:24:00.922  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v50
+2026-09-21 10:24:00.922  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v53
+2026-09-21 10:24:00.922  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v54
+2026-09-21 10:24:00.923  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v55
+2026-09-21 10:24:00.923  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v56 (Color Scheme Migration)
+2026-09-21 10:24:00.923  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Running color scheme migration script: /nix/store/xqjhgfb7cl2gidv3b4nnlbsvqgzam56a-noctalia-shell-2026-06-07_5311e14/share/noctalia-shell/Scripts/python/src/theming/migrate-colorschemes.py with configDir: /tmp/r5-w1gb6d1c/config/noctalia/
+2026-09-21 10:24:00.924  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v57 (cavaFrameRate -> spectrumFrameRate)
+2026-09-21 10:24:00.924  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v58 (dock.dockType: static -> attached)
+2026-09-21 10:24:00.924  INFO qml: [36m[20260921-102400][0m [35m      Settings[0m Migrating settings to v59 (wallpaper.transitionType: string -> array)
+2026-09-21 10:24:00.939  INFO qml: [36m[20260921-102400][0m [35m          I18n[0m Loaded translations for "en"
+2026-09-21 10:24:00.940  INFO qml: [36m[20260921-102400][0m [35mPluginRegistry[0m Loaded plugin states from: /tmp/r5-w1gb6d1c/config/noctalia/plugins.json
+2026-09-21 10:24:00.940  INFO qml: [36m[20260921-102400][0m [35mPluginRegistry[0m Migrating plugin data to v2 (adding sourceUrl)
+2026-09-21 10:24:00.940  INFO qml: [36m[20260921-102400][0m [35mPluginRegistry[0m Migration complete
+2026-09-21 10:24:00.940  INFO qml: [36m[20260921-102400][0m [35mPluginRegistry[0m Scanning plugin folder: /tmp/r5-w1gb6d1c/config/noctalia/plugins
+2026-09-21 10:24:00.959  INFO qml: [36m[20260921-102400][0m [35mKeyboardLayout[0m Service started
+2026-09-21 10:24:01.006  WARN quickshell.service.powerprofiles: Could not connect to DBus. PowerProfiles services will not work.
+2026-09-21 10:24:01.042  INFO qml: [36m[20260921-102401][0m [35m         Icons[0m Service started
+2026-09-21 10:24:05.378  INFO qml: [36m[20260921-102405][0m [35m    Brightness[0m Service started
+2026-09-21 10:24:05.478 ERROR quickshell.service.pipewire.loop: Failed to connect pipewire context. Errno: 112
+2026-09-21 10:24:05.852  INFO qml: [36m[20260921-102405][0m [35mDesktopWidgetR[0m Service started
+2026-09-21 10:24:05.916  INFO qml: [36m[20260921-102405][0m [35m    BarService[0m Service started
+2026-09-21 10:24:06.076  INFO qml: [36m[20260921-102406][0m [35m    SystemStat[0m Service started (polling deferred until a consumer registers).
+2026-09-21 10:24:06.205  INFO qml: [36m[20260921-102406][0m [35m         Shell[0m ---------------------------
+2026-09-21 10:24:06.205  INFO qml: [36m[20260921-102406][0m [35m     Wallpaper[0m Service started
+2026-09-21 10:24:06.210  INFO qml: [36m[20260921-102406][0m [35m    ImageCache[0m Service started
+2026-09-21 10:24:06.269  INFO qml: [36m[20260921-102406][0m [35mAppThemeServic[0m Service started
+2026-09-21 10:24:06.270  INFO qml: [36m[20260921-102406][0m [35m   ColorScheme[0m Service started
+2026-09-21 10:24:06.285  INFO qml: [36m[20260921-102406][0m [35mDarkModeServic[0m Service started
+2026-09-21 10:24:06.307  INFO qml: [36m[20260921-102406][0m [35m      Location[0m Service started
+2026-09-21 10:24:06.311  INFO qml: [36m[20260921-102406][0m [35m IdleInhibitor[0m Service started
+2026-09-21 10:24:06.311  INFO qml: [36m[20260921-102406][0m [35m   IdleService[0m Service started
+2026-09-21 10:24:06.315  INFO qml: [36m[20260921-102406][0m [35m   HostService[0m Service started
+2026-09-21 10:24:06.319  INFO qml: [36m[20260921-102406][0m [35m        GitHub[0m Service started
+2026-09-21 10:24:06.321  INFO qml: [36m[20260921-102406][0m [35m     Supporter[0m Service started
+2026-09-21 10:24:06.324  INFO qml: [36m[20260921-102406][0m [35mCustomButtonIP[0m Service started
+2026-09-21 10:24:06.328  INFO qml: [36m[20260921-102406][0m [35m    IPCService[0m Service started
+2026-09-21 10:24:06.563  WARN qml: [36m[20260921-102406][0m [35m      Location[0m Cannot fetch weather without coordinates
+2026-09-21 10:24:06.564  INFO qml: [36m[20260921-102406][0m [35m   HostService[0m Detected NixOS 26.11 (Zokor)
+2026-09-21 10:24:06.565  INFO qml: [36m[20260921-102406][0m [35m   HostService[0m Looking for logo icon: nix-snowflake
+2026-09-21 10:24:06.575  INFO qml: [36m[20260921-102406][0m [35mPluginRegistry[0m Loaded plugin: noctalia-appmenu - AppMenu
+2026-09-21 10:24:06.576  INFO qml: [36m[20260921-102406][0m [35mPluginRegistry[0m All plugin manifests loaded. Total plugins: 1
+2026-09-21 10:24:06.577  INFO qml: [36m[20260921-102406][0m [35m PluginService[0m Initializing plugin system
+2026-09-21 10:24:06.577  INFO qml: [36m[20260921-102406][0m [35m PluginService[0m Found 1 enabled plugins: ["noctalia-appmenu"]
+2026-09-21 10:24:06.577  INFO qml: [36m[20260921-102406][0m [35m PluginService[0m Loading plugin: noctalia-appmenu
+2026-09-21 10:24:06.586  WARN quickshell.io.fileview: got operation finished from dropped operation qs::io::FileViewOperation(0x71475a131520)
+2026-09-21 10:24:06.586  WARN quickshell.io.fileview: got operation finished from dropped operation qs::io::FileViewOperation(0x71475a131ca0)
+2026-09-21 10:24:06.595  INFO qml: [36m[20260921-102406][0m [35m          Time[0m Time jump detected (6s) - likely system resume
+2026-09-21 10:24:06.595  INFO qml: [36m[20260921-102406][0m [35m    SystemStat[0m System resumed - resetting differential state
+2026-09-21 10:24:06.595  INFO qml: [36m[20260921-102406][0m [35mDarkModeServic[0m System resumed - re-evaluating dark mode
+2026-09-21 10:24:06.595  INFO qml: [36m[20260921-102406][0m [35m    NightLight[0m System resumed - re-applying night light
+2026-09-21 10:24:06.602  INFO qml: [36m[20260921-102406][0m [35m    ImageCache[0m ImageMagick available
+2026-09-21 10:24:06.603  INFO qml: [36m[20260921-102406][0m [35m   HostService[0m resolved hostname desktop
+2026-09-21 10:24:06.608  WARN qml: [36m[20260921-102406][0m [35m     Wallpaper[0m Empty directory for winit
+2026-09-21 10:24:06.626  INFO qml: [36m[20260921-102406][0m [35m   ColorScheme[0m Applying color scheme: Noctalia (default)
+2026-09-21 10:24:06.627  INFO qml: [36m[20260921-102406][0m [35m    SystemStat[0m Found coretemp CPU thermal sensor at /sys/class/hwmon/hwmon2
+2026-09-21 10:24:08.545  INFO qml: [36m[20260921-102408][0m [35m  HooksService[0m Service started
+2026-09-21 10:24:08.546  INFO qml: [36m[20260921-102408][0m [35m          Font[0m Service started
+2026-09-21 10:24:08.546  INFO qml: [36m[20260921-102408][0m [35m UpdateService[0m Version: v4.7.8-git
+2026-09-21 10:24:08.697  INFO qml: [36m[20260921-102408][0m [35mBarWidgetRegis[0m Registered plugin widget: plugin:noctalia-appmenu
+2026-09-21 10:24:08.698  INFO qml: [36m[20260921-102408][0m [35m PluginService[0m Loaded bar widget for plugin: noctalia-appmenu
+2026-09-21 10:24:08.698  INFO qml: [36m[20260921-102408][0m [35m PluginService[0m Plugin loaded: noctalia-appmenu
+2026-09-21 10:24:08.698  INFO qml: [36m[20260921-102408][0m [35m PluginService[0m All plugins loaded
+2026-09-21 10:24:08.698  INFO qml: [36m[20260921-102408][0m [35m PluginService[0m Refreshing available plugins
+2026-09-21 10:24:08.823  INFO qml: [36m[20260921-102408][0m [35mDarkModeServic[0m Resume retry - re-evaluating dark mode again
+2026-09-21 10:24:08.823  INFO qml: [36m[20260921-102408][0m [35m    NightLight[0m Resume retry - re-applying night light again
+2026-09-21 10:24:08.844  INFO qml: [36m[20260921-102408][0m [35m      Location[0m Geolocated to Recife, Brazil: -8.0009,-34.8687
+2026-09-21 10:24:09.349  INFO qml: [36m[20260921-102409][0m [35m          Font[0m Loaded 365 fonts, 75 monospace
+2026-09-21 10:24:10.863  INFO qml: [36m[20260921-102410][0m [35m PluginService[0m Parsed 132 plugins manifest from 'Noctalia Plugins'
+2026-09-21 10:24:10.864  INFO qml: [36m[20260921-102410][0m [35m PluginService[0m All installed plugins are up to date
+
+Scratch logs: /tmp/r5-w1gb6d1c
