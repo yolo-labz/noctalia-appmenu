@@ -1,0 +1,140 @@
+[
+  {
+    "seconds": 4.101,
+    "kind": "setup",
+    "note": "Dolphin Places hidden and menubar enabled before recording"
+  },
+  {
+    "seconds": 7.05,
+    "kind": "mouse-click",
+    "role": "okular topbar Help",
+    "x": 398,
+    "y": 16
+  },
+  {
+    "seconds": 9.431,
+    "kind": "visible-popup-row",
+    "app": "okular",
+    "label": "About Okular",
+    "bounds": [
+      396,
+      242,
+      492,
+      252
+    ]
+  },
+  {
+    "seconds": 11.431,
+    "kind": "mouse-click",
+    "role": "okular popup About Okular",
+    "x": 444,
+    "y": 247
+  },
+  {
+    "seconds": 12.965,
+    "kind": "observed-action",
+    "app": "okular",
+    "dialog": {
+      "id": 4,
+      "title": "About Okular",
+      "app_id": "org.kde.okular",
+      "pid": 3680427,
+      "workspace_id": 1,
+      "is_focused": true,
+      "is_floating": true,
+      "is_urgent": false,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          523.0,
+          444.0
+        ],
+        "window_size": [
+          523,
+          444
+        ],
+        "tile_pos_in_workspace_view": [
+          63.0,
+          153.0
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      },
+      "focus_timestamp": {
+        "secs": 244761,
+        "nanos": 185099656
+      }
+    }
+  },
+  {
+    "seconds": 19.896,
+    "kind": "mouse-click",
+    "role": "dolphin topbar Help",
+    "x": 319,
+    "y": 16
+  },
+  {
+    "seconds": 22.256,
+    "kind": "visible-popup-row",
+    "app": "dolphin",
+    "label": "About Dolphin",
+    "bounds": [
+      318,
+      213,
+      421,
+      227
+    ]
+  },
+  {
+    "seconds": 24.256,
+    "kind": "mouse-click",
+    "role": "dolphin popup About Dolphin",
+    "x": 369,
+    "y": 220
+  },
+  {
+    "seconds": 25.779,
+    "kind": "observed-action",
+    "app": "dolphin",
+    "dialog": {
+      "id": 5,
+      "title": "About Dolphin",
+      "app_id": "org.kde.dolphin",
+      "pid": 3680428,
+      "workspace_id": 1,
+      "is_focused": true,
+      "is_floating": true,
+      "is_urgent": false,
+      "layout": {
+        "pos_in_scrolling_layout": null,
+        "tile_size": [
+          500.0,
+          513.0
+        ],
+        "window_size": [
+          500,
+          513
+        ],
+        "tile_pos_in_workspace_view": [
+          706.0,
+          119.0
+        ],
+        "window_offset_in_tile": [
+          0.0,
+          0.0
+        ]
+      },
+      "focus_timestamp": {
+        "secs": 244774,
+        "nanos": 11251189
+      }
+    }
+  },
+  {
+    "seconds": 29.801,
+    "kind": "result",
+    "passed": true
+  }
+]

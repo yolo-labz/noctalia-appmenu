@@ -13,6 +13,7 @@
 
 - [Local dev loop](how-to/dev-loop.md)
 - [Fake registrar](how-to/fake-registrar.md)
+- [Legacy topbar popup capture](how-to/legacy-popup-capture.md)
 - [Releasing](how-to/release.md)
 
 # Reference
