@@ -1,0 +1,23 @@
+Compact original output: compilation chatter omitted.
+warning: Git tree '/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-226-repro-build' is dirty
+warning: input 'crane' has an override for a non-existent input 'nixpkgs'
+building '/nix/store/id7h8acxjv0ndfgrzhj8nbldm4wdca58-noctalia-appmenu-bridge-1.0.36.drv'...
+noctalia-appmenu-bridge> test result: ok. 105 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+noctalia-appmenu-bridge> test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+noctalia-appmenu-bridge> test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+noctalia-appmenu-bridge> test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+noctalia-appmenu-bridge> test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+noctalia-appmenu-bridge> test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+noctalia-appmenu-bridge> test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+warning: Git tree '/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-226-repro-build' is dirty
+warning: input 'crane' has an override for a non-existent input 'nixpkgs'
+noctalia-appmenu-bridge> test result: ok. 105 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+noctalia-appmenu-bridge> test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+noctalia-appmenu-bridge> test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+noctalia-appmenu-bridge> test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+noctalia-appmenu-bridge> test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+noctalia-appmenu-bridge> test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+noctalia-appmenu-bridge> test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+f8d19779f1ab89e5ff3d804813fc5f0b81a5423e766624b66528289e1c59fedd  /var/tmp/pi-agent-1000/0e75daaa172dd4dc.2864360.fd4defc29ec6/r5-build-1
+f8d19779f1ab89e5ff3d804813fc5f0b81a5423e766624b66528289e1c59fedd  result/bin/noctalia-appmenu-bridge
+RESULT=0
