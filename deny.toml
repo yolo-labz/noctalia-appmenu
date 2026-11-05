@@ -32,6 +32,18 @@ ignore = [
   # production release closure. Track upstream iai-callgrind for a
   # replacement, same as RUSTSEC-2025-0141 above.
   "RUSTSEC-2026-0173",
+  # 02/11/2026 — RUSTSEC-2026-0370 (zvariant), RUSTSEC-2026-0371
+  # (zbus_names), RUSTSEC-2026-0372 (zvariant_derive): upstream merged
+  # these into `zbus` >= 6.0.0 and stopped maintaining the standalone
+  # crates ("No safe upgrade is available" — maintenance notices, not
+  # vulnerabilities). Inherited via our direct `zbus = "4.4"` dependency,
+  # which IS in the production closure, so the only real fix is migrating
+  # to zbus 6 (API break; tracked separately). Re-evaluate this block when
+  # that migration lands or if any of the three gains a vulnerability
+  # advisory (this ignore must NOT mask one).
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0372",
 ]
 
 [licenses]
