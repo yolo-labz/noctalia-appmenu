@@ -41,12 +41,11 @@ jobs:
           export SOURCE_DATE_EPOCH
           nix build .#noctalia-appmenu-bridge --print-build-logs --accept-flake-config
           cp -L result/bin/noctalia-appmenu-bridge "$RUNNER_TEMP/build-1"
-          rm -f result
+          # Keep result as a GC root until the forced rebuild finishes.
 
-      - name: Invalidate cargo cache
-        run: nix develop --command bash -c 'cargo clean --manifest-path bridge/Cargo.toml'
-
-      - name: Second build (nix derivation, cold cache)
+      # Nix rebuilds the derivation in its sandbox; host cargo clean neither
+      # invalidates those artifacts nor belongs in this reproducibility gate.
+      - name: Second build (nix derivation, forced rebuild)
         run: |
           set -eu
           SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
@@ -74,6 +73,6 @@ jobs:
         with:
           name: repro-debug
           path: |
-            "$RUNNER_TEMP/build-1"
-            "$RUNNER_TEMP/build-2"
+            ${{ runner.temp }}/build-1
+            ${{ runner.temp }}/build-2
           retention-days: 5
