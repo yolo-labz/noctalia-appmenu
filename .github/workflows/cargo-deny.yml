@@ -26,7 +26,7 @@ jobs:
   check:
     name: cargo-deny check
     runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
