@@ -22,13 +22,9 @@ env:
 jobs:
   check:
     name: detect unused deps
-    # Require `desktop` label — machete needs cargo/rustc on PATH and
-    # vm103 doesn't ship a rust toolchain. dtolnay/rust-toolchain
-    # action collides with desktop's existing rustup install
-    # ("cannot install while Rust is installed" + .profile EACCES),
-    # so route to the desktop runner that already has cargo + a
-    # job-started hook reclaiming `.git` perms.
-    runs-on: [self-hosted, Linux, X64, noctalia-appmenu, desktop]
+    # Runs on the vm103 runner: the nix devShell below supplies cargo + cargo-machete,
+    # and no runner carries a `desktop` label (the job sat queued forever with it).
+    runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
     timeout-minutes: 5
     permissions:
       contents: read
