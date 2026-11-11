@@ -31,12 +31,8 @@ updates:
       - dependency-name: "zvariant"
         update-types: ["version-update:semver-major"]
     groups:
-      zbus-stack:
-        patterns: ["zbus", "zvariant"]
-      tokio-stack:
-        patterns: ["tokio*", "futures*"]
-      tracing:
-        patterns: ["tracing*"]
+      minor-and-patch:
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: /
