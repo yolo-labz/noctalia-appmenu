@@ -1,0 +1,156 @@
+Private X display: allocated; no daily display inherited
+niri exit: -15
+2026-09-21T12:43:11.416025Z  INFO niri: starting version unstable 2026-08-02 (commit feb3e43f1475e0865bb89cbd1e898b34d1d2ccf6)
+2026-09-21T12:43:11.416706Z DEBUG niri_config: loaded config from "/tmp/r5-zd4cq34i/config/niri/config.kdl"
+2026-09-21T12:43:11.953442Z DEBUG niri::backend::winit: failed building default dmabuf feedback, falling back to v3: error getting EGL device render node
+
+Caused by:
+    None of the following EGL extensions is supported by the underlying EGL implementation, at least one is required: ["EGL_EXT_device_drm"]
+2026-09-21T12:43:11.953623Z DEBUG niri::niri: putting output winit at x=0 y=0
+2026-09-21T12:43:11.953697Z  INFO niri: listening on Wayland socket: wayland-1
+2026-09-21T12:43:11.953708Z  INFO niri: IPC listening on: /tmp/r5-zd4cq34i/runtime/niri.wayland-1.3950721.sock
+2026-09-21T12:43:11.960909Z  INFO niri: listening on X11 socket: :2
+2026-09-21T12:43:11.961423Z  WARN niri::dbus: error starting login1 watcher: I/O error: No such file or directory (os error 2)
+
+Caused by:
+    No such file or directory (os error 2)
+2026-09-21T12:43:11.961515Z  WARN niri::dbus: error starting locale1 watcher: I/O error: No such file or directory (os error 2)
+
+Caused by:
+    No such file or directory (os error 2)
+2026-09-21T12:43:11.967822Z  WARN niri::cursor: error loading xcursor default@24: no default icon
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.a11y.Bus' requested by ':1.0' (uid=1000 pid=3951106 comm="noctalia-appmenu-bridge")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Successfully activated service 'org.a11y.Bus'
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='ca.desrt.dconf' requested by ':1.1' (uid=1000 pid=3951126 comm="/nix/store/iw5kcyxqr3c4w4m2d2yaqxkkis07awr3-at-spi")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Successfully activated service 'ca.desrt.dconf'
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.freedesktop.systemd1' requested by ':1.6' (uid=1000 pid=3951262 comm="dbus-broker-launch --config-file=/nix/store/iw5kcy")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activated service 'org.freedesktop.systemd1' failed: Process org.freedesktop.systemd1 exited with status 1
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.freedesktop.systemd1' requested by ':1.6' (uid=1000 pid=3951262 comm="dbus-broker-launch --config-file=/nix/store/iw5kcy")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activated service 'org.freedesktop.systemd1' failed: Process org.freedesktop.systemd1 exited with status 1
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.freedesktop.systemd1' requested by ':1.6' (uid=1000 pid=3951262 comm="dbus-broker-launch --config-file=/nix/store/iw5kcy")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activated service 'org.freedesktop.systemd1' failed: Process org.freedesktop.systemd1 exited with status 1
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.freedesktop.systemd1' requested by ':1.6' (uid=1000 pid=3951262 comm="dbus-broker-launch --config-file=/nix/store/iw5kcy")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activated service 'org.freedesktop.systemd1' failed: Process org.freedesktop.systemd1 exited with status 1
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.freedesktop.systemd1' requested by ':1.6' (uid=1000 pid=3951262 comm="dbus-broker-launch --config-file=/nix/store/iw5kcy")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activated service 'org.freedesktop.systemd1' failed: Process org.freedesktop.systemd1 exited with status 1
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.freedesktop.systemd1' requested by ':1.6' (uid=1000 pid=3951262 comm="dbus-broker-launch --config-file=/nix/store/iw5kcy")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activated service 'org.freedesktop.systemd1' failed: Process org.freedesktop.systemd1 exited with status 1
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.freedesktop.systemd1' requested by ':1.6' (uid=1000 pid=3951262 comm="dbus-broker-launch --config-file=/nix/store/iw5kcy")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activated service 'org.freedesktop.systemd1' failed: Process org.freedesktop.systemd1 exited with status 1
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.freedesktop.systemd1' requested by ':1.6' (uid=1000 pid=3951262 comm="dbus-broker-launch --config-file=/nix/store/iw5kcy")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activated service 'org.freedesktop.systemd1' failed: Process org.freedesktop.systemd1 exited with status 1
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activating service name='org.freedesktop.systemd1' requested by ':1.6' (uid=1000 pid=3951262 comm="dbus-broker-launch --config-file=/nix/store/iw5kcy")
+dbus-daemon[3950713]: [session uid=1000 pid=3950713 pidfd=5] Activated service 'org.freedesktop.systemd1' failed: Process org.freedesktop.systemd1 exited with status 1
+
+bridge.log {"timestamp":"2026-09-21T12:43:11.998697Z","level":"INFO","fields":{"message":"starting noctalia-appmenu-bridge","cfg":"Config { focus_debounce_ms: 75, registrar_debounce_ms: 250, niri_binary: \"niri\", publish_service: \"org.noctalia.AppMenu\", publish_path: \"/org/noctalia/AppMenu/Active\", desktop_fallback: true }"},"target":"noctalia_appmenu_bridge"}
+{"timestamp":"2026-09-21T12:43:12.060135Z","level":"INFO","fields":{"message":"atspi a11y bus enabled"},"target":"noctalia_appmenu_bridge"}
+{"timestamp":"2026-09-21T12:43:12.064674Z","level":"INFO","fields":{"message":"owning active proxy","service":"org.noctalia.AppMenu","path":"/org/noctalia/AppMenu/Active"},"target":"noctalia_appmenu_bridge::proxy"}
+{"timestamp":"2026-09-21T12:43:12.247943Z","level":"INFO","fields":{"message":"subscribed to niri event stream"},"target":"noctalia_appmenu_bridge::niri"}
+{"timestamp":"2026-09-21T12:43:13.287237Z","level":"WARN","fields":{"message":"atspi walk failed; widget falls back to placeholder","error":"org.freedesktop.DBus.Error.NameHasNoOwner: Could not activate remote peer 'org.a11y.atspi.Registry': unit failed\n\nCaused by:\n    org.freedesktop.DBus.Error.NameHasNoOwner: Could not activate remote peer 'org.a11y.atspi.Registry': unit failed","pid":3951107},"target":"noctalia_appmenu_bridge::proxy"}
+{"timestamp":"2026-09-21T12:43:13.446204Z","level":"WARN","fields":{"message":"atspi walk failed; widget falls back to placeholder","error":"org.freedesktop.DBus.Error.NameHasNoOwner: Could not activate remote peer 'org.a11y.atspi.Registry': unit failed\n\nCaused by:\n    org.freedesktop.DBus.Error.NameHasNoOwner: Could not activate remote peer 'org.a11y.atspi.Registry': unit failed","pid":3951108},"target":"noctalia_appmenu_bridge::proxy"}
+{"timestamp":"2026-09-21T12:43:36.384126Z","level":"WARN","fields":{"message":"SIGTERM — shutting down"},"target":"noctalia_appmenu_bridge"}
+
+okular.log 
+dolphin.log 
+QML log: 2026-09-21 09:43:12.078No running instances for "/nix/store/xqjhgfb7cl2gidv3b4nnlbsvqgzam56a-noctalia-shell-2026-06-07_5311e14/share/noctalia-shell/shell.qml"
+2026-09-21 09:43:12.079  INFO: Launching config: "/nix/store/xqjhgfb7cl2gidv3b4nnlbsvqgzam56a-noctalia-shell-2026-06-07_5311e14/share/noctalia-shell/shell.qml"
+2026-09-21 09:43:12.079  INFO: Shell ID: "d16d3fd09449304d1f5896d234accaa3" Path ID "d16d3fd09449304d1f5896d234accaa3"
+2026-09-21 09:43:12.080  INFO: Saving logs to "/tmp/r5-zd4cq34i/runtime/quickshell/by-id/nooc20osplt/log.qslog"
+2026-09-21 09:43:16.022  INFO qml: [20260921-094316]    NiriService Service started
+2026-09-21 09:43:16.035  INFO qml: [20260921-094316]           I18n Service started
+2026-09-21 09:43:16.035  INFO qml: [20260921-094316]           I18n Loading "en" (locale: "en")
+2026-09-21 09:43:16.036  INFO qml: [20260921-094316]          Shell ---------------------------
+2026-09-21 09:43:16.036  INFO qml: [20260921-094316]          Shell Noctalia Hello!
+2026-09-21 09:43:16.041  INFO: Configuration Loaded
+2026-09-21 09:43:16.056  INFO qml: [20260921-094316]       Settings Settings loaded
+2026-09-21 09:43:16.058  INFO qml: [20260921-094316]       Settings adapter.settingsVersion: 0
+2026-09-21 09:43:16.058  INFO qml: [20260921-094316]       Settings Migrating settings to v27
+2026-09-21 09:43:16.059  INFO qml: [20260921-094316]       Settings Migrating settings to v28
+2026-09-21 09:43:16.059  INFO qml: [20260921-094316]       Settings Migrating settings to v32
+2026-09-21 09:43:16.059  INFO qml: [20260921-094316]       Settings Migrating settings to v33
+2026-09-21 09:43:16.060  INFO qml: [20260921-094316]       Settings Set default wallpaperChangeMode=random
+2026-09-21 09:43:16.060  INFO qml: [20260921-094316]       Settings Migrating settings to v35
+2026-09-21 09:43:16.060  INFO qml: [20260921-094316]       Settings Migrating settings to v36
+2026-09-21 09:43:16.063  INFO qml: [20260921-094316]       Settings Cleared legacy emoji usage file at: /tmp/r5-zd4cq34i/cache/noctalia/emoji_usage.json
+2026-09-21 09:43:16.064  INFO qml: [20260921-094316]       Settings Migrating settings to v37 (WiFi → Network)
+2026-09-21 09:43:16.064  INFO qml: [20260921-094316]       Settings No WiFi widget IDs found to migrate; leaving settings unchanged
+2026-09-21 09:43:16.065  INFO qml: [20260921-094316]    Migration38 Migrating bar margins from percentages to integers
+2026-09-21 09:43:16.066  INFO qml: [20260921-094316]    Migration39 Migrating templates from boolean format to activeTemplates array
+2026-09-21 09:43:16.066  INFO qml: [20260921-094316]    Migration42 Migrating randomEnabled to automationEnabled
+2026-09-21 09:43:16.066  INFO qml: [20260921-094316]    Migration43 Migrating recursiveSearch to viewMode
+2026-09-21 09:43:16.066  INFO qml: [20260921-094316]    Migration44 Updating PAM pam/password.conf
+2026-09-21 09:43:16.069  INFO qml: [20260921-094316]    Migration45 Migrating bar settings...
+2026-09-21 09:43:16.069  INFO qml: [20260921-094316]    Migration46 Removing legacy PAM configuration file
+2026-09-21 09:43:16.072  INFO qml: [20260921-094316]    Migration47 Removing network_stats.json cache
+2026-09-21 09:43:16.073  INFO qml: [20260921-094316]       Settings Migrating settings to v48
+2026-09-21 09:43:16.074  INFO qml: [20260921-094316]       Settings Migrating settings to v49
+2026-09-21 09:43:16.074  INFO qml: [20260921-094316]       Settings Removed old launcher_app_usage.json
+2026-09-21 09:43:16.076  INFO qml: [20260921-094316]       Settings Migrating settings to v50
+2026-09-21 09:43:16.077  INFO qml: [20260921-094316]       Settings Migrating settings to v53
+2026-09-21 09:43:16.077  INFO qml: [20260921-094316]       Settings Migrating settings to v54
+2026-09-21 09:43:16.077  INFO qml: [20260921-094316]       Settings Migrating settings to v55
+2026-09-21 09:43:16.077  INFO qml: [20260921-094316]       Settings Migrating settings to v56 (Color Scheme Migration)
+2026-09-21 09:43:16.077  INFO qml: [20260921-094316]       Settings Running color scheme migration script: /nix/store/xqjhgfb7cl2gidv3b4nnlbsvqgzam56a-noctalia-shell-2026-06-07_5311e14/share/noctalia-shell/Scripts/python/src/theming/migrate-colorschemes.py with configDir: /tmp/r5-zd4cq34i/config/noctalia/
+2026-09-21 09:43:16.078  INFO qml: [20260921-094316]       Settings Migrating settings to v57 (cavaFrameRate -> spectrumFrameRate)
+2026-09-21 09:43:16.078  INFO qml: [20260921-094316]       Settings Migrating settings to v58 (dock.dockType: static -> attached)
+2026-09-21 09:43:16.078  INFO qml: [20260921-094316]       Settings Migrating settings to v59 (wallpaper.transitionType: string -> array)
+2026-09-21 09:43:16.088  INFO qml: [20260921-094316]           I18n Loaded translations for "en"
+2026-09-21 09:43:16.088  INFO qml: [20260921-094316] PluginRegistry Loaded plugin states from: /tmp/r5-zd4cq34i/config/noctalia/plugins.json
+2026-09-21 09:43:16.089  INFO qml: [20260921-094316] PluginRegistry Migrating plugin data to v2 (adding sourceUrl)
+2026-09-21 09:43:16.089  INFO qml: [20260921-094316] PluginRegistry Migration complete
+2026-09-21 09:43:16.089  INFO qml: [20260921-094316] PluginRegistry Scanning plugin folder: /tmp/r5-zd4cq34i/config/noctalia/plugins
+2026-09-21 09:43:16.113  WARN qt.accessibility.atspi: Error in contacting registry: "org.freedesktop.DBus.Error.NameHasNoOwner" "Could not activate remote peer 'org.a11y.atspi.Registry': unit failed"
+2026-09-21 09:43:16.115  INFO qml: [20260921-094316] KeyboardLayout Service started
+2026-09-21 09:43:16.125  WARN quickshell.service.powerprofiles: Could not connect to DBus. PowerProfiles services will not work.
+2026-09-21 09:43:16.147  INFO qml: [20260921-094316]          Icons Service started
+2026-09-21 09:43:18.137  INFO qml: [20260921-094318]     Brightness Service started
+2026-09-21 09:43:18.156 ERROR quickshell.service.pipewire.loop: Failed to connect pipewire context. Errno: 112
+2026-09-21 09:43:18.468  INFO qml: [20260921-094318] DesktopWidgetR Service started
+2026-09-21 09:43:18.493  INFO qml: [20260921-094318]     BarService Service started
+2026-09-21 09:43:18.538  INFO qml: [20260921-094318]     SystemStat Service started (polling deferred until a consumer registers).
+2026-09-21 09:43:18.605  INFO qml: [20260921-094318]          Shell ---------------------------
+2026-09-21 09:43:18.605  INFO qml: [20260921-094318]      Wallpaper Service started
+2026-09-21 09:43:18.607  INFO qml: [20260921-094318]     ImageCache Service started
+2026-09-21 09:43:18.613  INFO qml: [20260921-094318] AppThemeServic Service started
+2026-09-21 09:43:18.614  INFO qml: [20260921-094318]    ColorScheme Service started
+2026-09-21 09:43:18.616  INFO qml: [20260921-094318] DarkModeServic Service started
+2026-09-21 09:43:18.623  INFO qml: [20260921-094318]       Location Service started
+2026-09-21 09:43:18.624  INFO qml: [20260921-094318]  IdleInhibitor Service started
+2026-09-21 09:43:18.625  INFO qml: [20260921-094318]    IdleService Service started
+2026-09-21 09:43:18.628  INFO qml: [20260921-094318]    HostService Service started
+2026-09-21 09:43:18.629  INFO qml: [20260921-094318]         GitHub Service started
+2026-09-21 09:43:18.630  INFO qml: [20260921-094318]      Supporter Service started
+2026-09-21 09:43:18.630  INFO qml: [20260921-094318] CustomButtonIP Service started
+2026-09-21 09:43:18.634  INFO qml: [20260921-094318]     IPCService Service started
+2026-09-21 09:43:18.734  WARN qml: [20260921-094318]       Location Cannot fetch weather without coordinates
+2026-09-21 09:43:18.735  INFO qml: [20260921-094318]    HostService Detected NixOS 26.11 (Zokor)
+2026-09-21 09:43:18.735  INFO qml: [20260921-094318]    HostService Looking for logo icon: nix-snowflake
+2026-09-21 09:43:18.738  INFO qml: [20260921-094318] PluginRegistry Loaded plugin: noctalia-appmenu - AppMenu
+2026-09-21 09:43:18.738  INFO qml: [20260921-094318] PluginRegistry All plugin manifests loaded. Total plugins: 1
+2026-09-21 09:43:18.739  INFO qml: [20260921-094318]  PluginService Initializing plugin system
+2026-09-21 09:43:18.739  INFO qml: [20260921-094318]  PluginService Found 1 enabled plugins: ["noctalia-appmenu"]
+2026-09-21 09:43:18.739  INFO qml: [20260921-094318]  PluginService Loading plugin: noctalia-appmenu
+2026-09-21 09:43:18.743  WARN quickshell.io.fileview: got operation finished from dropped operation qs::io::FileViewOperation(0x785d78d31480)
+2026-09-21 09:43:18.743  WARN quickshell.io.fileview: got operation finished from dropped operation qs::io::FileViewOperation(0x785d78d31c00)
+2026-09-21 09:43:18.748  INFO qml: [20260921-094318]     ImageCache ImageMagick available
+2026-09-21 09:43:18.748 ERROR qml: [20260921-094318]    ColorScheme Failed to find color scheme files
+2026-09-21 09:43:18.752  INFO qml: [20260921-094318]    HostService resolved hostname desktop
+2026-09-21 09:43:18.754  WARN qml: [20260921-094318]      Wallpaper Empty directory for winit
+2026-09-21 09:43:18.756  INFO qml: [20260921-094318]     SystemStat Found coretemp CPU thermal sensor at /sys/class/hwmon/hwmon2
+2026-09-21 09:43:19.903  INFO qml: [20260921-094319] BarWidgetRegis Registered plugin widget: plugin:noctalia-appmenu
+2026-09-21 09:43:19.903  INFO qml: [20260921-094319]  PluginService Loaded bar widget for plugin: noctalia-appmenu
+2026-09-21 09:43:19.904  INFO qml: [20260921-094319]  PluginService Plugin loaded: noctalia-appmenu
+2026-09-21 09:43:19.904  INFO qml: [20260921-094319]  PluginService All plugins loaded
+2026-09-21 09:43:19.904  INFO qml: [20260921-094319]  PluginService Refreshing available plugins
+2026-09-21 09:43:20.077  INFO qml: [20260921-094320]       Location Geolocated to Recife, Brazil: -8.0009,-34.8687
+2026-09-21 09:43:20.130  INFO qml: [20260921-094320]   HooksService Service started
+2026-09-21 09:43:20.130  INFO qml: [20260921-094320]           Font Service started
+2026-09-21 09:43:20.131  INFO qml: [20260921-094320]  UpdateService Version: v4.7.8-git
+2026-09-21 09:43:20.157  INFO qml: [20260921-094320]      Wallpaper Starting scan for winit in /tmp/r5-zd4cq34i/home/Pictures/Wallpapers recursive: false
+2026-09-21 09:43:20.159  INFO qml: [20260921-094320]      Wallpaper Starting scan for winit in /tmp/r5-zd4cq34i/home/Pictures/Wallpapers recursive: false
+2026-09-21 09:43:20.594  WARN qml: [20260921-094320]      Wallpaper Scan failed for winit exit code: 1 (directory might not exist)
+2026-09-21 09:43:20.631  INFO qml: [20260921-094320]           Font Loaded 365 fonts, 75 monospace
+2026-09-21 09:43:21.832  INFO qml: [20260921-094321]  PluginService Parsed 132 plugins manifest from 'Noctalia Plugins'
+2026-09-21 09:43:21.833  INFO qml: [20260921-094321]  PluginService All installed plugins are up to date
+
+Scratch logs: /tmp/r5-zd4cq34i

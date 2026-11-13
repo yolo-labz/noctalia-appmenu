@@ -1,0 +1,863 @@
+{
+  "observed_at": "2026-09-21T09:50:59.660513-03:00",
+  "prs": [
+    {
+      "number": 219,
+      "state": "open",
+      "head": "d4890b288b5d270c5446bbe078c3ce214c0bbcbf",
+      "title": "fix(deps): bump the tokio-stack group across 1 directory with 2 updates",
+      "checks": {
+        "Nix flake check": {
+          "id": 106292551194,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586967238/job/106292551194"
+        },
+        "PR title commitlint": {
+          "id": 106292551137,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586967238/job/106292551137"
+        },
+        "Bridge \u2014 cargo test": {
+          "id": 106292551055,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586967238/job/106292551055"
+        },
+        "AT-SPI integration test": {
+          "id": 106292551048,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586967238/job/106292551048"
+        },
+        "Plugin \u2014 qmllint": {
+          "id": 106292550921,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586967238/job/106292550921"
+        },
+        "osv-scanner": {
+          "id": 95358135054,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/95358135054"
+        },
+        "CodeQL": {
+          "id": 95353487659,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/95353487659"
+        },
+        "detect unused deps": {
+          "id": 95353364474,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635051/job/95353364474"
+        },
+        "code-slop + alignment": {
+          "id": 95353364217,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635026/job/95353364217"
+        },
+        "OSV-Scanner": {
+          "id": 95353364201,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635028/job/95353364201"
+        },
+        "Reproducible build check": {
+          "id": 95353364124,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635099/job/95353364124"
+        },
+        "Custom Rust rules": {
+          "id": 95353364072,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635084/job/95353364072"
+        },
+        "cargo-deny check (sources)": {
+          "id": 95353364011,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635008/job/95353364011"
+        },
+        "cargo-deny check (bans)": {
+          "id": 95353364003,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635008/job/95353364003"
+        },
+        "cargo-deny check (advisories)": {
+          "id": 95353363970,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635008/job/95353363970"
+        },
+        "typos": {
+          "id": 95353363956,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635011/job/95353363956"
+        },
+        "cargo-deny check (licenses)": {
+          "id": 95353363910,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635008/job/95353363910"
+        },
+        "CodeQL (actions)": {
+          "id": 95353363900,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635014/job/95353363900"
+        },
+        "cargo-llvm-cov + Codecov upload": {
+          "id": 95353363896,
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018634950/job/95353363896"
+        },
+        "workflow static analysis": {
+          "id": 95353363860,
+          "status": "completed",
+          "conclusion": "cancelled",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635009/job/95353363860"
+        },
+        "CodeQL (rust)": {
+          "id": 95353363832,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018635014/job/95353363832"
+        },
+        "iai-callgrind (deterministic instruction count)": {
+          "id": 95353363787,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018634983/job/95353363787"
+        },
+        "Sign-off check": {
+          "id": 95353363752,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018634955/job/95353363752"
+        },
+        "divan benches (wall clock)": {
+          "id": 95353363731,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018634983/job/95353363731"
+        },
+        "SonarQube standalone scan": {
+          "id": 95353363636,
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/32018634954/job/95353363636"
+        }
+      }
+    },
+    {
+      "number": 222,
+      "state": "open",
+      "head": "03cafd8bb7ae1ad4b0e600f501cfd598893720ef",
+      "title": "fix(deps): bump toml to 1.1.6 in /bridge",
+      "checks": {
+        "PR title commitlint": {
+          "id": 106333248383,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35530609123/job/106333248383"
+        },
+        "Plugin \u2014 qmllint": {
+          "id": 106333235053,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35530609123/job/106333235053"
+        },
+        "Bridge \u2014 cargo test": {
+          "id": 106333203919,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35530609123/job/106333203919"
+        },
+        "AT-SPI integration test": {
+          "id": 106333203031,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35530609123/job/106333203031"
+        },
+        "Nix flake check": {
+          "id": 106333201697,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35530609123/job/106333201697"
+        },
+        "osv-scanner": {
+          "id": 103936481407,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/103936481407"
+        },
+        "CodeQL": {
+          "id": 103935914594,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/103935914594"
+        },
+        "Custom Rust rules": {
+          "id": 103935752764,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532942/job/103935752764"
+        },
+        "code-slop + alignment": {
+          "id": 103935752695,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831533031/job/103935752695"
+        },
+        "cargo-deny check (sources)": {
+          "id": 103935751966,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532929/job/103935751966"
+        },
+        "cargo-deny check (licenses)": {
+          "id": 103935751907,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532929/job/103935751907"
+        },
+        "divan benches (wall clock)": {
+          "id": 103935751888,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532845/job/103935751888"
+        },
+        "cargo-deny check (advisories)": {
+          "id": 103935751820,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532929/job/103935751820"
+        },
+        "SonarQube standalone scan": {
+          "id": 103935751814,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532843/job/103935751814"
+        },
+        "CodeQL (rust)": {
+          "id": 103935751806,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532892/job/103935751806"
+        },
+        "cargo-llvm-cov + Codecov upload": {
+          "id": 103935751791,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532955/job/103935751791"
+        },
+        "detect unused deps": {
+          "id": 103935751781,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532980/job/103935751781"
+        },
+        "cargo-deny check (bans)": {
+          "id": 103935751672,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532929/job/103935751672"
+        },
+        "iai-callgrind (deterministic instruction count)": {
+          "id": 103935751598,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532845/job/103935751598"
+        },
+        "CodeQL (actions)": {
+          "id": 103935751558,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532892/job/103935751558"
+        },
+        "Sign-off check": {
+          "id": 103935751536,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532842/job/103935751536"
+        },
+        "Reproducible build check": {
+          "id": 103935751510,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532886/job/103935751510"
+        },
+        "workflow static analysis": {
+          "id": 103935751494,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532918/job/103935751494"
+        },
+        "typos": {
+          "id": 103935751476,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532865/job/103935751476"
+        },
+        "OSV-Scanner": {
+          "id": 103935750964,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/34831532839/job/103935750964"
+        }
+      }
+    },
+    {
+      "number": 223,
+      "state": "open",
+      "head": "febc5e95b8177b1b70ea2e1b9cb7ff9e8ea6c451",
+      "title": "fix(deps): bump clap from 4.6.4 to 4.6.7 in /bridge",
+      "checks": {
+        "osv-scanner": {
+          "id": 106293448150,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/106293448150"
+        },
+        "CodeQL": {
+          "id": 106292689499,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/106292689499"
+        },
+        "Reproducible build check": {
+          "id": 106292514146,
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988811/job/106292514146"
+        },
+        "divan benches (wall clock)": {
+          "id": 106292513857,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988859/job/106292513857"
+        },
+        "iai-callgrind (deterministic instruction count)": {
+          "id": 106292513534,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988859/job/106292513534"
+        },
+        "Nix flake check": {
+          "id": 106292513460,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988721/job/106292513460"
+        },
+        "PR title commitlint": {
+          "id": 106292513342,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988721/job/106292513342"
+        },
+        "AT-SPI integration test": {
+          "id": 106292513302,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988721/job/106292513302"
+        },
+        "Plugin \u2014 qmllint": {
+          "id": 106292513283,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988721/job/106292513283"
+        },
+        "Sign-off check": {
+          "id": 106292513264,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988855/job/106292513264"
+        },
+        "typos": {
+          "id": 106292513116,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988764/job/106292513116"
+        },
+        "cargo-deny check (advisories)": {
+          "id": 106292513055,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988773/job/106292513055"
+        },
+        "detect unused deps": {
+          "id": 106292513053,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988758/job/106292513053"
+        },
+        "Bridge \u2014 cargo test": {
+          "id": 106292513044,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988721/job/106292513044"
+        },
+        "cargo-deny check (bans)": {
+          "id": 106292513024,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988773/job/106292513024"
+        },
+        "cargo-deny check (sources)": {
+          "id": 106292512998,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988773/job/106292512998"
+        },
+        "code-slop + alignment": {
+          "id": 106292512955,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988728/job/106292512955"
+        },
+        "CodeQL (actions)": {
+          "id": 106292512897,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988747/job/106292512897"
+        },
+        "cargo-deny check (licenses)": {
+          "id": 106292512778,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988773/job/106292512778"
+        },
+        "CodeQL (rust)": {
+          "id": 106292512646,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988747/job/106292512646"
+        },
+        "cargo-llvm-cov + Codecov upload": {
+          "id": 106292512544,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988706/job/106292512544"
+        },
+        "SonarQube standalone scan": {
+          "id": 106292512541,
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988654/job/106292512541"
+        },
+        "workflow static analysis": {
+          "id": 106292512527,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988655/job/106292512527"
+        },
+        "Custom Rust rules": {
+          "id": 106292512394,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988656/job/106292512394"
+        },
+        "OSV-Scanner": {
+          "id": 106292512305,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35586988653/job/106292512305"
+        }
+      }
+    },
+    {
+      "number": 224,
+      "state": "open",
+      "head": "598b9cce978c8c0c3322a3fee03ef13e251d4d16",
+      "title": "ci(deps): bump 12 GitHub Actions dependencies",
+      "checks": {
+        "PR title commitlint": {
+          "id": 106330984419,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35599186310/job/106330984419"
+        },
+        "Plugin \u2014 qmllint": {
+          "id": 106330984372,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35599186310/job/106330984372"
+        },
+        "Bridge \u2014 cargo test": {
+          "id": 106330984302,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35599186310/job/106330984302"
+        },
+        "Nix flake check": {
+          "id": 106330984173,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35599186310/job/106330984173"
+        },
+        "AT-SPI integration test": {
+          "id": 106330984037,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35599186310/job/106330984037"
+        },
+        "osv-scanner": {
+          "id": 106302607664,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/106302607664"
+        },
+        "CodeQL": {
+          "id": 106294250857,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/106294250857"
+        },
+        "Sign-off check": {
+          "id": 106294094293,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486897/job/106294094293"
+        },
+        "cargo-deny check (sources)": {
+          "id": 106294091533,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486595/job/106294091533"
+        },
+        "cargo-deny check (advisories)": {
+          "id": 106294091422,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486595/job/106294091422"
+        },
+        "cargo-deny check (bans)": {
+          "id": 106294091410,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486595/job/106294091410"
+        },
+        "cargo-deny check (licenses)": {
+          "id": 106294091203,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486595/job/106294091203"
+        },
+        "workflow static analysis": {
+          "id": 106294089205,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587487279/job/106294089205"
+        },
+        "cargo-llvm-cov + Codecov upload": {
+          "id": 106294088681,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486892/job/106294088681"
+        },
+        "Reproducible build check": {
+          "id": 106294087969,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486694/job/106294087969"
+        },
+        "CodeQL (rust)": {
+          "id": 106294087954,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486839/job/106294087954"
+        },
+        "typos": {
+          "id": 106294087772,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486768/job/106294087772"
+        },
+        "CodeQL (actions)": {
+          "id": 106294087743,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486839/job/106294087743"
+        },
+        "detect unused deps": {
+          "id": 106294087706,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486817/job/106294087706"
+        },
+        "OSV-Scanner": {
+          "id": 106294087649,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486876/job/106294087649"
+        },
+        "divan benches (wall clock)": {
+          "id": 106294087430,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486650/job/106294087430"
+        },
+        "iai-callgrind (deterministic instruction count)": {
+          "id": 106294087321,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486650/job/106294087321"
+        },
+        "Custom Rust rules": {
+          "id": 106294087176,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486716/job/106294087176"
+        },
+        "code-slop + alignment": {
+          "id": 106294087138,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486618/job/106294087138"
+        },
+        "SonarQube standalone scan": {
+          "id": 106294087026,
+          "status": "completed",
+          "conclusion": "failure",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35587486656/job/106294087026"
+        }
+      }
+    },
+    {
+      "number": 225,
+      "state": "open",
+      "head": "e082a749cc6965074bfef2a5ba50c92478566bf6",
+      "title": "fix(ci): repair Sonar roots and release docs",
+      "checks": {
+        "osv-scanner": {
+          "id": 106339339466,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/106339339466"
+        },
+        "CodeQL": {
+          "id": 106339316940,
+          "status": "completed",
+          "conclusion": "neutral",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/106339316940"
+        },
+        "Reproducible build check": {
+          "id": 106339142743,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718153/job/106339142743"
+        },
+        "cargo-llvm-cov + Codecov upload": {
+          "id": 106339141772,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718159/job/106339141772"
+        },
+        "Custom Rust rules": {
+          "id": 106339141244,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718092/job/106339141244"
+        },
+        "AT-SPI integration test": {
+          "id": 106339141199,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718027/job/106339141199"
+        },
+        "PR title commitlint": {
+          "id": 106339141060,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718027/job/106339141060"
+        },
+        "Nix flake check": {
+          "id": 106339141042,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718027/job/106339141042"
+        },
+        "Bridge \u2014 cargo test": {
+          "id": 106339140992,
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718027/job/106339140992"
+        },
+        "Plugin \u2014 qmllint": {
+          "id": 106339140815,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718027/job/106339140815"
+        },
+        "code-slop + alignment": {
+          "id": 106339140466,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601717912/job/106339140466"
+        },
+        "workflow static analysis": {
+          "id": 106339140398,
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601717945/job/106339140398"
+        },
+        "CodeQL (actions)": {
+          "id": 106339140350,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601717915/job/106339140350"
+        },
+        "typos": {
+          "id": 106339140302,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718007/job/106339140302"
+        },
+        "OSV-Scanner": {
+          "id": 106339140297,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718011/job/106339140297"
+        },
+        "SonarQube standalone scan": {
+          "id": 106339140232,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601717995/job/106339140232"
+        },
+        "Sign-off check": {
+          "id": 106339140208,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601718001/job/106339140208"
+        },
+        "CodeQL (rust)": {
+          "id": 106339139898,
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601717915/job/106339139898"
+        }
+      }
+    },
+    {
+      "number": 226,
+      "state": "open",
+      "head": "2c84e7c9ee8cf8ed0dadbfbc7a6dfb133f0a1b7e",
+      "title": "fix(ci): isolate the Nix reproducibility check",
+      "checks": {
+        "CodeQL": {
+          "id": 106339896273,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/runs/106339896273"
+        },
+        "Sign-off check": {
+          "id": 106339732287,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601894081/job/106339732287"
+        },
+        "OSV-Scanner": {
+          "id": 106339721844,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893979/job/106339721844"
+        },
+        "CodeQL (actions)": {
+          "id": 106339721351,
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601894349/job/106339721351"
+        },
+        "CodeQL (rust)": {
+          "id": 106339720953,
+          "status": "in_progress",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601894349/job/106339720953"
+        },
+        "typos": {
+          "id": 106339719643,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893989/job/106339719643"
+        },
+        "code-slop + alignment": {
+          "id": 106339719542,
+          "status": "completed",
+          "conclusion": "success",
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893914/job/106339719542"
+        },
+        "Custom Rust rules": {
+          "id": 106339719381,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601894033/job/106339719381"
+        },
+        "Reproducible build check": {
+          "id": 106339719329,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601894022/job/106339719329"
+        },
+        "SonarQube standalone scan": {
+          "id": 106339719188,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893997/job/106339719188"
+        },
+        "cargo-llvm-cov + Codecov upload": {
+          "id": 106339719125,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893985/job/106339719125"
+        },
+        "Nix flake check": {
+          "id": 106339718986,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893927/job/106339718986"
+        },
+        "Bridge \u2014 cargo test": {
+          "id": 106339718969,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893927/job/106339718969"
+        },
+        "workflow static analysis": {
+          "id": 106339718851,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893984/job/106339718851"
+        },
+        "Plugin \u2014 qmllint": {
+          "id": 106339718819,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893927/job/106339718819"
+        },
+        "PR title commitlint": {
+          "id": 106339718780,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893927/job/106339718780"
+        },
+        "AT-SPI integration test": {
+          "id": 106339718584,
+          "status": "queued",
+          "conclusion": null,
+          "url": "https://github.com/yolo-labz/noctalia-appmenu/actions/runs/35601893927/job/106339718584"
+        }
+      }
+    }
+  ]
+}
