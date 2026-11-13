@@ -1,0 +1,309 @@
+warning: Git tree '/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-225-quality-media-swarm' is dirty
+warning: input 'crane' has an override for a non-existent input 'nixpkgs'
+noctalia-appmenu devShell — rustc 1.95.0 (59807616e 2026-04-14)
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling cfg-if v1.0.4
+   Compiling pin-project-lite v0.2.17
+   Compiling futures-core v0.3.33
+   Compiling bitflags v2.11.1
+   Compiling version_check v0.9.5
+   Compiling equivalent v1.0.2
+   Compiling zmij v1.0.21
+   Compiling once_cell v1.21.4
+   Compiling hashbrown v0.17.0
+   Compiling rustix v1.1.4
+   Compiling indexmap v2.14.0
+   Compiling generic-array v0.14.7
+   Compiling linux-raw-sys v0.12.1
+   Compiling winnow v0.7.15
+   Compiling serde_json v1.0.151
+   Compiling toml_datetime v0.6.11
+   Compiling crossbeam-utils v0.8.21
+   Compiling syn v2.0.117
+   Compiling syn v3.0.2
+   Compiling anstyle v1.0.14
+   Compiling zerocopy v0.8.48
+   Compiling itoa v1.0.18
+   Compiling toml_edit v0.22.27
+   Compiling memchr v2.8.0
+   Compiling typenum v1.20.0
+   Compiling errno v0.3.14
+   Compiling tracing-core v0.1.36
+   Compiling utf8parse v0.2.2
+   Compiling autocfg v1.5.0
+   Compiling anstyle-parse v1.0.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling concurrent-queue v2.5.0
+   Compiling memoffset v0.9.1
+   Compiling socket2 v0.6.3
+   Compiling mio v1.2.0
+   Compiling proc-macro-crate v3.3.0
+   Compiling getrandom v0.2.17
+   Compiling colorchoice v1.0.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling bytes v1.11.1
+   Compiling futures-sink v0.3.33
+   Compiling parking v2.2.1
+   Compiling cfg_aliases v0.2.1
+   Compiling anstyle-query v1.1.5
+   Compiling anstream v1.0.0
+   Compiling nix v0.29.0
+   Compiling zvariant_utils v2.1.0
+   Compiling event-listener v5.4.1
+   Compiling futures-channel v0.3.33
+   Compiling serde_derive v1.0.229
+   Compiling rand_core v0.6.4
+   Compiling block-buffer v0.10.4
+   Compiling crypto-common v0.1.7
+   Compiling terminal_size v0.4.4
+   Compiling endi v1.1.1
+   Compiling futures-task v0.3.33
+   Compiling clap_lex v1.1.0
+   Compiling static_assertions v1.1.0
+   Compiling strsim v0.11.1
+   Compiling slab v0.4.12
+   Compiling futures-io v0.3.33
+   Compiling heck v0.5.0
+   Compiling regex-syntax v0.8.10
+   Compiling clap_derive v4.6.4
+   Compiling clap_builder v4.6.2
+   Compiling tokio-macros v2.7.0
+   Compiling enumflags2_derive v0.7.12
+   Compiling ppv-lite86 v0.2.21
+   Compiling futures-macro v0.3.33
+   Compiling tracing-attributes v0.1.31
+   Compiling tokio v1.53.0
+   Compiling zvariant_derive v4.2.0
+   Compiling rand_chacha v0.3.1
+   Compiling regex-automata v0.4.14
+   Compiling derive_more-impl v2.1.1
+   Compiling futures-util v0.3.33
+   Compiling enumflags2 v0.7.12
+   Compiling digest v0.10.7
+   Compiling event-listener-strategy v0.5.4
+   Compiling anyhow v1.0.104
+   Compiling tracing v0.1.44
+   Compiling zvariant v4.2.0
+   Compiling winnow v1.0.2
+   Compiling lazy_static v1.5.0
+   Compiling cpufeatures v0.2.17
+   Compiling log v0.4.29
+   Compiling getrandom v0.3.0
+   Compiling tracing-log v0.2.0
+   Compiling sha1 v0.10.6
+   Compiling sharded-slab v0.1.7
+   Compiling toml_parser v1.1.2+spec-1.1.0
+   Compiling matchers v0.2.0
+   Compiling async-broadcast v0.7.2
+   Compiling tracing-serde v0.2.0
+   Compiling clap v4.6.4
+   Compiling rand v0.8.6
+   Compiling serde_repr v0.1.20
+   Compiling zbus_macros v4.4.0
+   Compiling async-trait v0.1.89
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling zbus_names v3.0.0
+   Compiling serde_spanned v1.1.1
+   Compiling xdg-home v1.3.0
+   Compiling proc-macro-error-attr2 v2.0.0
+   Compiling ordered-stream v0.2.0
+   Compiling thread_local v1.1.9
+   Compiling smallvec v1.15.1
+   Compiling hex v0.4.3
+   Compiling iai-callgrind-runner v0.16.1
+   Compiling toml_writer v1.1.2+spec-1.1.0
+   Compiling nu-ansi-term v0.50.3
+   Compiling predicates-core v1.0.10
+   Compiling mockall_derive v0.15.0
+   Compiling tracing-subscriber v0.3.23
+   Compiling toml v1.1.3+spec-1.1.0
+   Compiling proc-macro-error2 v2.0.1
+   Compiling futures v0.3.33
+   Compiling derive_more v2.1.1
+   Compiling niri-ipc v26.4.0
+   Compiling termtree v0.5.1
+   Compiling iai-callgrind v0.16.1
+   Compiling fastrand v2.4.1
+   Compiling mockall v0.15.0
+   Compiling tempfile v3.27.0
+   Compiling iai-callgrind-macros v0.6.1
+   Compiling predicates-tree v1.0.13
+   Compiling zbus v4.4.0
+   Compiling predicates v3.1.4
+   Compiling tokio-stream v0.1.18
+   Compiling bincode v1.3.3
+   Compiling divan-macros v0.1.21
+   Compiling console v0.16.3
+   Compiling fragile v2.1.0
+   Compiling downcast v0.11.0
+   Compiling regex-lite v0.1.9
+   Compiling similar v2.7.0
+   Compiling condtype v1.3.0
+   Compiling tokio-test v0.4.5
+   Compiling insta v1.48.0
+   Compiling divan v0.1.21
+   Compiling noctalia-appmenu-bridge v1.0.36 (/home/notroot/Documents/Code/yolo-labz/noctalia-appmenu-225-quality-media-swarm/bridge)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 07s
+     Running unittests src/lib.rs (target/debug/deps/noctalia_appmenu_bridge-88f4ac770395bfb0)
+
+running 105 tests
+test active::tests::focus_populates_pid_app_id_title ... ok
+test active::tests::focus_populates_winid_for_multi_window_routing ... ok
+test active::tests::no_focus_yields_empty ... ok
+test active::tests::no_focus_yields_zero_winid ... ok
+test active::tests::snapshot_omits_legacy_dbusmenu_fields_post_atspi ... ok
+test atspi::learned_skip::tests::cheap_verdict_expires_after_ttl ... ok
+test atspi::learned_skip::tests::cheap_negative_skips_then_forget_clears ... ok
+test atspi::learned_skip::tests::clear_expensive_drops_only_expensive_verdicts ... ok
+test atspi::learned_skip::tests::expensive_ttl_is_finite_and_outlives_cheap ... ok
+test atspi::learned_skip::tests::expensive_verdict_is_bounded_not_permanent ... ok
+test atspi::learned_skip::tests::expensive_negative_skips_immediately ... ok
+test atspi::learned_skip::tests::resolved_app_recovers_from_expensive_skip_fast ... ok
+test atspi::learned_skip::tests::expensive_walk_is_classified_expensive ... ok
+test atspi::learned_skip::tests::unknown_app_is_not_skipped ... ok
+test atspi::tests::atspi_client_clone_is_cheap ... ok
+test atspi::tests::choose_frame_active_is_tiebreaker ... ok
+test atspi::tests::choose_frame_single_or_zero_window_uses_app_root ... ok
+test atspi::tests::choose_frame_title_hit_beats_active ... ok
+test atspi::tests::empty_menubar_triggers_synthetic_fallback ... ok
+test atspi::tests::fetch_menu_tree_recursion_invariant_three_levels ... ok
+test atspi::tests::flatten_is_idempotent_on_already_flat_tree ... ok
+test atspi::tests::flatten_preserves_toggle_state ... ok
+test atspi::tests::atspi_client_invalidate_is_idempotent ... ok
+test atspi::tests::flatten_rejects_multi_child_root ... ok
+test atspi::tests::flatten_skips_named_wrapper ... ok
+test atspi::tests::flatten_strips_single_empty_wrapper ... ok
+test atspi::tests::fuzzy_app_match_recognises_kde_and_anki_pairings ... ok
+test atspi::tests::fuzzy_app_match_rejects_short_and_empty ... ok
+test atspi::tests::flatten_skips_empty_leaf ... ok
+test atspi::tests::menu_error_stale_round_trips_through_anyhow ... ok
+test atspi::tests::menu_item_default_is_empty ... ok
+test atspi::tests::menu_item_serializes_with_atspi_coords ... ok
+test atspi::tests::niri_action_icon_maps_known_actions_only ... ok
+test atspi::tests::niri_action_icon_maps_monitor_moves ... ok
+test atspi::tests::niri_leaf_carries_action_icon ... ok
+test atspi::tests::normalize_app_id_preserves_single_dot_suffix ... ok
+test atspi::tests::normalize_app_id_strips_kde_double_prefix ... ok
+test atspi::tests::pretty_app_label_strips_reverse_dns_and_capitalises ... ok
+test atspi::tests::role_constants_match_atspi_wire_enum ... ok
+test atspi::tests::synthetic_menu_handles_empty_app_id ... ok
+test atspi::tests::synthetic_window_submenu_layout_and_icons ... ok
+test atspi::tests::synthetic_menu_no_wtype_paths ... ok
+test config::tests::default_constants_are_finite ... ok
+test atspi::tests::title_matches_is_exact_trimmed_only ... ok
+test atspi::tests::choose_frame_multiwindow_no_match_serves_placeholder ... ok
+test atspi::tests::synthetic_menu_honest_layout ... ok
+test config::tests::load_missing_returns_defaults ... ok
+test config::tests::load_malformed_toml_errors ... ok
+test config::tests::load_valid_toml_overrides_defaults ... ok
+test desktop::tests::build_enriched_launch_leaf_uses_entry_icon ... ok
+test desktop::tests::build_enriched_action_icon_overrides_entry_icon ... ok
+test desktop::tests::displayable_filters_nodisplay_and_hidden ... ok
+test desktop::tests::exec_argv_empty_is_empty ... ok
+test desktop::tests::build_enriched_populates_icon_name_from_desktop_icon ... ok
+test desktop::tests::build_enriched_with_actions_skips_synthetic_launch ... ok
+test desktop::tests::fallback_menu_empty_app_id_is_none ... ok
+test desktop::tests::locale_name_ignores_empty_localized_value ... ok
+test desktop::tests::normalize_strips_reverse_dns ... ok
+test desktop::tests::locale_name_picks_most_specific_then_falls_back ... ok
+test desktop::tests::parse_collects_actions_without_actions_key ... ok
+test config::tests::load_can_disable_desktop_fallback ... ok
+test desktop::tests::parse_extracts_entry_and_actions ... ok
+test desktop::tests::parse_locale_prefs_expands_and_neutralises ... ok
+test desktop::tests::parse_malformed_returns_none ... ok
+test desktop::tests::parse_rejects_non_application_type ... ok
+test desktop::tests::parse_skips_comments_and_blank_lines ... ok
+test desktop::tests::parse_orders_actions_by_actions_key ... ok
+test desktop::tests::build_enriched_without_actions_synthesises_launch ... ok
+test desktop::tests::exec_argv_strips_field_codes ... ok
+test desktop::tests::valid_desktop_id_accepts_real_ids_rejects_traversal ... ok
+test desktop::tests::resolve_in_direct_id_hit ... ok
+test niri::tests::backoff_floor_matches_focus_sink_contract ... ok
+test niri::tests::closed_does_not_affect_focus_decision ... ok
+test desktop::tests::resolve_in_skips_hidden_entry ... ok
+test desktop::tests::resolve_in_rejects_path_traversal_even_when_target_exists ... ok
+test niri::tests::focus_none_means_defocus ... ok
+test niri::tests::focus_known_window_emits_event ... ok
+test niri::tests::focus_unknown_window_signals_unknown ... ok
+test desktop::tests::resolve_in_startup_wm_class_match ... ok
+test niri::tests::focus_window_without_pid_is_no_change ... ok
+test desktop::tests::resolve_in_unknown_is_none ... ok
+test desktop::tests::exec_argv_handles_quotes_and_percent_escape ... ok
+test desktop::tests::fallback_menu_serialises_like_active_json_menu ... ok
+test niri::tests::next_backoff_holds_when_session_short ... ok
+test niri::tests::next_backoff_resets_after_long_session ... ok
+test niri::tests::next_backoff_resets_at_exact_threshold ... ok
+test niri::tests::niri_focus_sink_constructs_without_state ... ok
+test niri::tests::opened_or_changed_with_focus_emits ... ok
+test niri::tests::opened_or_changed_without_focus_is_no_change ... ok
+test niri::tests::parses_window_closed ... ok
+test niri::tests::parses_window_focus_changed_with_id ... ok
+test niri::tests::parses_window_focus_changed_with_null ... ok
+test niri::tests::replay_empty_lines_are_skipped ... ok
+test niri::tests::replay_focus_firefox_then_ghostty ... ok
+test desktop::tests::parse_first_value_wins_for_duplicate_keys ... ok
+test niri::tests::windows_changed_emits_initial_focus ... ok
+test niri::tests::workspace_event_is_no_change ... ok
+test niri::tests::replay_handles_unknown_event_variants ... ok
+test niri::tests::replay_handles_window_without_pid ... ok
+test proxy::lazy_unreadable_tests::empty_menubar_no_top_levels_is_not_flagged ... ok
+test proxy::lazy_unreadable_tests::firefox_all_childless_top_levels_is_lazy_unreadable ... ok
+test proxy::lazy_unreadable_tests::partially_lazy_menubar_is_readable ... ok
+test niri::tests::windows_changed_with_no_focused_is_no_change ... ok
+test proxy::lazy_unreadable_tests::eager_menubar_with_populated_top_levels_is_readable ... ok
+test desktop::tests::fallback_menu_unresolved_app_id_uses_minimal_synthetic ... ok
+
+test result: ok. 105 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+     Running unittests src/main.rs (target/debug/deps/noctalia_appmenu_bridge-6ddba6182cfcf0ff)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/active_snapshot.rs (target/debug/deps/active_snapshot-9d05d55efaf92930)
+
+running 1 test
+test empty_snapshot_has_zero_pid_and_no_menu ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/atspi_integration.rs (target/debug/deps/atspi_integration-271a1dca538d7305)
+
+running 2 tests
+test active_proxy_interface_xml_is_stable ... ok
+test firefox_menubar_serializes_to_stable_json ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/desktop_fallback.rs (target/debug/deps/desktop_fallback-86c5d2f32ce6c7ec)
+
+running 3 tests
+test empty_app_id_yields_no_menu ... ok
+test parse_and_field_codes_are_public ... ok
+test resolve_in_then_fallback_menu_round_trip ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+     Running tests/niri_reconnect.rs (target/debug/deps/niri_reconnect-7fe1cb4c7ae2ed8f)
+
+running 4 tests
+test ack_path_socket_closed_before_ack_returns_err ... ok
+test ack_path_malformed_response_returns_parse_err ... ok
+test ack_path_happy_then_eof_returns_session_ended_err ... ok
+test ack_path_rejected_subscription_returns_typed_err ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests noctalia_appmenu_bridge
+
+running 1 test
+test src/niri.rs - niri::NiriFocusSink (line 200) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
