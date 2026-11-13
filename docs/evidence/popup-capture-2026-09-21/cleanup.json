@@ -1,0 +1,37 @@
+[
+  {
+    "runtime": "/tmp/r5c-kmv4xdbi",
+    "xvfb_pid": 3540207,
+    "xvfb_alive": false,
+    "session_pid": 3540213,
+    "session_group_alive": false
+  },
+  {
+    "runtime": "/tmp/r5c-2pq7_rkv",
+    "xvfb_pid": 3639169,
+    "xvfb_alive": false,
+    "session_pid": 3639171,
+    "session_group_alive": false
+  },
+  {
+    "runtime": "/tmp/r5c-bsn9gh_c",
+    "xvfb_pid": 3668087,
+    "xvfb_alive": false,
+    "session_pid": 3668089,
+    "session_group_alive": false
+  },
+  {
+    "runtime": "/tmp/r5c-44sin8ia",
+    "xvfb_pid": 3680319,
+    "xvfb_alive": false,
+    "session_pid": 3680321,
+    "session_group_alive": false
+  },
+  {
+    "runtime": "/tmp/r5c-lz4trrel",
+    "xvfb_pid": 3688290,
+    "xvfb_alive": false,
+    "session_pid": 3688293,
+    "session_group_alive": false
+  }
+]

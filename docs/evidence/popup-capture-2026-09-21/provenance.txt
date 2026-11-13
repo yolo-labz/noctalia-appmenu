@@ -1,0 +1,14 @@
+21/09/2026 11:55:17 -03
+29d099559773cd78f79133bcbca8c5ec96b2eef3
+d4c8f01e2e64b9999563b466de1391212929498cfcc20c779a15b0cd374bdffe  plugin/AppmenuPopupWindow.qml
+23df488a00a9ad2de5de3930fc5fa7caa7fb5cedbce009a16594fb390eb6a5b2  plugin/BarWidget.qml
+ee2b16839d872d5cd35cb9a1e76c33c9e993849c5b374f5c555edf14a5ccd6cf  plugin/MenuRow.qml
+35e010a68ba14e4451eff9a1385832460a256cdbaf9235b554668eab5fce2eab  plugin/SubmenuPopup.qml
+noctalia-appmenu-bridge 1.0.36
+noctalia-qs 0.0.12 (revision f308426239665e3bc3d624014e9295b2ae2f58ff, distributed by Official-Nix-Flake)
+niri unstable 2026-08-02 (commit feb3e43f1475e0865bb89cbd1e898b34d1d2ccf6)
+okular 26.08.0
+env: ‘dolphin’: No such file or directory
+/nix/store/x6vmai8gfg9wkyl64l6yjhpjg8v04ja0-niri-unstable-2026-08-02-feb3e43/bin/niri
+/nix/store/a308hp964y97fj9by8r8g9rrl7fcwcqx-okular-26.08.0/bin/okular
+/nix/store/zhg6l5ykc2j43spabk171p23z8vzcafv-system-path/bin/dolphin
