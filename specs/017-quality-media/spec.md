@@ -1,6 +1,6 @@
 # Quality configuration and honest demo evidence
 
-Date: 21/09/2026. Generator: OpenAI GPT-6 Astra/xhigh.
+Date: 21/09/2026.
 
 - FR-001: All configured analysis roots exist; keep every current Rust test and
   source in scope, with no new exclusions or relaxed thresholds.

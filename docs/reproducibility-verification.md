@@ -1,6 +1,6 @@
 # Reproducibility gate repair — 21/09/2026
 
-Generator: OpenAI GPT-6 Astra/xhigh. Base: `29d0995`. This is the **gated workflow
+Base: `29d0995`. This is the **gated workflow
 slice**, separate from ordinary Sonar configuration/docs PR #225. Coordinator
 owns GLM-5.3 independent review and merge; no review/merge is claimed here.
 Canonical swarm report: PR #225's `docs/swarm-2026-09-21.md`; spec 017 there.
