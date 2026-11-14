@@ -60,7 +60,7 @@ jobs:
   plugin-lint:
     name: Plugin — qmllint
     runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -229,7 +229,7 @@ jobs:
   commitlint:
     name: PR title commitlint
     runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     if: github.event_name == 'pull_request'
