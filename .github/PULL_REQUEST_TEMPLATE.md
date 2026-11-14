@@ -31,9 +31,3 @@ Spec: `specs/NNN-slug/`. Constitution Check: `specs/NNN-slug/plan.md` §Constitu
 - [ ] Any new action pinned by full 40-char SHA + `# vX.Y.Z` comment
 - [ ] `permissions: {}` workflow-level
 - [ ] `step-security/harden-runner` step present (release / build jobs)
-
-## Co-author
-
-```
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
-```
