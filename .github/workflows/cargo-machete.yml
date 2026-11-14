@@ -25,7 +25,7 @@ jobs:
     # Runs on the vm103 runner: the nix devShell below supplies cargo + cargo-machete,
     # and no runner carries a `desktop` label (the job sat queued forever with it).
     runs-on: [self-hosted, Linux, X64, noctalia-appmenu]
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
