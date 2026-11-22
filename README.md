@@ -53,7 +53,7 @@ The Home-Manager module installs the bridge binary, the QML plugin payload, the 
 ## Compatibility
 
 This is the documented behavior of v1.0.36, based on the runtime observations
-recorded in ADR-0024, ADR-0032 and ADR-0035 (May–June 2026), not a fresh
+recorded in ADR-0024, ADR-0032 and ADR-0035 (May to June 2026), not a fresh
 certification of every current toolkit release. Verify the installed versions
 and their actual AT-SPI tree before claiming additional support.
 
@@ -242,7 +242,7 @@ Known limitations. Each item is tracked against a follow-up spec or ADR.
   **The clean fix is a compositor change, not a bridge change.** Firefox ≥138 can export its menu as `com.canonical.dbusmenu` *data* (no visual reveal), but only when the compositor advertises the `org_kde_kwin_appmenu_manager` Wayland global, which niri does not (yet). It is ~150 LoC in niri (Smithay bindings exist) and already implemented in a fork ([Naxdy/niri#46](https://github.com/Naxdy/niri/pull/46)) plus a maintainer-approved [quickshell#484](https://github.com/quickshell-mirror/quickshell/pull/484). Until niri advertises that global, **Firefox-on-niri is a documented limitation**, not a bug. (The `force_disabled = 0` pref + bridge-restart notes below still matter for the day niri gains the protocol, and for Qt/GTK apps.)
   - **NixOS / Home-Manager:** set the pref in `programs.firefox.profiles.<name>.settings."accessibility.force_disabled" = 0;`, **not** `about:config`, `user.js` is a HM store symlink and hand-edits to `prefs.js` are overwritten on the next rebuild.
 
-  Mozilla iterated on the Wayland a11y export through 2025–2026; the regression-free default is still partial. See [`specs/004-project-completion/research.md` §7](specs/004-project-completion/research.md) for the upstream status.
+  Mozilla iterated on the Wayland a11y export through 2025 to 2026; the regression-free default is still partial. See [`specs/004-project-completion/research.md` §7](specs/004-project-completion/research.md) for the upstream status.
 - **Electron apps.** VS Code, Slack, Discord, etc. expose a native menubar only when launched with `--force-accessibility`; otherwise the [desktop fallback](#app-menu-fallback) applies. Wrap the launch command or set the flag in your `.desktop` file. Chromium's native AT-SPI export is "quite good" but flag-gated.
 - **Multi-monitor menubar duplication.** `v1.0.0` renders the focused-output menu only, no duplication across monitors. Deferred to v2 ([spec 004 §Out of scope](specs/004-project-completion/spec.md)).
 - **Alt-letter mnemonics / global Alt-F intercept.** Pressing `Alt-F` does NOT open the File menu via the appmenu. The in-window menu (if visible) still receives the keystroke. Deferred to v2 per [ADR-0010](docs/adr/ADR-0010-no-keybind-intercept-v1.md), no clean Quickshell hook exists for global keybind interception at v1.
@@ -292,7 +292,7 @@ noctalia-appmenu/
 ├── nix/                            # flake modules: package, devShell, HM module
 ├── specs/004-project-completion/   # v0.3 → v1.0.0 roadmap (umbrella)
 ├── specs/008-ci-quality-docs/      # Lane D. CI + quality gate + docs
-├── docs/adr/                       # architecture decision records (1–25)
+├── docs/adr/                       # architecture decision records (1 to 25)
 ├── .specify/memory/constitution.md # project constitution
 ├── .claude/agents/                 # specialised agents (qml-architect, dbusmenu-expert, …)
 └── .github/workflows/              # CI: ci, release, sonar, codeql, osv-scan, scorecard, reproducibility, actionlint, zizmor
