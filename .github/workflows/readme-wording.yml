@@ -1,0 +1,18 @@
+name: readme-wording
+
+on:
+  pull_request:
+    paths:
+      - "README.md"
+  push:
+    branches: ["main"]
+    paths:
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  readme-wording:
+    uses: yolo-labz/.github/.github/workflows/readme-wording.yml@01827fa0be98a099962f3c9c8d1cb254b6a2a7e1
